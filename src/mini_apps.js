@@ -39,51 +39,60 @@ function handleManifestPaths(manifestPathsJson) {
 initializeMiniApps();
 
 function initializeMiniApps() {
-    console.log("Initializing Mini Apps using local directory listing");
-
     const miniAppsUrl = "../miniApps/";
 
-    fetch(miniAppsUrl)
-        .then(response => response.text())
-        .then(htmlText => {
-            console.log("Directory listing HTML:", htmlText);
-
-            // Use regex to extract folder names from addRow calls.
-            // This regex captures the first string argument of addRow, e.g., "kanban" in addRow("kanban", "kanban", 1, ...)
-            const regex = /addRow\("([^"]+)"\s*,\s*"([^"]+)"\s*,/g;
-            const folderNames = [];
-            let match;
-            while ((match = regex.exec(htmlText)) !== null) {
-                const folderName = match[1];
-                // Exclude "." or ".." if present.
-                if (folderName !== "." && folderName !== "..") {
-                    folderNames.push(folderName);
-                }
-            }
-
-            console.log("Extracted mini app folders:", folderNames);
-
-            // For each extracted folder name, fetch its manifest.json
-            folderNames.forEach(folder => {
-                const manifestPath = `${miniAppsUrl}${folder}/manifest.json`;
-                fetch(manifestPath)
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP error: ${response.status}`);
-                        }
-                        return response.text();
-                    })
-                    .then(manifestText => {
-                        handleManifestContent(manifestText);
-                    })
-                    .catch(error => {
-                        console.error(`Error loading manifest for folder ${folder}:`, error);
-                    });
-            });
+    // Preferred: an explicit registry (miniApps/apps.json) listing the app
+    // folders. This works over any web server (e.g. `python3 -m http.server`)
+    // and over file://. If it is missing, fall back to scraping Chrome's
+    // file:// directory-listing HTML (which only exists on file://).
+    fetch(miniAppsUrl + "apps.json")
+        .then(response => {
+            if (!response.ok) throw new Error("no apps.json");
+            return response.json();
         })
-        .catch(error => {
-            console.error("Error fetching miniApps directory listing:", error);
+        .then(folderNames => {
+            console.log("Mini app folders from apps.json:", folderNames);
+            loadMiniAppManifests(folderNames, miniAppsUrl);
+        })
+        .catch(() => {
+            console.log("apps.json not found, scraping directory listing");
+            fetch(miniAppsUrl)
+                .then(response => response.text())
+                .then(htmlText => {
+                    // Capture the first string arg of addRow(), e.g. "kanban".
+                    const regex = /addRow\("([^"]+)"\s*,\s*"([^"]+)"\s*,/g;
+                    const folderNames = [];
+                    let match;
+                    while ((match = regex.exec(htmlText)) !== null) {
+                        if (match[1] !== "." && match[1] !== "..") {
+                            folderNames.push(match[1]);
+                        }
+                    }
+                    console.log("Extracted mini app folders:", folderNames);
+                    loadMiniAppManifests(folderNames, miniAppsUrl);
+                })
+                .catch(error => {
+                    console.error("Error fetching miniApps directory listing:", error);
+                });
         });
+}
+
+function loadMiniAppManifests(folderNames, miniAppsUrl) {
+    folderNames.forEach(folder => {
+        fetch(`${miniAppsUrl}${folder}/manifest.json`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error: ${response.status}`);
+                }
+                return response.text();
+            })
+            .then(manifestText => {
+                handleManifestContent(manifestText);
+            })
+            .catch(error => {
+                console.error(`Error loading manifest for folder ${folder}:`, error);
+            });
+    });
 }
 
 
