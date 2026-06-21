@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Collaboration Board</title>
+  <style>
+    :root {
+      --accent: #2563eb;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --card: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(160deg, #eef2ff 0%, #f8fafc 45%, #ecfeff 100%);
+    }
+    .shell {
+      width: 100%;
+      max-width: 560px;
+      background: var(--card);
+      border-radius: 20px;
+      box-shadow: 0 20px 50px -20px rgba(15, 23, 42, .35);
+      padding: 36px 32px;
+    }
+    h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -.02em; }
+    .sub { margin: 0 0 24px; color: var(--muted); font-size: 15px; line-height: 1.5; }
+    .steps {
+      background: #f1f5f9;
+      border-radius: 12px;
+      padding: 14px 16px 14px 34px;
+      margin: 0 0 26px;
+      font-size: 14px;
+      color: #334155;
+      line-height: 1.6;
+    }
+    .steps b { color: var(--ink); }
+    .peers-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+      margin: 0 0 12px;
+    }
+    .peers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .peer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      text-decoration: none;
+      color: var(--ink);
+      transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+    }
+    .peer:hover {
+      transform: translateY(-3px);
+      border-color: var(--accent);
+      box-shadow: 0 12px 24px -12px rgba(37, 99, 235, .5);
+    }
+    .avatar {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 600;
+      font-size: 20px;
+    }
+    .peer span { font-size: 15px; font-weight: 500; }
+    .a { background: #ef4444; }
+    .b { background: #3b82f6; }
+    .c { background: #10b981; }
+    .foot { margin: 24px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+    .foot code { background: #f1f5f9; padding: 1px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <h1>🎨 Collaboration Board</h1>
+    <p class="sub">A shared whiteboard on tinySSB. Each tab below is one peer —
+      open two or more in separate tabs and they sync as you draw.</p>
+
+    <div class="steps">
+      <b>In each tab:</b> tap the <b>🧩 MiniApps</b> button (bottom-center),
+      then tap <b>Collaboration Board</b>. Draw with <b>Pen</b>, drop labels with
+      <b>Text</b>.
+    </div>
+
+    <p class="peers-label">Open a peer</p>
+    <div class="peers">
+      <a class="peer" href="user_alice.html" target="_blank" rel="noopener">
+        <span class="avatar a">A</span><span>Alice</span>
+      </a>
+      <a class="peer" href="user_bob.html" target="_blank" rel="noopener">
+        <span class="avatar b">B</span><span>Bob</span>
+      </a>
+      <a class="peer" href="user_carol.html" target="_blank" rel="noopener">
+        <span class="avatar c">C</span><span>Carol</span>
+      </a>
+    </div>
+
+    <p class="foot">Tip: open the peers at roughly the same time. Reloading just
+      one tab mid-session desyncs it — reload them together (or hit the red ⨷).</p>
+  </main>
+</body>
+</html>
