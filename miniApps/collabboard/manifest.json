@@ -1,0 +1,22 @@
+{
+  "name": "Collaboration Board",
+  "description": "A shared canvas: draw and add text that sync across peers via tinySSB.",
+  "icon": "assets/board.svg",
+  "init": "cb_open()",
+  "id": "collabboard",
+  "cssFile": "resources/board.css",
+  "scripts": [
+    "src/collabboard.js"
+  ],
+  "htmlFile": "resources/board.html",
+  "scenario": {
+    "collabboard-main": {
+      "menu": {},
+      "display": [
+        "div:back",
+        "core",
+        "div:collabboard-main"
+      ]
+    }
+  }
+}

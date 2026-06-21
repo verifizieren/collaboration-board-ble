@@ -1,0 +1,55 @@
+#div\:collabboard-main {
+  text-align: center;
+  padding: 8px;
+}
+
+#cb_toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.cb_tool {
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background-color: #f9f9f9;
+  cursor: pointer;
+}
+
+.cb_tool.cb_active {
+  background-color: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.cb_color {
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.cb_textinput {
+  width: 90%;
+  max-width: 320px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+#cb_canvas {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background-color: #fff;
+  touch-action: none;
+  max-width: 100%;
+}
