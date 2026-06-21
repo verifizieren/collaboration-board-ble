@@ -1,0 +1,38 @@
+{
+  "name": "Tic Tac Toe",
+  "description": "For a quick demo, try out this classic game: Bring three of your marks in a row and you win.",
+  "icon": "assets/tic-tac-toe.svg",
+  "init": "setTTTScenario('tictactoe-list')",
+  "id": "tictactoe",
+  "cssFile": "resources/ttt.css",
+  "scripts": [
+    "src/ttt.js",
+    "src/ttt_ui.js"
+  ],
+  "htmlFile": "resources/ttt.html",
+  "scenario": {
+      "tictactoe-list": {
+          "menu": {
+              "Settings": "menu_settings",
+              "About": "menu_about"
+          },
+          "display": [
+            "div:back",
+            "core",
+            "div:tictactoe-list",
+            "plus"
+          ]
+      },
+      "tictactoe-board": {
+          "menu": {
+              "Settings": "menu_settings",
+              "About": "menu_about"
+          },
+          "display": [
+            "div:back",
+            "core",
+            "div:tictactoe-board"
+          ]
+      }
+  }
+}
