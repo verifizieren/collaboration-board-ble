@@ -61,8 +61,12 @@ Event payloads:
 | kind   | shape                                           |
 |--------|-------------------------------------------------|
 | stroke | `{ k:'s', id, c:<color>, w:<width>, p:[[x,y]] }` |
-| text   | `{ k:'t', id, c:<color>, x, y, s:<string> }`    |
+| text   | `{ k:'t', id, c:<color>, x, y, s:<base64 text> }`|
 | clear  | `{ k:'c', id }`                                 |
+
+The `f2b` command string is space-delimited, so payloads must contain no spaces;
+the text field is therefore base64-encoded (`cb_enc`/`cb_dec`) and decoded at
+render time.
 
 ## Project layout
 
