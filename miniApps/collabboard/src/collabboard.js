@@ -155,7 +155,10 @@ function cb_place_text(p) {
         if (inp) inp.focus();
         return;
     }
-    writeLogEntry(JSON.stringify({ k: 't', id: cb_id(), c: cb_color(), x: p[0], y: p[1], s: s }));
+    // The f2b command string is space-delimited, so the payload must contain no
+    // spaces. Base64-encode the user's text (the only field that can) and decode
+    // it again at render time.
+    writeLogEntry(JSON.stringify({ k: 't', id: cb_id(), c: cb_color(), x: p[0], y: p[1], s: cb_enc(s) }));
     inp.value = '';
 }
 
@@ -207,7 +210,7 @@ function cb_draw_text(ctx, o) {
     ctx.fillStyle = o.c || '#000000';
     ctx.font = '16px sans-serif';
     ctx.textBaseline = 'middle';
-    ctx.fillText(o.s, o.x, o.y);
+    ctx.fillText(cb_dec(o.s), o.x, o.y);
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -215,4 +218,17 @@ function cb_draw_text(ctx, o) {
 function cb_id() {
     var who = (typeof myId == "string") ? myId.slice(1, 6) : 'x';
     return who + '-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);
+}
+
+// Base64 encode/decode (UTF-8 safe) so text payloads stay space-free.
+function cb_enc(s) {
+    return btoa(unescape(encodeURIComponent(s)));
+}
+
+function cb_dec(s) {
+    try {
+        return decodeURIComponent(escape(atob(s)));
+    } catch (e) {
+        return s;
+    }
 }
