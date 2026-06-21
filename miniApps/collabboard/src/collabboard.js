@@ -19,12 +19,15 @@
 
 "use strict";
 
-const globalWindow = window.top || window;
-if (!globalWindow.miniApps) {
-    globalWindow.miniApps = {};
+// Use a uniquely-named var (not `const globalWindow`): miniApp scripts share
+// one global scope, so a const would clash with other apps that declare the
+// same name and fail to load.
+var cb_root = window.top || window;
+if (!cb_root.miniApps) {
+    cb_root.miniApps = {};
 }
 
-globalWindow.miniApps["collabboard"] = {
+cb_root.miniApps["collabboard"] = {
     handleRequest: function (command, args) {
         switch (command) {
             case "onBackPressed":
