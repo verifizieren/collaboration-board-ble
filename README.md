@@ -8,26 +8,34 @@ emulation environment so the board runs entirely in Chrome tabs — no Android
 build needed. Each browser tab is one peer; changes propagate between tabs over
 the browser's `BroadcastChannel`.
 
-## Quick start (recommended: local web server)
-
-You need Python 3 (preinstalled on macOS/Linux) or any static file server.
+## Quick start
 
 ```bash
 git clone https://github.com/verifizieren/collaboration-board-ble.git
 cd collaboration-board-ble
-python3 -m http.server 8000
 ```
 
-Now open these in **Chrome tabs** (normal Chrome, no special flags):
+Then pick whichever is easiest — both end up at the same **hub page** that links
+to each peer (Alice / Bob / Carol):
 
-- http://localhost:8000/user_alice.html
-- http://localhost:8000/user_bob.html
+**A. One command (recommended).** Starts a local server and opens the hub:
 
-Open them at roughly the same time. Each tab is one peer (Alice, Bob, Carol).
+```bash
+./start.sh        # macOS / Linux   (Windows: double-click start.bat)
+```
 
-> Why a server? The miniApp menu loads its app list from `miniApps/apps.json`,
-> which a web server returns but a raw `file://` page cannot fetch reliably.
-> Serving the folder is the simplest path that "just works".
+**B. Any static server.** If you'd rather run it yourself:
+
+```bash
+python3 -m http.server 8000
+# then open http://localhost:8000 in Chrome
+```
+
+From the hub, click **Alice** and **Bob** (and **Carol**) to open each peer in
+its own tab. Open them at roughly the same time. Needs Python 3 (preinstalled on
+macOS/Linux) and normal Chrome — no special flags.
+
+> A `file://` launch also works; see "Opening without a server" below.
 
 ## Open the Collaboration Board (in each tab)
 
@@ -92,18 +100,21 @@ globals (e.g. `cb_…`) to avoid clashing with other apps.
   it is open. State persists per tab via `localStorage`, so reopening the board
   in the same tab restores it, but a freshly opened tab starts empty.
 
-## Alternative: file:// (no server)
+## Opening without a server (file://)
 
-You can instead open `user_alice.html` directly as a `file://` URL, but Chrome
-must be started with file access enabled (quit Chrome completely first):
+You can also open the hub straight from disk as a `file://` URL — no server
+needed — but Chrome must be started with file access enabled (quit Chrome
+completely first, so the flag takes effect):
 
 ```bash
-# macOS
-open -a "Google Chrome" --args --allow-file-access-from-files
+# macOS  (replace the path with your clone location)
+open -a "Google Chrome" --args --allow-file-access-from-files \
+  "file://$PWD/index.html"
 # Linux
-google-chrome --allow-file-access-from-files
+google-chrome --allow-file-access-from-files "file://$PWD/index.html"
 # Windows (Win+R)
 chrome.exe --allow-file-access-from-files
 ```
 
-The local-server route above is easier and is what we recommend.
+Then click the peers from the hub as usual. The one-command `./start.sh` route
+above is easier and is what we recommend.
