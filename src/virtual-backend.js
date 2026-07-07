@@ -5,7 +5,7 @@
 'use strict'
 
 var ether = new BroadcastChannel('log-exchange')
-var myname, myseqno, vectorClock, inqueue, outqueue, offline
+var myname, myseqno, vectorClock, inqueue, outqueue, offline, customLog
 
 var IDs = {
     'Alice': '@AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.ed25519',
@@ -21,6 +21,7 @@ function setup(name) {
     vectorClock = {}
     inqueue = []
     outqueue = []
+    customLog = []
     offline = false
 
     var hdr = document.createElement("h2")
@@ -85,6 +86,7 @@ function reset(name) {
     myseqno = 0;
     inqueue = []
     outqueue = []
+    customLog = []
     offline = false
 
     document.getElementById('lst').innerHTML = '';
@@ -142,7 +144,17 @@ function incoming(data) {
         JSON.stringify({'from':sender, 'seq': hdr.seq, 'app': data.public[0]});
     document.getElementById('lst').prepend(li)
 
+    rememberCustomEvent(data)
     frontEnd.postMessage(['b2f', 'new_event', data], '*')
+}
+
+function rememberCustomEvent(e) {
+    if (!e || !e.public || e.public[0] != 'CUS')
+        return;
+    var id = e.header.fid + ':' + e.header.seq;
+    if (customLog.some(ev => ev.header.fid + ':' + ev.header.seq == id))
+        return;
+    customLog.push(e);
 }
 
 function toggle() {
@@ -212,7 +224,7 @@ function virtualBackend(event) {
     } 
     if (cmd[0] == 'customApp:writeEntry') {
         //read cmd[2]
-        var entry = cmd[2];
+        var entry = cmd.slice(2).join(' ');
         //convert entry to json
         entry = JSON.parse(entry);
         myseqno += 1;
@@ -227,6 +239,14 @@ function virtualBackend(event) {
         frontEnd.postMessage(['b2f', 'new_event', e], '*')
         broadcast(e);
     } 
+    if (cmd[0] == 'customApp:readEntries') {
+        var appId = cmd[1];
+        var limit = parseInt(cmd[2] || '0', 10);
+        var entries = customLog.filter(e => e.public && e.public[0] == 'CUS' && e.public[1] == appId);
+        if (limit > 0 && entries.length > limit)
+            entries = entries.slice(entries.length - limit);
+        entries.forEach(e => frontEnd.postMessage(['b2f', 'new_event', e], '*'));
+    }
     if (cmd[0] == 'priv:post') {
         var draft = atob(cmd[1])
         cmd.splice(0,2)
