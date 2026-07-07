@@ -1,0 +1,11 @@
+<div id='div:collabboard-main' style='display: none;'>
+  <div id='cb_toolbar'>
+    <button id='cb_tool_pen' class='cb_tool cb_active' onclick='cb_set_tool("pen")'>Pen</button>
+    <button id='cb_tool_text' class='cb_tool' onclick='cb_set_tool("text")'>Text</button>
+    <input id='cb_color' class='cb_color' type='color' value='#2563eb' title='Color'>
+    <button class='cb_tool' onclick='cb_clear()'>Clear</button>
+  </div>
+  <input id='cb_text' class='cb_textinput' type='text' maxlength='120'
+         placeholder='Type, then tap the board to place' style='display: none;'>
+  <canvas id='cb_canvas' width='340' height='460'></canvas>
+</div>

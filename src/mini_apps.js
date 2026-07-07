@@ -146,15 +146,12 @@ function handleManifestContent(content) {
         const scripts = manifest.scripts || [];
         scripts.forEach(scriptPath => {
             let fullScriptPath = miniAppPath + scriptPath;
-            fetch(fullScriptPath)
-                .then(response => response.text())
-                .then(scriptContent => {
-                    const scriptEl = document.createElement('script');
-                    scriptEl.text = scriptContent;
-                    document.body.appendChild(scriptEl);
-                    console.log("JS file loaded and executed:", fullScriptPath);
-                })
-                .catch(error => console.error("Error loading JS:", error));
+            const scriptEl = document.createElement('script');
+            scriptEl.src = fullScriptPath;
+            scriptEl.async = false;
+            scriptEl.onload = () => console.log("JS file loaded and executed:", fullScriptPath);
+            scriptEl.onerror = () => console.error("Error loading JS:", fullScriptPath);
+            document.body.appendChild(scriptEl);
         });
 
         // Process the manifest data (e.g., create buttons)
@@ -391,5 +388,4 @@ function createExtensionButton(manifest) {
     // Append the new button to the target div
     attachMenu.appendChild(newButton);
 }
-
 
