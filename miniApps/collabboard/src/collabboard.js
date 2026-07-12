@@ -45,6 +45,10 @@ console.log("Collaboration Board loaded");
 
 var cb_tool = 'pen';
 var cb_draft = null;
+// Camera: world coordinate shown at the canvas top-left. Objects live in an
+// unbounded world plane; panning just moves the camera.
+var cb_cam = { x: 0, y: 0 };
+var cb_drag = null;
 var cb_bound = false;
 var cb_resize_bound = false;
 var cb_history_requested = false;
@@ -55,7 +59,8 @@ var CB_HISTORY_LIMIT = 2500;
 var CB_MAX_OBJECTS = 1500;
 var CB_MAX_CLEARS = 8;
 var CB_MAX_SEEN = 4000;
-var CB_COORD_LIMIT = 10000;
+// generous bound for the "infinite" world plane; only guards against garbage
+var CB_COORD_LIMIT = 1000000;
 
 // --- persisted state -------------------------------------------------------
 
@@ -101,8 +106,12 @@ function cb_set_tool(tool) {
     cb_tool = tool;
     var pen = document.getElementById('cb_tool_pen');
     var text = document.getElementById('cb_tool_text');
+    var sel = document.getElementById('cb_tool_select');
     if (pen) pen.classList.toggle('cb_active', tool === 'pen');
     if (text) text.classList.toggle('cb_active', tool === 'text');
+    if (sel) sel.classList.toggle('cb_active', tool === 'select');
+    var cv = document.getElementById('cb_canvas');
+    if (cv) cv.style.cursor = (tool === 'select') ? 'grab' : 'crosshair';
     var inp = document.getElementById('cb_text');
     if (inp) {
         inp.style.display = (tool === 'text') ? null : 'none';
@@ -155,11 +164,18 @@ function cb_fit_canvas() {
     cv.style.height = Math.round(cssWidth / aspect) + 'px';
 }
 
-function cb_pos(cv, e) {
+// position in canvas pixels (before the camera is applied)
+function cb_screen_pos(cv, e) {
     var r = cv.getBoundingClientRect();
     var sx = cv.width / r.width;
     var sy = cv.height / r.height;
     return [Math.round((e.clientX - r.left) * sx), Math.round((e.clientY - r.top) * sy)];
+}
+
+// position in world coordinates
+function cb_pos(cv, e) {
+    var p = cb_screen_pos(cv, e);
+    return [p[0] + cb_cam.x, p[1] + cb_cam.y];
 }
 
 function cb_down(e) {
@@ -169,21 +185,45 @@ function cb_down(e) {
         cb_place_text(p);
         return;
     }
+    if (cb_tool === 'select') {
+        cb_drag = { mode: 'pan', last: cb_screen_pos(cv, e) };
+        cv.style.cursor = 'grabbing';
+        if (cv.setPointerCapture) cv.setPointerCapture(e.pointerId);
+        return;
+    }
     cb_draft = { k: 's', c: cb_color(), w: 2, p: [p] };
     if (cv.setPointerCapture) cv.setPointerCapture(e.pointerId);
 }
 
 function cb_move(e) {
-    if (!cb_draft) return;
     var cv = e.currentTarget;
+    if (cb_drag && cb_drag.mode === 'pan') {
+        var s = cb_screen_pos(cv, e);
+        cb_cam.x -= s[0] - cb_drag.last[0];
+        cb_cam.y -= s[1] - cb_drag.last[1];
+        cb_drag.last = s;
+        cb_redraw();
+        return;
+    }
+    if (!cb_draft) return;
     var p = cb_pos(cv, e);
     if (!cb_keep_point(cb_draft.p, p)) return;
     cb_draft.p.push(p);
     // live feedback: draw only the newest segment
-    cb_draw_stroke(cv.getContext('2d'), { c: cb_draft.c, w: cb_draft.w, p: cb_draft.p.slice(-2) });
+    var ctx = cv.getContext('2d');
+    ctx.save();
+    ctx.translate(-cb_cam.x, -cb_cam.y);
+    cb_draw_stroke(ctx, { c: cb_draft.c, w: cb_draft.w, p: cb_draft.p.slice(-2) });
+    ctx.restore();
 }
 
-function cb_up() {
+function cb_up(e) {
+    if (cb_drag) {
+        cb_drag = null;
+        var cv = e && e.currentTarget;
+        if (cv && cb_tool === 'select') cv.style.cursor = 'grab';
+        return;
+    }
     if (!cb_draft) return;
     var d = cb_draft;
     cb_draft = null;
@@ -236,6 +276,8 @@ function cb_redraw() {
     if (!cv) return;
     var ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.save();
+    ctx.translate(-cb_cam.x, -cb_cam.y);
     var st = cb_state();
     var clear = cb_latest_clear(st);
     st.objects
@@ -245,6 +287,7 @@ function cb_redraw() {
         if (o.k === 's') cb_draw_stroke(ctx, o);
         else if (o.k === 't') cb_draw_text(ctx, o);
     });
+    ctx.restore();
 }
 
 function cb_draw_stroke(ctx, o) {
