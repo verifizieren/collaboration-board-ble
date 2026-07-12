@@ -1,8 +1,7 @@
 <div id='div:collabboard-main' style='display: none;'>
   <div id='cb_toolbar'>
-    <button id='cb_tool_pen' class='cb_tool cb_active' onclick='cb_set_tool("pen")'>Pen</button>
-    <button id='cb_tool_text' class='cb_tool' onclick='cb_set_tool("text")'>Text</button>
-    <button id='cb_tool_select' class='cb_tool' onclick='cb_set_tool("select")'>Select</button>
+    <button id='cb_tool_pen' class='cb_tool' onclick='cb_toggle_tool("pen")'>Pen</button>
+    <button id='cb_tool_text' class='cb_tool' onclick='cb_toggle_tool("text")'>Text</button>
     <input id='cb_color' class='cb_color' type='color' value='#2563eb' title='Color'>
     <button class='cb_tool' onclick='cb_clear()'>Clear</button>
   </div>

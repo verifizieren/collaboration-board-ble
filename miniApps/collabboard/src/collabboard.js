@@ -46,7 +46,11 @@ cb_root.miniApps["collabboard"] = {
 
 console.log("Collaboration Board loaded");
 
-var cb_tool = 'pen';
+// 'select' is the default mode: drag empty space to pan the camera, tap an
+// object to select it, drag it to move, drag the corner handle to resize.
+// Pen and Text are one-shot tools: after a stroke or a placed text the board
+// falls back to select mode.
+var cb_tool = 'select';
 var cb_draft = null;
 // Camera: world coordinate shown at the canvas top-left. Objects live in an
 // unbounded world plane; panning just moves the camera.
@@ -99,7 +103,7 @@ function cb_open() {
     c.innerHTML = "<font size=+1><strong>Collaboration Board</strong></font>";
 
     cb_bind_canvas();
-    cb_set_tool('pen');
+    cb_set_tool('select');
     cb_fit_canvas();
     cb_redraw();
     if (!cb_history_requested && typeof readLogEntries === "function") {
@@ -110,14 +114,17 @@ function cb_open() {
 
 // --- toolbar ---------------------------------------------------------------
 
+// clicking an already-active tool button turns it off again (back to select)
+function cb_toggle_tool(tool) {
+    cb_set_tool(cb_tool === tool ? 'select' : tool);
+}
+
 function cb_set_tool(tool) {
     cb_tool = tool;
     var pen = document.getElementById('cb_tool_pen');
     var text = document.getElementById('cb_tool_text');
-    var sel = document.getElementById('cb_tool_select');
     if (pen) pen.classList.toggle('cb_active', tool === 'pen');
     if (text) text.classList.toggle('cb_active', tool === 'text');
-    if (sel) sel.classList.toggle('cb_active', tool === 'select');
     var cv = document.getElementById('cb_canvas');
     if (cv) cv.style.cursor = (tool === 'select') ? 'grab' : 'crosshair';
     var inp = document.getElementById('cb_text');
@@ -304,6 +311,7 @@ function cb_up(e) {
     d.ts = Date.now();
     d.id = cb_id(d.ts);
     writeLogEntry(JSON.stringify(d));
+    cb_set_tool('select'); // one-shot: back to the default mode
 }
 
 function cb_place_text(p) {
@@ -319,6 +327,7 @@ function cb_place_text(p) {
     var ts = Date.now();
     writeLogEntry(JSON.stringify({ k: 't', id: cb_id(ts), ts: ts, c: cb_color(), x: p[0], y: p[1], s: cb_enc(s) }));
     inp.value = '';
+    cb_set_tool('select'); // one-shot: back to the default mode
 }
 
 // --- apply incoming events -------------------------------------------------

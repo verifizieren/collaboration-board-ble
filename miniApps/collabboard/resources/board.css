@@ -12,7 +12,7 @@
 
 #cb_toolbar {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 50px 1fr;
+  grid-template-columns: 1fr 1fr 50px 1fr;
   gap: 5px;
   align-items: stretch;
   padding: 5px;
