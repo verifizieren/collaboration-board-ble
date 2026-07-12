@@ -71,6 +71,12 @@ The APK will be here:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
+For easy sharing, there is also a copy here:
+
+```text
+install/tremola-collaboration-board-debug.apk
+```
+
 ## Install On Phone
 
 Connect your phone with USB.
