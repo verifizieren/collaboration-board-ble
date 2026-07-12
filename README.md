@@ -6,6 +6,8 @@ You can:
 
 - draw
 - add text
+- select drawings and text to move, resize, or recolor them
+- pan around an infinite canvas
 - clear the board
 - share changes with nearby phones over BLE
 
