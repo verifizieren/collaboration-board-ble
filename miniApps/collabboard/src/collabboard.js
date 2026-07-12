@@ -14,6 +14,7 @@
  *   clear:  { k:'c', id }
  *   modify: { k:'m', id, t:<targetId>, dx, dy, sc } — move/scale an object;
  *           absolute offset+scale relative to the original, last write wins
+ *   recolor:{ k:'k', id, t:<targetId>, c:<color> } — last write wins
  *
  * The virtual backend delivers an author's own write twice, so every event
  * carries a unique id and we drop ids we have already applied (cb_state.seen).
@@ -147,6 +148,17 @@ function cb_bind_canvas() {
     cv.addEventListener('pointermove', cb_move);
     cv.addEventListener('pointerup', cb_up);
     cv.addEventListener('pointerleave', cb_up);
+    var col = document.getElementById('cb_color');
+    if (col) {
+        // picking a color while an object is selected recolors that object
+        col.addEventListener('change', function () {
+            if (!cb_sel || cb_tool !== 'select') return;
+            var ts = Date.now();
+            var ev = { k: 'k', id: cb_id(ts), ts: ts, t: cb_sel, c: col.value };
+            writeLogEntry(JSON.stringify(ev));
+            cb_apply(ev);
+        });
+    }
     if (!cb_resize_bound) {
         cb_resize_bound = true;
         window.addEventListener('resize', cb_fit_canvas);
@@ -319,7 +331,7 @@ function cb_apply(obj) {
 
     if (obj.k === 'c') {
         st.clears.push(obj);
-    } else if (obj.k === 'm') {
+    } else if (obj.k === 'm' || obj.k === 'k') {
         st.mods.push(obj);
     } else {
         if (!st.objects.some(function (o) { return o.id === obj.id; })) {
@@ -344,8 +356,9 @@ function cb_redraw() {
     var visible = cb_visible_objects(st);
     visible.forEach(function (o) {
         var xf = cb_xf(st, o);
-        if (o.k === 's') cb_draw_stroke(ctx, o, xf);
-        else if (o.k === 't') cb_draw_text(ctx, o, xf);
+        var col = cb_eff_color(st, o);
+        if (o.k === 's') cb_draw_stroke(ctx, o, xf, col);
+        else if (o.k === 't') cb_draw_text(ctx, o, xf, col);
     });
     if (cb_sel) {
         var selObj = null;
@@ -385,11 +398,11 @@ function cb_handle_rect(b) {
              w: CB_HANDLE, h: CB_HANDLE };
 }
 
-function cb_draw_stroke(ctx, o, xf) {
+function cb_draw_stroke(ctx, o, xf, col) {
     if (!o.p || o.p.length === 0) return;
     xf = xf || { dx: 0, dy: 0, sc: 1 };
     var org = cb_origin(o);
-    ctx.strokeStyle = o.c || '#000000';
+    ctx.strokeStyle = col || o.c || '#000000';
     ctx.lineWidth = (o.w || 2) * xf.sc;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -403,9 +416,9 @@ function cb_draw_stroke(ctx, o, xf) {
     ctx.stroke();
 }
 
-function cb_draw_text(ctx, o, xf) {
+function cb_draw_text(ctx, o, xf, col) {
     xf = xf || { dx: 0, dy: 0, sc: 1 };
-    ctx.fillStyle = o.c || '#000000';
+    ctx.fillStyle = col || o.c || '#000000';
     ctx.font = Math.round(16 * xf.sc) + 'px sans-serif';
     ctx.textBaseline = 'middle';
     ctx.fillText(cb_dec(o.s).slice(0, 160), o.x + xf.dx, o.y + xf.dy);
@@ -418,12 +431,24 @@ function cb_xf(st, o) {
     if (cb_drag && cb_drag.mode !== 'pan' && cb_drag.target === o.id && cb_drag.xf) {
         return cb_drag.xf;
     }
-    var best = null;
-    st.mods.forEach(function (m) {
-        if (m.t === o.id && (!best || cb_compare_events(m, best) > 0)) best = m;
-    });
+    var best = cb_latest_mod(st, o.id, 'm');
     if (!best) return { dx: 0, dy: 0, sc: 1 };
     return { dx: best.dx || 0, dy: best.dy || 0, sc: best.sc || 1 };
+}
+
+function cb_latest_mod(st, targetId, kind) {
+    var best = null;
+    st.mods.forEach(function (m) {
+        if (m.t === targetId && m.k === kind &&
+            (!best || cb_compare_events(m, best) > 0)) best = m;
+    });
+    return best;
+}
+
+// effective color: latest recolor mod wins over the object's own color
+function cb_eff_color(st, o) {
+    var best = cb_latest_mod(st, o.id, 'k');
+    return best ? best.c : o.c;
 }
 
 // scale origin: strokes scale about their original top-left, text about (x,y)
@@ -547,6 +572,10 @@ function cb_is_valid_event(obj) {
         return cb_is_finite_coord(obj.x) && cb_is_finite_coord(obj.y) &&
             typeof obj.s === 'string' && obj.s.length <= 1024 &&
             cb_is_valid_color(obj.c);
+    }
+    if (obj.k === 'k') {
+        return typeof obj.t === 'string' && obj.t.length > 0 && obj.t.length <= 96 &&
+            typeof obj.c === 'string' && cb_is_valid_color(obj.c);
     }
     if (obj.k === 'm') {
         return typeof obj.t === 'string' && obj.t.length > 0 && obj.t.length <= 96 &&
