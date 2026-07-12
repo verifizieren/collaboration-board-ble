@@ -54,6 +54,7 @@ var cb_drag = null;
 var cb_sel = null; // id of the selected object (select tool)
 var CB_MAX_MODS = 2000;
 var CB_SEL_PAD = 6;
+var CB_HANDLE = 14; // side length of the resize handle square
 var cb_bound = false;
 var cb_resize_bound = false;
 var cb_history_requested = false;
@@ -193,6 +194,15 @@ function cb_down(e) {
     }
     if (cb_tool === 'select') {
         var st = cb_state();
+        var resize = cb_hit_handle(st, p);
+        if (resize) {
+            var rxf = cb_xf(st, resize);
+            cb_drag = { mode: 'resize', target: resize.id, start: p, base: rxf,
+                        anchor: cb_resize_anchor(st, resize),
+                        xf: { dx: rxf.dx, dy: rxf.dy, sc: rxf.sc } };
+            if (cv.setPointerCapture) cv.setPointerCapture(e.pointerId);
+            return;
+        }
         var hit = cb_hit(st, p);
         if (hit) {
             cb_sel = hit.id;
@@ -228,6 +238,18 @@ function cb_move(e) {
         cb_drag.xf.dy = cb_drag.base.dy + q[1] - cb_drag.start[1];
         cb_drag.moved = true;
         cb_redraw();
+        return;
+    }
+    if (cb_drag && cb_drag.mode === 'resize') {
+        var q2 = cb_pos(cv, e);
+        var a = cb_drag.anchor;
+        var d0 = Math.hypot(cb_drag.start[0] - a[0], cb_drag.start[1] - a[1]);
+        var d1 = Math.hypot(q2[0] - a[0], q2[1] - a[1]);
+        if (d0 > 1) {
+            cb_drag.xf.sc = Math.min(20, Math.max(0.05, cb_drag.base.sc * d1 / d0));
+            cb_drag.moved = true;
+            cb_redraw();
+        }
         return;
     }
     if (!cb_draft) return;
@@ -349,7 +371,18 @@ function cb_draw_selection(ctx, st, o) {
     ctx.setLineDash([5, 4]);
     ctx.strokeRect(b.x - CB_SEL_PAD, b.y - CB_SEL_PAD,
                    b.w + 2 * CB_SEL_PAD, b.h + 2 * CB_SEL_PAD);
+    ctx.setLineDash([]);
+    var h = cb_handle_rect(b);
+    ctx.fillStyle = '#2563eb';
+    ctx.fillRect(h.x, h.y, h.w, h.h);
     ctx.restore();
+}
+
+// resize handle sits on the bottom-right corner of the selection box
+function cb_handle_rect(b) {
+    return { x: b.x + b.w + CB_SEL_PAD - CB_HANDLE / 2,
+             y: b.y + b.h + CB_SEL_PAD - CB_HANDLE / 2,
+             w: CB_HANDLE, h: CB_HANDLE };
 }
 
 function cb_draw_stroke(ctx, o, xf) {
@@ -430,6 +463,28 @@ function cb_bbox(ctx, st, o) {
     });
     var pad = ((o.w || 2) * xf.sc) / 2;
     return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + 2 * pad, h: y1 - y0 + 2 * pad };
+}
+
+// the selected object, if the world point p is on its resize handle
+function cb_hit_handle(st, p) {
+    if (!cb_sel) return null;
+    var cv = document.getElementById('cb_canvas');
+    var ctx = cv.getContext('2d');
+    var obj = null;
+    cb_visible_objects(st).forEach(function (o) { if (o.id === cb_sel) obj = o; });
+    if (!obj) return null;
+    var h = cb_handle_rect(cb_bbox(ctx, st, obj));
+    var pad = 4; // a bit of extra touch slack
+    if (p[0] >= h.x - pad && p[0] <= h.x + h.w + pad &&
+        p[1] >= h.y - pad && p[1] <= h.y + h.h + pad) return obj;
+    return null;
+}
+
+// fixed point while resizing: the selection box's top-left corner
+function cb_resize_anchor(st, o) {
+    var cv = document.getElementById('cb_canvas');
+    var b = cb_bbox(cv.getContext('2d'), st, o);
+    return [b.x, b.y];
 }
 
 // topmost visible object whose (padded) bbox contains the world point p
