@@ -24,4 +24,15 @@ class BleSyncTest {
         assertEquals(false, BleSync.canQueueFrames(0, 2049))
         assertEquals(false, BleSync.canQueueFrames(0, 0))
     }
+
+    @Test
+    fun frameRetriesUseBoundedBackoffAndEventuallyReconnect() {
+        assertEquals(250L, BleSync.frameRetryDelayMillis(0))
+        assertEquals(250L, BleSync.frameRetryDelayMillis(1))
+        assertEquals(500L, BleSync.frameRetryDelayMillis(2))
+        assertEquals(1000L, BleSync.frameRetryDelayMillis(8))
+
+        assertEquals(false, BleSync.shouldDropLinkAfterFailures(2))
+        assertEquals(true, BleSync.shouldDropLinkAfterFailures(3))
+    }
 }

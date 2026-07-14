@@ -54,6 +54,13 @@ If more than one phone is connected:
 9. Disconnect the phones, edit both, reconnect, and check recovery.
 10. Test **Clear** in both modes. In Protected, it removes only your work.
 
+If no peer appears:
+
+- Keep Tremola open and both screens unlocked.
+- On Android 7-11, also turn on the phone's Location setting.
+- Turn Bluetooth off and on once. If both phones show **advertising unsupported**,
+  use a phone pair with BLE advertising support.
+
 Show live BLE logs with:
 
 ```bash

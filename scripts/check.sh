@@ -75,7 +75,7 @@ done
 "$NODE_BIN" tests/collabboard.test.js
 
 echo "[3/5] Running Android unit tests, lint, and build"
-./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+./gradlew --no-daemon clean testDebugUnitTest lintDebug assembleDebug
 
 echo "[4/5] Preparing the install APK"
 APK="app/build/outputs/apk/debug/app-debug.apk"

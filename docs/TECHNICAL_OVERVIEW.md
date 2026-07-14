@@ -98,6 +98,9 @@ last-write-wins decisions.
 - Frontier recovery runs every 8 seconds.
 - Large JSON messages are split into MTU-safe frames and rebuilt on receipt.
 - A complete frame batch is accepted or rejected as one queue operation.
+- GATT writes and notifications wait for their result before sending the next frame.
+- Failed operations retry with a short delay; missing callbacks reconnect the peer.
+- Turning Bluetooth off and on restarts BLE without restarting Tremola.
 - Signatures and feed-chain links are checked before storage.
 - Duplicate or already known entries are ignored.
 - BLE is intended for use while Tremola is open.
@@ -116,7 +119,7 @@ log writes and BLE controls.
 ## Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- App version: `0.4.1`
+- App version: `0.4.2`
 - Minimum Android: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Open event format: unchanged from Max's implementation

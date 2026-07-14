@@ -1,8 +1,11 @@
 package nz.scuttlebutt.tremola
 
 import android.app.Activity
+import android.bluetooth.BluetoothAdapter
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.net.*
 import android.net.wifi.WifiManager
@@ -51,6 +54,17 @@ class MainActivity : Activity() {
         .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
         .build()
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var bluetoothReceiverRegistered = false
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_ON -> startBleSyncIfPermitted()
+                BluetoothAdapter.STATE_TURNING_OFF,
+                BluetoothAdapter.STATE_OFF -> bleSync?.stop()
+            }
+        }
+    }
 
     /**
      * Android standard library, called when the app is launched
@@ -104,6 +118,15 @@ class MainActivity : Activity() {
 
         bleSync = BleSync(this, tremolaState)
         tremolaState.bleSync = bleSync
+        try {
+            registerReceiver(
+                bluetoothStateReceiver,
+                IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+            )
+            bluetoothReceiverRegistered = true
+        } catch (e: Exception) {
+            Log.e("BLE receiver", e.stackTraceToString())
+        }
         startBleSyncIfPermitted()
 
         // react on connectivity changes:
@@ -290,6 +313,13 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         Log.d("onDestroy", "")
+        if (bluetoothReceiverRegistered) {
+            try {
+                unregisterReceiver(bluetoothStateReceiver)
+            } catch (_: Exception) {
+            }
+            bluetoothReceiverRegistered = false
+        }
         bleSync?.stop(true)
         try {
             broadcast_socket?.close()

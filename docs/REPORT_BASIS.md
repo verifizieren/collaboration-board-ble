@@ -71,6 +71,8 @@ feed frontiers and recover anything that was missed.
 - They exchange the latest known sequence for each feed.
 - They send only missing log entries.
 - Large entries are divided into small BLE frames.
+- Frames are sent one at a time and checked through Android's BLE callbacks.
+- Failed or stuck transfers retry or reconnect automatically.
 - The receiver verifies the signature and feed chain.
 - Duplicate entries are ignored.
 - Offline edits arrive on the next contact.
@@ -118,7 +120,7 @@ Automated checks currently cover:
 - rejection of edits signed by a different owner
 - per-author clear behavior
 - profile fallback and profile updates
-- BLE frame sizing and atomic queue limits
+- BLE frame sizing, queue limits, retry delay, and reconnect limits
 - Android unit tests, lint, APK build, signature, and bundled content
 
 Browser tests also cover 360, 390, and 432 pixel phone widths and Alice/Bob

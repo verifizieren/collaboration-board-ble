@@ -36,6 +36,7 @@ import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -69,6 +70,8 @@ class BleSync(
     private val remoteFeedIds = ConcurrentHashMap<String, String>()
     private val connecting = ConcurrentHashMap.newKeySet<String>()
     private val nextMessageId = AtomicInteger(1)
+    private val lifecycleGeneration = AtomicInteger(0)
+    private val serverSendLock = Any()
 
     private var scanner: BluetoothLeScanner? = null
     private var advertiser: BluetoothLeAdvertiser? = null
@@ -80,6 +83,7 @@ class BleSync(
     @Volatile private var advertisingRequested = false
     @Volatile private var gattServiceReady = false
     @Volatile private var lastScanStartedAt = 0L
+    private var activeServerLink: ServerLink? = null
     private var syncTask: ScheduledFuture<*>? = null
 
     private data class ClientLink(
@@ -91,6 +95,9 @@ class BleSync(
         var servicesRequested: Boolean = false,
         var subscribing: Boolean = false,
         var writing: Boolean = false,
+        var writeOperationId: Int = 0,
+        var writeFailures: Int = 0,
+        var inFlightFrame: ByteArray? = null,
         val queue: ArrayDeque<ByteArray> = ArrayDeque()
     )
 
@@ -100,6 +107,9 @@ class BleSync(
         @Volatile var mtu: Int = DEFAULT_MTU,
         @Volatile var subscribed: Boolean = false,
         var sending: Boolean = false,
+        var sendOperationId: Int = 0,
+        var sendFailures: Int = 0,
+        var inFlightFrame: ByteArray? = null,
         val queue: ArrayDeque<ByteArray> = ArrayDeque()
     )
 
@@ -109,9 +119,17 @@ class BleSync(
         val chunks: MutableMap<Int, ByteArray> = mutableMapOf()
     )
 
+    private data class OutboundAttempt(
+        val frame: ByteArray,
+        val operationId: Int
+    )
+
     fun start() {
-        if (isRunning) return
         val adapter = bluetoothAdapter
+        if (isRunning) {
+            if (adapter != null && adapter.isEnabled && missingPermissions(activity).isEmpty()) return
+            stop()
+        }
         if (adapter == null) {
             reportStatus("BLE not available")
             return
@@ -126,6 +144,7 @@ class BleSync(
         }
 
         isRunning = true
+        val generation = lifecycleGeneration.incrementAndGet()
         scanner = adapter.bluetoothLeScanner
         advertiser = adapter.bluetoothLeAdvertiser
 
@@ -135,7 +154,7 @@ class BleSync(
 
         syncTask?.cancel(false)
         syncTask = worker.scheduleAtFixedRate({
-            if (!isRunning) return@scheduleAtFixedRate
+            if (!isRunning || lifecycleGeneration.get() != generation) return@scheduleAtFixedRate
             pruneInbound()
             openGattServer()
             startAdvertising()
@@ -147,6 +166,7 @@ class BleSync(
 
     fun stop(shutdownWorker: Boolean = false) {
         isRunning = false
+        lifecycleGeneration.incrementAndGet()
         syncTask?.cancel(false)
         syncTask = null
         try {
@@ -176,6 +196,9 @@ class BleSync(
         gattServer = null
         frameCharacteristic = null
         gattServiceReady = false
+        synchronized(serverSendLock) {
+            activeServerLink = null
+        }
         serverLinks.clear()
         connecting.clear()
         inbound.clear()
@@ -189,14 +212,14 @@ class BleSync(
             start()
             return
         }
-        worker.execute {
+        executeWorker {
             sendFrontierToAll()
             reportStatus("BLE sync requested")
         }
     }
 
     fun onLocalLogEntry(entry: LogEntry) {
-        worker.execute {
+        executeWorker {
             val msg = JSONObject()
             msg.put("t", "event")
             msg.put("raw", Base64.encodeToString(entry.raw, Base64.NO_WRAP))
@@ -284,13 +307,13 @@ class BleSync(
             bleScanner.startScan(filters, settings, scanCallback)
             isScanning = true
             lastScanStartedAt = now
-            worker.schedule({
+            scheduleWorker(SCAN_WINDOW_SECONDS * 1000L) {
                 try {
                     bleScanner.stopScan(scanCallback)
                 } catch (_: Exception) {
                 }
                 isScanning = false
-            }, SCAN_WINDOW_SECONDS, TimeUnit.SECONDS)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "scan failed ${e.stackTraceToString()}")
             isScanning = false
@@ -340,12 +363,32 @@ class BleSync(
         }
     }
 
+    private fun currentClientLink(gatt: BluetoothGatt): ClientLink? {
+        val link = clientLinks[gatt.device.address] ?: return null
+        return link.takeIf { it.gatt === gatt }
+    }
+
+    private fun closeStaleGatt(gatt: BluetoothGatt) {
+        try {
+            gatt.disconnect()
+        } catch (_: Exception) {
+        }
+        try {
+            gatt.close()
+        } catch (_: Exception) {
+        }
+    }
+
     private val clientCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             val address = gatt.device.address
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
+            val link = currentClientLink(gatt)
+            if (link == null) {
+                closeStaleGatt(gatt)
+                return
+            }
+            if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 connecting.remove(address)
-                val link = clientLinks[address] ?: return
                 synchronized(link) {
                     link.ready = false
                     link.servicesRequested = false
@@ -358,33 +401,27 @@ class BleSync(
                     false
                 }
                 if (!requestedMtu) discoverServices(link)
-                worker.schedule(
-                    { discoverServices(link) },
-                    GATT_OPERATION_TIMEOUT_SECONDS,
-                    TimeUnit.SECONDS
-                )
-                reportStatus("BLE connected")
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                connecting.remove(address)
-                clientLinks.remove(address)
-                remoteFeedIds.remove(address)
-                try {
-                    gatt.close()
-                } catch (_: Exception) {
+                scheduleWorker(GATT_OPERATION_TIMEOUT_SECONDS * 1000L) {
+                    discoverServices(link)
                 }
-                reportStatus("BLE disconnected")
+                reportStatus("BLE connected")
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
+                dropClientLink(
+                    link,
+                    if (status == BluetoothGatt.GATT_SUCCESS) "BLE disconnected" else "BLE connection failed $status"
+                )
             }
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            clientLinks[gatt.device.address]?.let { link ->
+            currentClientLink(gatt)?.let { link ->
                 if (status == BluetoothGatt.GATT_SUCCESS) link.mtu = mtu
                 discoverServices(link)
             }
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            val link = clientLinks[gatt.device.address] ?: return
+            val link = currentClientLink(gatt) ?: return
             synchronized(link) { link.servicesRequested = false }
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 reportStatus("BLE service discovery failed")
@@ -404,7 +441,7 @@ class BleSync(
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (descriptor.uuid != CCCD_UUID) return
-            val link = clientLinks[gatt.device.address] ?: return
+            val link = currentClientLink(gatt) ?: return
             synchronized(link) { link.subscribing = false }
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 markClientReady(link)
@@ -415,6 +452,8 @@ class BleSync(
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+            if (characteristic.uuid != FRAME_UUID) return
+            if (currentClientLink(gatt) == null) return
             receiveFrame("client:${gatt.device.address}", gatt.device.address, characteristic.value)
         }
 
@@ -423,11 +462,25 @@ class BleSync(
             characteristic: BluetoothGattCharacteristic,
             status: Int
         ) {
-            val link = clientLinks[gatt.device.address] ?: return
-            synchronized(link) {
+            if (characteristic.uuid != FRAME_UUID) return
+            val link = currentClientLink(gatt) ?: return
+            val failures = synchronized(link) {
+                val frame = link.inFlightFrame ?: return
                 link.writing = false
+                link.inFlightFrame = null
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    link.writeFailures = 0
+                } else {
+                    link.queue.addFirst(frame)
+                    link.writeFailures += 1
+                }
+                link.writeFailures
             }
-            drainClient(link)
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                drainClient(link)
+            } else {
+                handleClientWriteFailure(link, failures, "BLE write failed $status")
+            }
         }
     }
 
@@ -451,13 +504,18 @@ class BleSync(
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             val address = device.address ?: return
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
+            if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 serverLinks.putIfAbsent(address, ServerLink(address, device))
                 reportStatus("BLE peer connected")
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                serverLinks.remove(address)
-                remoteFeedIds.remove(address)
-                reportStatus("BLE peer disconnected")
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
+                val link = serverLinks[address]
+                if (link != null) {
+                    dropServerLink(
+                        link,
+                        if (status == BluetoothGatt.GATT_SUCCESS) "BLE peer disconnected" else "BLE peer failed $status",
+                        cancelConnection = false
+                    )
+                }
             }
         }
 
@@ -472,7 +530,14 @@ class BleSync(
             characteristic: BluetoothGattCharacteristic
         ) {
             val value = "tremola-ble".encodeToByteArray()
-            gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, value)
+            val valid = characteristic.uuid == FRAME_UUID && offset in 0..value.size
+            gattServer?.sendResponse(
+                device,
+                requestId,
+                if (valid) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_FAILURE,
+                offset,
+                if (valid) value.copyOfRange(offset, value.size) else null
+            )
         }
 
         override fun onCharacteristicWriteRequest(
@@ -484,9 +549,16 @@ class BleSync(
             offset: Int,
             value: ByteArray
         ) {
-            receiveFrame("server:${device.address}", device.address, value)
+            val valid = characteristic.uuid == FRAME_UUID && !preparedWrite && offset == 0
+            if (valid) receiveFrame("server:${device.address}", device.address, value)
             if (responseNeeded) {
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
+                gattServer?.sendResponse(
+                    device,
+                    requestId,
+                    if (valid) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_FAILURE,
+                    0,
+                    null
+                )
             }
         }
 
@@ -499,24 +571,168 @@ class BleSync(
             offset: Int,
             value: ByteArray
         ) {
-            val link = serverLinks.getOrPut(device.address) { ServerLink(device.address, device) }
-            link.subscribed = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-            if (responseNeeded) {
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
+            val enable = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            val disable = value.contentEquals(BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE)
+            val valid = descriptor.uuid == CCCD_UUID && !preparedWrite && offset == 0 && (enable || disable)
+            val link = if (valid) {
+                serverLinks.getOrPut(device.address) { ServerLink(device.address, device) }
+            } else {
+                null
             }
-            if (link.subscribed) {
+            if (link != null) {
+                synchronized(link) {
+                    link.subscribed = enable
+                    if (!enable) link.queue.clear()
+                }
+            }
+            if (responseNeeded) {
+                gattServer?.sendResponse(
+                    device,
+                    requestId,
+                    if (valid) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_FAILURE,
+                    0,
+                    null
+                )
+            }
+            if (link?.subscribed == true) {
                 sendHello(link.address)
                 sendFrontier(link.address)
             }
-            reportStatus("BLE notifications ${if (link.subscribed) "on" else "off"}")
+            if (valid) reportStatus("BLE notifications ${if (enable) "on" else "off"}")
         }
 
         override fun onNotificationSent(device: BluetoothDevice, status: Int) {
-            val link = serverLinks[device.address] ?: return
-            synchronized(link) {
-                link.sending = false
+            val result = synchronized(serverSendLock) {
+                val active = activeServerLink ?: return
+                if (active.address != device.address) return
+                val failures = synchronized(active) {
+                    val frame = active.inFlightFrame ?: return
+                    active.sending = false
+                    active.inFlightFrame = null
+                    if (status == BluetoothGatt.GATT_SUCCESS) {
+                        active.sendFailures = 0
+                    } else {
+                        active.queue.addFirst(frame)
+                        active.sendFailures += 1
+                    }
+                    active.sendFailures
+                }
+                activeServerLink = null
+                active to failures
             }
-            drainServer(link)
+            val (link, failures) = result
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                drainNextServer(link)
+            } else {
+                handleServerSendFailure(link, failures, "BLE notification failed $status")
+            }
+        }
+    }
+
+    private fun dropClientLink(link: ClientLink, status: String) {
+        if (!clientLinks.remove(link.address, link)) return
+        connecting.remove(link.address)
+        remoteFeedIds.remove(link.address)
+        synchronized(link) {
+            link.ready = false
+            link.servicesRequested = false
+            link.subscribing = false
+            link.writing = false
+            link.inFlightFrame = null
+            link.queue.clear()
+        }
+        try {
+            link.gatt.disconnect()
+        } catch (_: Exception) {
+        }
+        try {
+            link.gatt.close()
+        } catch (_: Exception) {
+        }
+        reportStatus(status)
+    }
+
+    private fun dropServerLink(
+        link: ServerLink,
+        status: String,
+        cancelConnection: Boolean = true
+    ) {
+        if (!serverLinks.remove(link.address, link)) return
+        remoteFeedIds.remove(link.address)
+        synchronized(serverSendLock) {
+            if (activeServerLink === link) activeServerLink = null
+        }
+        synchronized(link) {
+            link.subscribed = false
+            link.sending = false
+            link.inFlightFrame = null
+            link.queue.clear()
+        }
+        if (cancelConnection) {
+            try {
+                gattServer?.cancelConnection(link.device)
+            } catch (_: Exception) {
+            }
+        }
+        reportStatus(status)
+        drainNextServer()
+    }
+
+    private fun handleClientWriteFailure(link: ClientLink, failures: Int, status: String) {
+        if (!isRunning || clientLinks[link.address] !== link) return
+        reportStatus(status)
+        if (shouldDropLinkAfterFailures(failures)) {
+            dropClientLink(link, "BLE reconnecting")
+            return
+        }
+        scheduleWorker(frameRetryDelayMillis(failures)) { drainClient(link) }
+    }
+
+    private fun handleServerSendFailure(link: ServerLink, failures: Int, status: String) {
+        if (!isRunning || serverLinks[link.address] !== link) return
+        reportStatus(status)
+        if (shouldDropLinkAfterFailures(failures)) {
+            dropServerLink(link, "BLE peer reconnecting")
+            return
+        }
+        scheduleWorker(frameRetryDelayMillis(failures)) { drainServer(link) }
+        drainNextServer(previous = link, exclude = link)
+    }
+
+    private fun drainNextServer(previous: ServerLink? = null, exclude: ServerLink? = null) {
+        if (!isRunning || synchronized(serverSendLock) { activeServerLink != null }) return
+        val candidates = serverLinks.values.filter { link ->
+            link !== exclude && synchronized(link) {
+                link.subscribed && !link.sending && link.queue.isNotEmpty()
+            }
+        }
+        val next = candidates.firstOrNull { it !== previous } ?: candidates.firstOrNull() ?: return
+        drainServer(next)
+    }
+
+    private fun scheduleWorker(delayMs: Long, action: () -> Unit) {
+        if (!isRunning || worker.isShutdown) return
+        val generation = lifecycleGeneration.get()
+        try {
+            worker.schedule(
+                { if (isRunning && lifecycleGeneration.get() == generation) action() },
+                delayMs,
+                TimeUnit.MILLISECONDS
+            )
+        } catch (_: RejectedExecutionException) {
+            // The activity may be closing while a final Bluetooth callback arrives.
+        }
+    }
+
+    private fun executeWorker(action: () -> Unit) {
+        if (!isRunning || worker.isShutdown) return
+        val generation = lifecycleGeneration.get()
+        try {
+            worker.execute {
+                if (isRunning && lifecycleGeneration.get() == generation) action()
+            }
+        } catch (_: RejectedExecutionException) {
+            // The activity may be closing while a final Bluetooth callback arrives.
         }
     }
 
@@ -555,7 +771,7 @@ class BleSync(
             scheduleServiceDiscovery(link)
             return
         }
-        worker.schedule({
+        scheduleWorker(GATT_OPERATION_TIMEOUT_SECONDS * 1000L) {
             val retry = synchronized(link) {
                 if (!link.ready && link.servicesRequested) {
                     link.servicesRequested = false
@@ -565,15 +781,13 @@ class BleSync(
                 }
             }
             if (retry) discoverServices(link)
-        }, GATT_OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        }
     }
 
     private fun scheduleServiceDiscovery(link: ClientLink) {
-        worker.schedule(
-            { discoverServices(link) },
-            GATT_OPERATION_TIMEOUT_SECONDS,
-            TimeUnit.SECONDS
-        )
+        scheduleWorker(GATT_OPERATION_TIMEOUT_SECONDS * 1000L) {
+            discoverServices(link)
+        }
     }
 
     private fun subscribeClient(link: ClientLink) {
@@ -617,7 +831,7 @@ class BleSync(
             scheduleSubscription(link)
             return
         }
-        worker.schedule({
+        scheduleWorker(GATT_OPERATION_TIMEOUT_SECONDS * 1000L) {
             val retry = synchronized(link) {
                 if (!link.ready && link.subscribing) {
                     link.subscribing = false
@@ -627,15 +841,13 @@ class BleSync(
                 }
             }
             if (retry) subscribeClient(link)
-        }, GATT_OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        }
     }
 
     private fun scheduleSubscription(link: ClientLink) {
-        worker.schedule(
-            { subscribeClient(link) },
-            GATT_OPERATION_TIMEOUT_SECONDS,
-            TimeUnit.SECONDS
-        )
+        scheduleWorker(GATT_OPERATION_TIMEOUT_SECONDS * 1000L) {
+            subscribeClient(link)
+        }
     }
 
     private fun sendHello(peerAddress: String? = null) {
@@ -758,24 +970,61 @@ class BleSync(
     private fun enqueueClient(link: ClientLink, msg: JSONObject): Boolean {
         val frames = makeFrames(msg, link.mtu)
         val accepted = synchronized(link) {
-            enqueueFrames(link.queue, frames)
+            enqueueFrames(link.queue, frames, link.writing)
         }
         if (accepted) drainClient(link)
         return accepted
     }
 
     private fun drainClient(link: ClientLink) {
+        if (!isRunning || clientLinks[link.address] !== link) return
         val ch = link.characteristic ?: return
-        synchronized(link) {
-            if (!link.ready || link.writing || link.queue.isEmpty()) return
+        val attempt = synchronized(link) {
+            if (!isRunning ||
+                clientLinks[link.address] !== link ||
+                !link.ready ||
+                link.writing ||
+                link.queue.isEmpty()
+            ) return
             val frame = link.queue.removeFirst()
             link.writing = true
-            ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            ch.value = frame
-            if (!link.gatt.writeCharacteristic(ch)) {
+            link.inFlightFrame = frame
+            link.writeOperationId += 1
+            OutboundAttempt(frame, link.writeOperationId)
+        }
+        ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        ch.value = attempt.frame
+        val started = try {
+            link.gatt.writeCharacteristic(ch)
+        } catch (_: Exception) {
+            false
+        }
+        if (!started) {
+            val failures = synchronized(link) {
+                if (!link.writing || link.writeOperationId != attempt.operationId) return
                 link.writing = false
-                link.queue.addFirst(frame)
+                link.inFlightFrame = null
+                link.queue.addFirst(attempt.frame)
+                link.writeFailures += 1
+                link.writeFailures
             }
+            handleClientWriteFailure(link, failures, "BLE write busy")
+            return
+        }
+        scheduleWorker(FRAME_OPERATION_TIMEOUT_MS) {
+            val timedOut = synchronized(link) {
+                if (clientLinks[link.address] !== link ||
+                    !link.writing ||
+                    link.writeOperationId != attempt.operationId
+                ) {
+                    false
+                } else {
+                    link.writing = false
+                    link.inFlightFrame = null
+                    true
+                }
+            }
+            if (timedOut) dropClientLink(link, "BLE write timed out")
         }
     }
 
@@ -783,16 +1032,21 @@ class BleSync(
         if (!link.subscribed) return false
         val frames = makeFrames(msg, link.mtu)
         val accepted = synchronized(link) {
-            enqueueFrames(link.queue, frames)
+            enqueueFrames(link.queue, frames, link.sending)
         }
         if (accepted) drainServer(link)
         return accepted
     }
 
-    private fun enqueueFrames(queue: ArrayDeque<ByteArray>, frames: List<ByteArray>): Boolean {
+    private fun enqueueFrames(
+        queue: ArrayDeque<ByteArray>,
+        frames: List<ByteArray>,
+        hasInFlightFrame: Boolean
+    ): Boolean {
         // Keep each JSON message intact. Dropping individual frames can make
         // the first missing feed entry impossible to reconstruct on a peer.
-        if (!canQueueFrames(queue.size, frames.size)) {
+        val pending = queue.size + if (hasInFlightFrame) 1 else 0
+        if (!canQueueFrames(pending, frames.size)) {
             if (frames.size > MAX_QUEUED_FRAMES_PER_LINK) {
                 Log.w(TAG, "BLE frame batch too large: ${frames.size}")
             }
@@ -803,17 +1057,61 @@ class BleSync(
     }
 
     private fun drainServer(link: ServerLink) {
+        if (!isRunning || serverLinks[link.address] !== link) return
         val server = gattServer ?: return
         val ch = frameCharacteristic ?: return
-        synchronized(link) {
-            if (!link.subscribed || link.sending || link.queue.isEmpty()) return
-            val frame = link.queue.removeFirst()
-            link.sending = true
-            ch.value = frame
-            if (!server.notifyCharacteristicChanged(link.device, ch, false)) {
-                link.sending = false
-                link.queue.addFirst(frame)
+        val (current, started) = synchronized(serverSendLock) {
+            if (!isRunning || serverLinks[link.address] !== link || activeServerLink != null) return
+            val attempt = synchronized(link) {
+                if (!link.subscribed || link.sending || link.queue.isEmpty()) {
+                    null
+                } else {
+                    val frame = link.queue.removeFirst()
+                    link.sending = true
+                    link.inFlightFrame = frame
+                    link.sendOperationId += 1
+                    OutboundAttempt(frame, link.sendOperationId)
+                }
+            } ?: return
+            activeServerLink = link
+            ch.value = attempt.frame
+            val sendStarted = try {
+                server.notifyCharacteristicChanged(link.device, ch, false)
+            } catch (_: Exception) {
+                false
             }
+            if (!sendStarted) activeServerLink = null
+            attempt to sendStarted
+        }
+        if (!started) {
+            val failures = synchronized(link) {
+                if (!link.sending || link.sendOperationId != current.operationId) return
+                link.sending = false
+                link.inFlightFrame = null
+                link.queue.addFirst(current.frame)
+                link.sendFailures += 1
+                link.sendFailures
+            }
+            handleServerSendFailure(link, failures, "BLE notification busy")
+            return
+        }
+        scheduleWorker(FRAME_OPERATION_TIMEOUT_MS) {
+            var timedOut = false
+            synchronized(serverSendLock) {
+                if (activeServerLink === link) {
+                    timedOut = synchronized(link) {
+                        if (!link.sending || link.sendOperationId != current.operationId) {
+                            false
+                        } else {
+                            link.sending = false
+                            link.inFlightFrame = null
+                            true
+                        }
+                    }
+                    if (timedOut) activeServerLink = null
+                }
+            }
+            if (timedOut) dropServerLink(link, "BLE notification timed out")
         }
     }
 
@@ -877,7 +1175,7 @@ class BleSync(
             }
         }
         completed?.let { body ->
-            worker.execute {
+            executeWorker {
                 try {
                     handleJsonMessage(peerAddress, JSONObject(body.decodeToString()))
                 } catch (e: Exception) {
@@ -900,7 +1198,11 @@ class BleSync(
         val peers = HashSet<String>()
         peers.addAll(clientLinks.keys)
         peers.addAll(serverLinks.keys)
-        val queued = clientLinks.values.sumOf { it.queue.size } + serverLinks.values.sumOf { it.queue.size }
+        val queued = clientLinks.values.sumOf { link ->
+            synchronized(link) { link.queue.size + if (link.writing) 1 else 0 }
+        } + serverLinks.values.sumOf { link ->
+            synchronized(link) { link.queue.size + if (link.sending) 1 else 0 }
+        }
         Log.i(TAG, "$text (peers=${peers.size}, queue=$queued)")
         val status = JSONObject.quote(text)
         val js = "if (typeof b2f_ble_status === 'function') " +
@@ -944,6 +1246,9 @@ class BleSync(
         private const val SCAN_RESTART_MS = 7000L
         private const val INBOUND_TTL_MS = 30000L
         private const val GATT_OPERATION_TIMEOUT_SECONDS = 2L
+        private const val FRAME_OPERATION_TIMEOUT_MS = 5000L
+        private const val FRAME_RETRY_BASE_MS = 250L
+        private const val MAX_FRAME_OPERATION_FAILURES = 3
 
         internal fun framePayloadSize(mtu: Int): Int {
             // A GATT value may use MTU - 3 bytes. The frame header is part of
@@ -955,6 +1260,14 @@ class BleSync(
         internal fun canQueueFrames(queued: Int, batch: Int): Boolean {
             return batch > 0 && batch <= MAX_QUEUED_FRAMES_PER_LINK &&
                 queued >= 0 && queued + batch <= MAX_QUEUED_FRAMES_PER_LINK
+        }
+
+        internal fun frameRetryDelayMillis(failures: Int): Long {
+            return min(1000L, max(1, failures) * FRAME_RETRY_BASE_MS)
+        }
+
+        internal fun shouldDropLinkAfterFailures(failures: Int): Boolean {
+            return failures >= MAX_FRAME_OPERATION_FAILURES
         }
 
         val SERVICE_UUID: UUID = UUID.fromString("1d38bfa0-a38d-43f2-bbd4-aad371520001")
