@@ -186,6 +186,34 @@ dotBoard.cb_draw_stroke(dotContext, {
 assert.deepStrictEqual(dotCalls, [["begin"], ["arc", 12, 18, 1], ["fill"]]);
 assert.strictEqual(dotContext.fillStyle, "#2563eb");
 
+// A selected dot remains movable; its larger phone resize target begins
+// outside the dot instead of covering the complete tiny object.
+const dotGestureBoard = loadBoard();
+const dotGestureUi = pointerHarness(dotGestureBoard, "#2563eb");
+apply(dotGestureBoard, {
+    k: "s", id: "movable-dot", ts: 2, c: "#2563eb", w: 2, p: [[12, 18]]
+}, "@alice.ed25519");
+dotGestureBoard.cb_set_tool("select");
+dotGestureBoard.cb_down(pointerEvent(dotGestureUi.canvas, 24, 12, 18));
+dotGestureBoard.cb_up(pointerEvent(dotGestureUi.canvas, 24, 12, 18));
+dotGestureBoard.cb_down(pointerEvent(dotGestureUi.canvas, 25, 12, 18));
+assert.strictEqual(dotGestureBoard.cb_drag.mode, "move");
+dotGestureBoard.cb_cancel(pointerEvent(dotGestureUi.canvas, 25, 12, 18));
+const dotBox = dotGestureBoard.cb_bbox(
+    dotGestureUi.context,
+    dotGestureBoard.cb_state(),
+    dotGestureBoard.cb_visible_objects(dotGestureBoard.cb_state())[0]
+);
+const dotHandle = dotGestureBoard.cb_handle_rect(dotBox);
+dotGestureBoard.cb_down(pointerEvent(
+    dotGestureUi.canvas,
+    26,
+    dotHandle.x + dotHandle.w / 2,
+    dotHandle.y + dotHandle.h / 2
+));
+assert.strictEqual(dotGestureBoard.cb_drag.mode, "resize");
+dotGestureBoard.cb_cancel(pointerEvent(dotGestureUi.canvas, 26, 0, 0));
+
 // Text uses the same immediate path and remains active for another label.
 const immediateTextBoard = loadBoard();
 const immediateTextInput = {
@@ -367,6 +395,63 @@ assert.deepStrictEqual(
     ["#dc2626", "#0891b2"]
 );
 
+// Panning changes only the camera. Drawing and editing still use shared world
+// coordinates, so another device replays the exact same object and transform.
+const worldSender = loadBoard();
+const worldReceiver = loadBoard();
+const worldUi = pointerHarness(worldSender, "#2563eb");
+worldSender.cb_set_tool("select");
+worldSender.cb_down(pointerEvent(worldUi.canvas, 51, 100, 100));
+worldSender.cb_move(pointerEvent(worldUi.canvas, 51, 70, 80));
+worldSender.cb_up(pointerEvent(worldUi.canvas, 51, 70, 80));
+assert.deepStrictEqual(JSON.parse(JSON.stringify(worldSender.cb_cam)), { x: 30, y: 20 });
+assert.strictEqual(worldSender.writes.length, 0);
+
+worldSender.cb_set_tool("pen");
+worldSender.cb_down(pointerEvent(worldUi.canvas, 52, 10, 20));
+worldSender.cb_move(pointerEvent(worldUi.canvas, 52, 30, 40));
+worldSender.cb_up(pointerEvent(worldUi.canvas, 52, 30, 40));
+assert.deepStrictEqual(JSON.parse(JSON.stringify(worldSender.writes[0].p)), [
+    [40, 40], [60, 60]
+]);
+apply(worldReceiver, worldSender.writes[0], "@alice.ed25519");
+
+worldSender.cb_set_tool("select");
+worldSender.cb_down(pointerEvent(worldUi.canvas, 53, 20, 20));
+worldSender.cb_move(pointerEvent(worldUi.canvas, 53, 50, 45));
+worldSender.cb_up(pointerEvent(worldUi.canvas, 53, 50, 45));
+assert.strictEqual(worldSender.writes[1].k, "m");
+assert.deepStrictEqual(
+    { dx: worldSender.writes[1].dx, dy: worldSender.writes[1].dy },
+    { dx: 30, dy: 25 }
+);
+apply(worldReceiver, worldSender.writes[1], "@alice.ed25519");
+assert.deepStrictEqual(snapshot(worldReceiver)[0].transform, { dx: 30, dy: 25, sc: 1 });
+
+// Camera bounds reject garbage coordinates at either edge of the world plane.
+worldSender.cb_cam.x = 99999999;
+worldSender.cb_cam.y = -99999999;
+worldSender.cb_clamp_camera(worldUi.canvas);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(worldSender.cb_cam)), {
+    x: worldSender.CB_COORD_LIMIT - worldUi.canvas.width,
+    y: -worldSender.CB_COORD_LIMIT
+});
+
+// If pointer capture is unavailable/lost, leaving the canvas still completes a
+// valid stroke; secondary touches never start a second simultaneous stroke.
+const leaveBoard = loadBoard();
+const leaveUi = pointerHarness(leaveBoard, "#2563eb");
+leaveBoard.cb_set_tool("pen");
+leaveBoard.cb_down(pointerEvent(leaveUi.canvas, 61, 10, 10));
+leaveBoard.cb_move(pointerEvent(leaveUi.canvas, 61, 20, 20));
+leaveUi.canvas.captured = null;
+leaveBoard.cb_leave(pointerEvent(leaveUi.canvas, 61, 25, 25));
+assert.strictEqual(leaveBoard.writes.length, 1);
+const secondary = pointerEvent(leaveUi.canvas, 62, 30, 30);
+secondary.isPrimary = false;
+leaveBoard.cb_down(secondary);
+assert.strictEqual(leaveBoard.writes.length, 1);
+
 finishTransform(transformSender, { mode: "move", dx: 30, dy: -10, sc: 1 });
 assert.strictEqual(transformSender.writes[0].k, "m");
 assert.ok(transformSender.writes[0].ts > futureTransform.ts);
@@ -386,6 +471,42 @@ assert.strictEqual(validation.cb_is_valid_event({
 assert.strictEqual(validation.cb_is_valid_event({
     k: "m", id: "bad-scale", t: stroke.id, dx: 0, dy: 0, sc: 100
 }), false);
+
+// Unicode survives the space-free wire encoding used by the Android bridge.
+const unicodeText = "Gr\u00fcezi \ud83d\udc4b \u6f22\u5b57";
+const encodedUnicode = validation.cb_enc(unicodeText);
+assert.strictEqual(encodedUnicode.includes(" "), false);
+assert.strictEqual(validation.cb_dec(encodedUnicode), unicodeText);
+
+// Concurrent last-writer-wins operations also converge when timestamps tie.
+const tieMoveA = {
+    k: "m", id: "a-tie", ts: 500, t: stroke.id, dx: 5, dy: 5, sc: 1
+};
+const tieMoveZ = {
+    k: "m", id: "z-tie", ts: 500, t: stroke.id, dx: 25, dy: 15, sc: 1.2
+};
+const tieForward = replay([stroke, tieMoveA, tieMoveZ]);
+const tieReverse = replay([tieMoveZ, tieMoveA, stroke]);
+assert.deepStrictEqual(snapshot(tieForward), snapshot(tieReverse));
+assert.deepStrictEqual(snapshot(tieForward)[0].transform, { dx: 25, dy: 15, sc: 1.2 });
+
+// Persisted board state produces the same result after a WebView/app restart.
+const beforeRestart = replay([stroke, olderMove, recolor, text]);
+const afterRestart = loadBoard();
+afterRestart.tremola.collabboard = JSON.parse(JSON.stringify(beforeRestart.cb_state()));
+assert.deepStrictEqual(snapshot(afterRestart), snapshot(beforeRestart));
+
+// Long phone strokes are bounded while keeping their first and final points.
+const densePoints = Array.from({ length: 1000 }, function (_, index) {
+    return [index, index % 101];
+});
+const simplePoints = validation.cb_simplify_points(densePoints, 160);
+assert.strictEqual(simplePoints.length, 160);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(simplePoints[0])), densePoints[0]);
+assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(simplePoints[simplePoints.length - 1])),
+    densePoints[densePoints.length - 1]
+);
 
 validation.cb_pointer_id = 7;
 validation.cb_drag = { mode: "move" };
@@ -488,6 +609,57 @@ assert.deepStrictEqual(paintCalls, [
     ["fill", 0, 0, 320, 200]
 ]);
 assert.strictEqual(paintContext.fillStyle, "#ffffff");
+
+// The canvas must fit Tremola even in a short split-screen/landscape WebView.
+const fitBoard = loadBoard();
+const fitCanvas = {
+    width: 340,
+    height: 460,
+    style: {},
+    getBoundingClientRect: function () { return { top: 182 }; }
+};
+let fitRedraws = 0;
+fitBoard.document.getElementById = function (id) {
+    if (id === "cb_canvas") return fitCanvas;
+    if (id === "div:collabboard-main") return { clientWidth: 800 };
+    if (id === "core") {
+        return { getBoundingClientRect: function () { return { bottom: 293 }; } };
+    }
+    return null;
+};
+fitBoard.cb_redraw = function () { fitRedraws += 1; };
+fitBoard.cb_fit_canvas();
+assert.deepStrictEqual(
+    { width: fitCanvas.width, height: fitCanvas.height },
+    { width: 790, height: 103 }
+);
+assert.strictEqual(fitCanvas.style.width, "790px");
+assert.strictEqual(fitCanvas.style.height, "103px");
+assert.ok(182 + fitCanvas.height <= 293 - 8);
+assert.strictEqual(fitRedraws, 1);
+
+// State growth is bounded for long-running boards and repeated BLE replay.
+const boundedBoard = loadBoard();
+const boundedState = boundedBoard.cb_state();
+boundedState.objects = Array.from({ length: 1505 }, function (_, index) {
+    return { k: "s", id: "object-" + index, ts: index, p: [[index, 0]], c: "#2563eb" };
+});
+boundedState.deletes = Array.from({ length: 2005 }, function (_, index) {
+    return { k: "d", id: "delete-" + index, ts: index, t: "deleted-" + index };
+});
+boundedState.mods = Array.from({ length: 2005 }, function (_, index) {
+    return { k: "m", id: "mod-" + index, ts: index, t: "target-" + index, dx: 0, dy: 0, sc: 1 };
+});
+boundedState.seen = Array.from({ length: 4005 }, function (_, index) {
+    return "seen-" + index;
+});
+boundedBoard.cb_prune_state(boundedState);
+assert.strictEqual(boundedState.objects.length, boundedBoard.CB_MAX_OBJECTS);
+assert.strictEqual(boundedState.deletes.length, boundedBoard.CB_MAX_DELETES);
+assert.strictEqual(boundedState.mods.length, boundedBoard.CB_MAX_MODS);
+assert.strictEqual(boundedState.seen.length, boundedBoard.CB_MAX_SEEN);
+assert.strictEqual(boundedState.objects[0].id, "object-5");
+assert.strictEqual(boundedState.seen[0], "seen-5");
 
 // The shared board keeps Max's original event format and behavior.
 const compatibility = loadBoard();

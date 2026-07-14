@@ -296,8 +296,10 @@ function cb_fit_canvas() {
     var maxHeight = bottom - top - 8;
     var maxWidth = main.clientWidth - 10;
     if (maxHeight <= 0 || maxWidth <= 0) return;
-    var canvasWidth = Math.max(120, Math.floor(maxWidth));
-    var canvasHeight = Math.max(120, Math.floor(maxHeight));
+    // Never grow past Tremola's available content area. This also keeps the
+    // board usable in a short split-screen/WebView or while the keyboard is up.
+    var canvasWidth = Math.max(1, Math.floor(maxWidth));
+    var canvasHeight = Math.max(1, Math.floor(maxHeight));
     var changed = cv.width !== canvasWidth || cv.height !== canvasHeight;
     if (changed) {
         cv.width = canvasWidth;
@@ -727,12 +729,18 @@ function cb_hit_handle(st, p) {
     var obj = null;
     cb_visible_objects(st).forEach(function (o) { if (o.id === cb_sel) obj = o; });
     if (!obj) return null;
-    var h = cb_handle_rect(cb_bbox(ctx, st, obj));
+    var b = cb_bbox(ctx, st, obj);
+    var h = cb_handle_rect(b);
     var cx = h.x + h.w / 2;
     var cy = h.y + h.h / 2;
     var half = Math.max(h.w, CB_HANDLE_HIT) / 2;
-    if (p[0] >= cx - half && p[0] <= cx + half &&
-        p[1] >= cy - half && p[1] <= cy + half) return obj;
+    // Keep the generous phone touch target outside the object's own box. For
+    // a tiny dot or short stroke, an unrestricted 32 px target would cover the
+    // whole object and make moving it impossible after it was selected.
+    var left = Math.max(cx - half, b.x + b.w);
+    var top = Math.max(cy - half, b.y + b.h);
+    if (p[0] >= left && p[0] <= cx + half &&
+        p[1] >= top && p[1] <= cy + half) return obj;
     return null;
 }
 

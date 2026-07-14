@@ -11,6 +11,7 @@ class BleSyncTest {
 
         // The preferred MTU is capped at the conservative payload limit.
         assertEquals(180, BleSync.framePayloadSize(247))
+        assertEquals(180, BleSync.framePayloadSize(517))
 
         // Invalid/small values still leave one byte and cannot underflow.
         assertEquals(1, BleSync.framePayloadSize(3))
@@ -65,6 +66,24 @@ class BleSyncTest {
                 serverSubscribed = false
             )
         )
+        assertEquals(
+            BleSync.ROUTE_SERVER,
+            BleSync.outboundRouteMask(
+                hasClient = false,
+                clientReady = false,
+                hasServer = true,
+                serverSubscribed = false
+            )
+        )
+        assertEquals(
+            0,
+            BleSync.outboundRouteMask(
+                hasClient = false,
+                clientReady = false,
+                hasServer = false,
+                serverSubscribed = false
+            )
+        )
     }
 
     @Test
@@ -77,5 +96,7 @@ class BleSyncTest {
         assertEquals(false, BleSync.isNextEvent(4, "%four", 5, "%fork"))
         assertEquals(false, BleSync.shouldBufferEvent(4, 5))
         assertEquals(true, BleSync.shouldBufferEvent(4, 6))
+        assertEquals(false, BleSync.shouldBufferEvent(4, 4))
+        assertEquals(false, BleSync.shouldBufferEvent(4, 3))
     }
 }
