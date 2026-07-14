@@ -575,12 +575,19 @@ function cb_draw_stroke(ctx, o, xf, col) {
     if (!o.p || o.p.length === 0) return;
     xf = xf || { dx: 0, dy: 0, sc: 1 };
     var org = cb_origin(o);
-    ctx.strokeStyle = col || o.c || '#000000';
+    var strokeColor = col || o.c || '#000000';
+    ctx.strokeStyle = strokeColor;
     ctx.lineWidth = (o.w || 2) * xf.sc;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     ctx.beginPath();
     var p0 = cb_apply_xf(o.p[0], org, xf);
+    if (o.p.length === 1) {
+        ctx.fillStyle = strokeColor;
+        ctx.arc(p0[0], p0[1], Math.max(1, ctx.lineWidth / 2), 0, Math.PI * 2);
+        ctx.fill();
+        return;
+    }
     ctx.moveTo(p0[0], p0[1]);
     for (var i = 1; i < o.p.length; i++) {
         var p = cb_apply_xf(o.p[i], org, xf);

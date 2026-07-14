@@ -355,7 +355,13 @@ class BleSync(
         if (!isRunning || clientLinks.containsKey(address) || !connecting.add(address)) return
         try {
             val gatt = device.connectGatt(activity, false, clientCallback, BluetoothDevice.TRANSPORT_LE)
-            clientLinks[address] = ClientLink(address, gatt)
+            val link = ClientLink(address, gatt)
+            clientLinks[address] = link
+            scheduleWorker(CLIENT_SETUP_TIMEOUT_MS) {
+                if (clientLinks[address] === link && !link.ready) {
+                    dropClientLink(link, "BLE reconnecting")
+                }
+            }
             reportStatus("BLE connecting")
         } catch (e: Exception) {
             connecting.remove(address)
@@ -737,6 +743,7 @@ class BleSync(
     }
 
     private fun markClientReady(link: ClientLink) {
+        if (!isRunning || clientLinks[link.address] !== link) return
         val becameReady = synchronized(link) {
             if (link.ready) {
                 false
@@ -1256,6 +1263,7 @@ class BleSync(
         private const val INBOUND_TTL_MS = 30000L
         private const val GATT_OPERATION_TIMEOUT_SECONDS = 2L
         private const val FRAME_OPERATION_TIMEOUT_MS = 5000L
+        private const val CLIENT_SETUP_TIMEOUT_MS = 15000L
         private const val FRAME_RETRY_BASE_MS = 250L
         private const val MAX_FRAME_OPERATION_FAILURES = 3
 

@@ -164,6 +164,20 @@ assert.strictEqual(snapshot(immediateStrokeBoard).length, 1);
 apply(immediateStrokeBoard, immediateStrokeBoard.writes[0], "@alice.ed25519");
 assert.strictEqual(snapshot(immediateStrokeBoard).length, 1);
 
+// A short tap is a valid one-point stroke and must render as a visible dot.
+const dotBoard = loadBoard();
+const dotCalls = [];
+const dotContext = {
+    beginPath: function () { dotCalls.push(["begin"]); },
+    arc: function (x, y, radius) { dotCalls.push(["arc", x, y, radius]); },
+    fill: function () { dotCalls.push(["fill"]); }
+};
+dotBoard.cb_draw_stroke(dotContext, {
+    k: "s", id: "tap-1", ts: 1, c: "#2563eb", w: 2, p: [[12, 18]]
+});
+assert.deepStrictEqual(dotCalls, [["begin"], ["arc", 12, 18, 1], ["fill"]]);
+assert.strictEqual(dotContext.fillStyle, "#2563eb");
+
 // Text uses the same immediate path and remains active for another label.
 const immediateTextBoard = loadBoard();
 const immediateTextInput = {

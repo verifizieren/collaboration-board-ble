@@ -96,7 +96,7 @@ writes signed log entries and exposes BLE status.
 ## Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- App version: `0.4.7`
+- App version: `0.4.8`
 - Minimum Android: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Shared event format: unchanged from Max's implementation
