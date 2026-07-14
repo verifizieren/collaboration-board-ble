@@ -11,13 +11,13 @@ A shared whiteboard mini-app inside Tremola for Android.
 - Work without Internet.
 - Sync signed Tremola events between nearby phones over BLE.
 
-There are two board views:
+There are two board modes:
 
-- **Open** keeps Max's original behavior. Everyone can edit everything.
-- **Protected** uses a name and one of four colors. People can edit only their own
+- **Freeform** keeps Max's original behavior. Everyone can edit everything.
+- **Profiles** uses a name and one of four colors. People can edit only their own
   objects. Foreign objects are view only.
 
-The views are separate. Old Open content is not changed by Protected mode.
+The modes use separate views. Old Freeform content is not changed by Profiles mode.
 
 ## Android APK
 
@@ -42,11 +42,11 @@ See [`install/README.md`](install/README.md) for simple install steps.
 2. Allow Bluetooth and location access.
 3. Open the mini-apps view.
 4. Open **Collaboration Board**.
-5. Choose **Open** or **Protected**.
-6. In Protected mode, enter a name, choose a color, and press **Save**.
+5. Choose **Freeform** or **Profiles**.
+6. In Profiles mode, enter a name, choose a color, and press **Save**.
 
 Tremola creates a local cryptographic identity on first start. There is no
-central account or server login. The Protected name is only a board label.
+central account or server login. The Profiles name is only a board label.
 
 ## Check And Build
 

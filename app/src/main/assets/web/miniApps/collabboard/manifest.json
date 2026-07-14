@@ -1,6 +1,6 @@
 {
   "name": "Collaboration Board",
-  "description": "Draw together. Open or protected.",
+  "description": "Draw together. Freeform or profiles.",
   "icon": "assets/board.svg",
   "init": "cb_open()",
   "id": "collabboard",

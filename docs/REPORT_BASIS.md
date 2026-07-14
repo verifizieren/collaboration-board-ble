@@ -27,13 +27,13 @@ meet again. Concurrent edits should not destroy the board state.
 
 ## Two Collaboration Modes
 
-### Open
+### Freeform
 
 - Keeps Max's original event format and behavior.
 - No board username is needed.
 - Everyone can move, resize, recolor, or clear shared content.
 
-### Protected
+### Profiles
 
 - Each person chooses a display name and one of four colors.
 - Tremola's signed feed ID is the real owner identity.
@@ -41,8 +41,8 @@ meet again. Concurrent edits should not destroy the board state.
 - Foreign objects show the owner's colored name and are view only.
 - `Clear` removes only the current person's objects.
 
-Open and Protected content is kept separate. The code stores Protected as
-`owned` so existing board data stays compatible.
+Freeform and Profiles content is kept separate. The code stores them internally
+as `open` and `owned` so existing board data stays compatible.
 
 ## Why Signed Events
 
@@ -89,7 +89,7 @@ The board is event based. It does not modify a shared file directly.
 - last-write-wins is used for move, resize, color, and profile updates
 - each phone advances its logical timestamp past events it has already seen
 - event ID breaks timestamp ties
-- Protected edits are accepted only from the object's creator feed
+- Profiles edits are accepted only from the object's creator feed
 - clears are separated by board mode and author
 
 This is a small CRDT-like operation log. It gives deterministic replay for the
@@ -112,12 +112,12 @@ project keeps the Uni Basel Tremola host and uses the same general log-sync idea
 
 Automated checks currently cover:
 
-- original Open event compatibility
+- original Freeform event compatibility
 - replay in different event orders
 - duplicate handling
 - move, resize, recolor, and clear behavior
 - profile names and four allowed colors
-- rejection of unsigned Protected events
+- rejection of unsigned Profiles events
 - rejection of edits signed by a different owner
 - per-author clear behavior
 - profile fallback and profile updates
@@ -135,15 +135,15 @@ native BLE.
 - BLE sync is intended for the foreground while Tremola is open.
 - Board events and display names are public to nearby compatible peers.
 - Names are not global accounts and do not have to be unique.
-- Open last-write-wins can be affected by very different phone clocks.
-- Protected mode prevents cross-feed edits; it does not hide the object.
+- Concurrent Freeform edits use deterministic last-write-wins; only one edit wins.
+- Profiles mode prevents cross-feed edits; it does not hide the object.
 
 ## Suggested Report Structure
 
 1. Motivation and requirements
 2. Tremola, SSB logs, and prior tinySSB Kanban work
 3. Whiteboard data model
-4. Open and Protected collaboration modes
+4. Freeform and Profiles collaboration modes
 5. Android WebView integration
 6. BLE frontier and frame protocol
 7. Conflict and offline behavior
@@ -155,7 +155,7 @@ native BLE.
 
 - run and document the two-phone BLE test
 - add an optional board invitation or private board encryption
-- replace timestamp conflict ordering with a logical clock
+- add an optional conflict history or undo feature
 - add a foreground service only if background BLE becomes a requirement
 - prepare a release-signed APK if distribution beyond the course is needed
 

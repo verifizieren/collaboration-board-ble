@@ -18,9 +18,9 @@
  *   owned:  { k:'o', a:<operation kind>, ...operation fields }
  *   profile:{ k:'p', id, n:<display name>, c:<one of four colors> }
  *
- * Open events keep Max's original wire format. Owned operations use the `o`
- * wrapper, so an older Collaboration Board ignores them instead of showing a
- * partially compatible board. Ownership comes from the verified SSB header,
+ * Freeform events keep Max's original wire format. Profiles operations use the
+ * internal `owned` wrapper, so an older Collaboration Board ignores them instead
+ * of showing a partially compatible board. Ownership comes from the verified SSB header,
  * never from the user-supplied display name.
  *
  * The virtual backend delivers an author's own write twice, so every event
@@ -1121,7 +1121,7 @@ function cb_prune_state(st) {
     if (st.objects.length > CB_MAX_OBJECTS) {
         st.objects = st.objects.slice().sort(cb_compare_events).slice(-CB_MAX_OBJECTS);
     }
-    // Only the newest clear for Open and for each Owned author is needed.
+    // Only the newest clear for Freeform and for each Profiles author is needed.
     var clears = {};
     st.clears.forEach(function (clear) {
         var key = cb_event_board(clear) + ':' +

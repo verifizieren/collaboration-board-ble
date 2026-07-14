@@ -32,24 +32,24 @@ finished. This keeps BLE traffic small.
 
 ## Board Events
 
-Open mode keeps Max's original event format:
+Freeform mode uses the internal value `open` and keeps Max's original event format:
 
 - `s` - stroke
 - `t` - text
 - `m` - move or resize
 - `k` - color change
-- `c` - clear the Open board
+- `c` - clear the Freeform board
 
-Protected mode uses the internal `owned` wrapper:
+Profiles mode uses the internal `owned` wrapper:
 
 ```json
 {"k":"o","a":"s","id":"...","n":"Alice","c":"#15803d","p":[[10,10],[20,20]]}
 ```
 
-- `k: "o"` marks a Protected event.
+- `k: "o"` marks a Profiles event.
 - `a` contains the original action type.
 - new strokes and text include the display name and fixed profile color.
-- older Max clients ignore the new wrapper and keep working in Open mode.
+- older Max clients ignore the new wrapper and keep working in Freeform mode.
 
 Profiles use `k: "p"` and contain a name plus one of four colors.
 
@@ -58,18 +58,18 @@ Profiles use `k: "p"` and contain a name plus one of four colors.
 - Tremola creates an Ed25519 feed identity on the phone.
 - Every log event is signed by that identity.
 - Android passes the verified feed ID to the mini-app with the event header.
-- Protected objects store that verified feed ID as their creator.
+- Profiles objects store that verified feed ID as their creator.
 - A move or resize is accepted only when its signed feed ID matches the creator.
 - Display names are labels only. They are not trusted for ownership.
 - Names do not need to be unique.
 
-Open and Protected are separate local views of the same log. Open keeps the old
-shared behavior. Protected gives each signed feed control over only its own
+Freeform and Profiles are separate local views of the same log. Freeform keeps
+the old shared behavior. Profiles gives each signed feed control over only its own
 objects. Foreign objects can still be selected to show the owner and `view only`
 state.
 
-Changing a profile color also changes how that person's Protected objects
-render. `Clear` hides only objects from the same signed feed in Protected mode.
+Changing a profile color also changes how that person's Profiles objects
+render. `Clear` hides only objects from the same signed feed in Profiles mode.
 
 This is an edit rule, not encryption. Board names and public board events can be
 read by nearby compatible peers.
@@ -81,8 +81,8 @@ read by nearby compatible peers.
 - Move, resize, color, and profile updates use last-write-wins.
 - Each phone advances a logical timestamp past all events it has already seen.
 - The event ID is the tie-breaker when timestamps match.
-- Protected edits from a different feed are ignored for the target object.
-- Clear events are separate for Open and for each Protected author.
+- Profiles edits from a different feed are ignored for the target object.
+- Clear events are separate for Freeform and for each Profiles author.
 - State is rebuilt by replaying the signed event log.
 
 The test suite replays events in different orders and checks that the same board
@@ -120,12 +120,12 @@ log writes and BLE controls.
 ## Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- App version: `0.4.3`
+- App version: `0.4.4`
 - Minimum Android: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
-- Open event format: unchanged from Max's implementation
-- Protected/profile events: ignored by older board code
-- Existing Open objects remain available after update
+- Freeform event format: unchanged from Max's implementation
+- Profiles events: ignored by older board code
+- Existing Freeform objects remain available after update
 - BLE peers must use this APK; the separate tinySSB Kanban app uses another BLE format
 
 ## Checks
