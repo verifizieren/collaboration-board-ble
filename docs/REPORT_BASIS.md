@@ -87,6 +87,7 @@ The board is event based. It does not modify a shared file directly.
 - events can arrive in a different order
 - duplicate events are ignored
 - last-write-wins is used for move, resize, color, and profile updates
+- each phone advances its logical timestamp past events it has already seen
 - event ID breaks timestamp ties
 - Protected edits are accepted only from the object's creator feed
 - clears are separated by board mode and author

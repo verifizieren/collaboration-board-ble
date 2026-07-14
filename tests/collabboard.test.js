@@ -20,6 +20,9 @@ function loadBoard() {
         myId: "@local-device.ed25519",
         persist: function () {},
         writeLogEntry: function (entry) { writes.push(JSON.parse(entry)); },
+        // Android's WebView does not provide a working JavaScript confirm dialog
+        // unless the host installs a WebChromeClient.
+        confirm: function () { return false; },
         setTimeout: function () {},
         clearTimeout: function () {},
         btoa: function (value) { return Buffer.from(value, "binary").toString("base64"); },
@@ -91,6 +94,67 @@ const text = {
 };
 const cleared = replay([winningMove, text, clear, stroke]);
 assert.deepStrictEqual(snapshot(cleared).map(function (item) { return item.id; }), [text.id]);
+
+// Clear must work in the Android host even when window.confirm returns false.
+// A logical timestamp also makes it newer than content from a fast device clock.
+const clearSender = loadBoard();
+const clearReceiver = loadBoard();
+const futureStroke = {
+    k: "s", id: "future-stroke-1", ts: Date.now() + 60000, c: "#2563eb", w: 2,
+    p: [[5, 5], [15, 15]]
+};
+apply(clearSender, futureStroke, "@alice.ed25519");
+apply(clearReceiver, futureStroke, "@alice.ed25519");
+clearSender.cb_clear();
+assert.strictEqual(clearSender.writes.length, 1);
+assert.strictEqual(clearSender.writes[0].k, "c");
+assert.ok(clearSender.writes[0].ts > futureStroke.ts);
+assert.deepStrictEqual(snapshot(clearSender), []);
+apply(clearReceiver, clearSender.writes[0], "@alice.ed25519");
+assert.deepStrictEqual(snapshot(clearReceiver), []);
+
+// Exercise the exact two-peer path for a completed phone drag and resize:
+// pointer-up writes an event, then the other board replays that wire payload.
+const transformSender = loadBoard();
+const transformReceiver = loadBoard();
+apply(transformSender, stroke, "@alice.ed25519");
+apply(transformReceiver, stroke, "@alice.ed25519");
+const futureTransform = {
+    k: "m", id: "future-transform-1", ts: Date.now() + 60000, t: stroke.id,
+    dx: 4, dy: 6, sc: 1
+};
+apply(transformSender, futureTransform, "@alice.ed25519");
+apply(transformReceiver, futureTransform, "@alice.ed25519");
+
+function finishTransform(board, transform) {
+    board.cb_pointer_id = 17;
+    board.cb_drag = {
+        mode: transform.mode,
+        target: stroke.id,
+        moved: true,
+        xf: { dx: transform.dx, dy: transform.dy, sc: transform.sc }
+    };
+    board.cb_up({
+        pointerId: 17,
+        currentTarget: {
+            style: {},
+            releasePointerCapture: function () {},
+            hasPointerCapture: function () { return false; }
+        },
+        preventDefault: function () {}
+    });
+}
+
+finishTransform(transformSender, { mode: "move", dx: 30, dy: -10, sc: 1 });
+assert.strictEqual(transformSender.writes[0].k, "m");
+assert.ok(transformSender.writes[0].ts > futureTransform.ts);
+apply(transformReceiver, transformSender.writes[0], "@alice.ed25519");
+assert.deepStrictEqual(snapshot(transformReceiver)[0].transform, { dx: 30, dy: -10, sc: 1 });
+
+finishTransform(transformSender, { mode: "resize", dx: 30, dy: -10, sc: 1.5 });
+assert.strictEqual(transformSender.writes[1].k, "m");
+apply(transformReceiver, transformSender.writes[1], "@alice.ed25519");
+assert.deepStrictEqual(snapshot(transformReceiver)[0].transform, { dx: 30, dy: -10, sc: 1.5 });
 
 const validation = loadBoard();
 assert.strictEqual(validation.cb_is_valid_event(stroke), true);

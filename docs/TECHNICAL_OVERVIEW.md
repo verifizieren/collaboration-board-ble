@@ -79,14 +79,15 @@ read by nearby compatible peers.
 - Duplicate event IDs are ignored.
 - Events can arrive in any order.
 - Move, resize, color, and profile updates use last-write-wins.
-- The event timestamp is compared first and the event ID is the tie-breaker.
+- Each phone advances a logical timestamp past all events it has already seen.
+- The event ID is the tie-breaker when timestamps match.
 - Protected edits from a different feed are ignored for the target object.
 - Clear events are separate for Open and for each Protected author.
 - State is rebuilt by replaying the signed event log.
 
 The test suite replays events in different orders and checks that the same board
-state is produced. Large clock differences can still affect Open-mode
-last-write-wins decisions.
+state is produced. It also tests clear, move, and resize with a phone clock that
+is one minute ahead.
 
 ## BLE Transport
 
@@ -119,7 +120,7 @@ log writes and BLE controls.
 ## Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- App version: `0.4.2`
+- App version: `0.4.3`
 - Minimum Android: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Open event format: unchanged from Max's implementation

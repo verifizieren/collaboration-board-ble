@@ -102,6 +102,10 @@ function cb_state() {
     if (!Array.isArray(tremola.collabboard.clears)) tremola.collabboard.clears = [];
     if (!Array.isArray(tremola.collabboard.seen)) tremola.collabboard.seen = [];
     if (!Array.isArray(tremola.collabboard.mods)) tremola.collabboard.mods = [];
+    if (typeof tremola.collabboard.clock !== 'number' ||
+        !isFinite(tremola.collabboard.clock) || tremola.collabboard.clock < 0) {
+        tremola.collabboard.clock = 0;
+    }
     if (!tremola.collabboard.profiles || Array.isArray(tremola.collabboard.profiles) ||
         typeof tremola.collabboard.profiles !== 'object') {
         tremola.collabboard.profiles = {};
@@ -280,7 +284,7 @@ function cb_save_profile() {
     var st = cb_state();
     st.localProfile = { n: name, c: cb_profile_color };
     persist();
-    var ts = Date.now();
+    var ts = cb_next_ts();
     var profileEvent = { k: 'p', id: cb_id(ts), ts: ts, n: name, c: cb_profile_color };
     writeLogEntry(JSON.stringify(profileEvent));
     cb_update_mode_ui();
@@ -440,11 +444,9 @@ function cb_color() {
 
 function cb_clear() {
     if (cb_board_mode === 'owned' && !cb_require_profile(true)) return;
-    var prompt = cb_board_mode === 'owned' ? 'Clear your work?' : 'Clear board?';
-    if (typeof confirm === 'function' && !confirm(prompt)) return;
-    var ts = Date.now();
+    var ts = cb_next_ts();
     cb_sel = null;
-    cb_write_board_event({ k: 'c', id: cb_id(ts), ts: ts }, false);
+    cb_write_board_event({ k: 'c', id: cb_id(ts), ts: ts }, true);
 }
 
 // --- pointer input ---------------------------------------------------------
@@ -463,7 +465,7 @@ function cb_bind_canvas() {
         // picking a color while an object is selected recolors that object
         col.addEventListener('change', function () {
             if (cb_board_mode !== 'open' || !cb_sel || cb_tool !== 'select') return;
-            var ts = Date.now();
+            var ts = cb_next_ts();
             var ev = { k: 'k', id: cb_id(ts), ts: ts, t: cb_sel, c: col.value };
             cb_write_board_event(ev, true);
         });
@@ -620,7 +622,7 @@ function cb_up(e) {
         var cv = e && e.currentTarget;
         if (cv && cb_tool === 'select') cv.style.cursor = 'grab';
         if (d.mode !== 'pan' && d.moved) {
-            var ts = Date.now();
+            var ts = cb_next_ts();
             var ev = { k: 'm', id: cb_id(ts), ts: ts, t: d.target,
                        dx: Math.round(d.xf.dx), dy: Math.round(d.xf.dy),
                        sc: Math.round(d.xf.sc * 1000) / 1000 };
@@ -637,7 +639,7 @@ function cb_up(e) {
     cb_draft = null;
     if (d.p.length < 1) return;
     d.p = cb_simplify_points(d.p, CB_MAX_STROKE_POINTS);
-    d.ts = Date.now();
+    d.ts = cb_next_ts();
     d.id = cb_id(d.ts);
     cb_write_board_event(d, false);
     cb_set_tool('select'); // one-shot: back to the default mode
@@ -677,7 +679,7 @@ function cb_place_text(p) {
     // The f2b command string is space-delimited, so the payload must contain no
     // spaces. Base64-encode the user's text (the only field that can) and decode
     // it again at render time.
-    var ts = Date.now();
+    var ts = cb_next_ts();
     cb_write_board_event({
         k: 't', id: cb_id(ts), ts: ts, c: cb_color(), x: p[0], y: p[1], s: cb_enc(s)
     }, false);
@@ -750,6 +752,7 @@ function cb_apply(raw, header) {
     var obj = cb_normalize_event(raw, header);
     if (!cb_is_valid_event(obj)) return;
     var st = cb_state();
+    st.clock = Math.max(st.clock, cb_event_ts(obj));
     if (st.seen.indexOf(obj.id) >= 0) return; // already applied (incl. self-echo)
     st.seen.push(obj.id);
 
@@ -1006,6 +1009,21 @@ function cb_event_board(event) {
 function cb_id(ts) {
     var who = (typeof myId == "string") ? myId.slice(1, 6) : 'x';
     return who + '-' + (ts || Date.now()) + '-' + Math.floor(Math.random() * 1000000);
+}
+
+// Wall clocks can differ between phones. New local events therefore advance
+// past every event already observed on this board before using Date.now().
+function cb_next_ts() {
+    var st = cb_state();
+    var next = Math.max(Date.now(), st.clock || 0);
+    st.objects.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
+    st.clears.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
+    st.mods.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
+    Object.keys(st.profiles).forEach(function (fid) {
+        next = Math.max(next, cb_event_ts(st.profiles[fid]));
+    });
+    st.clock = next + 1;
+    return st.clock;
 }
 
 // Base64 encode/decode (UTF-8 safe) so text payloads stay space-free.
