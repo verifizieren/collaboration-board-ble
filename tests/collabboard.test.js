@@ -61,10 +61,6 @@ function apply(board, event, fid) {
     });
 }
 
-function owned(kind, value) {
-    return Object.assign({ k: "o", a: kind }, value);
-}
-
 const stroke = {
     k: "s", id: "peer-100-1", ts: 100, c: "#2563eb", w: 2,
     p: [[10, 10], [20, 20]]
@@ -228,9 +224,8 @@ assert.deepStrictEqual(paintCalls, [
 ]);
 assert.strictEqual(paintContext.fillStyle, "#ffffff");
 
-// Edit all mode keeps Max's original event format and behavior.
+// The shared board keeps Max's original event format and behavior.
 const compatibility = loadBoard();
-compatibility.cb_board_mode = "open";
 compatibility.cb_write_board_event({
     k: "s", id: "max-open-1", ts: 10, c: "#2563eb", w: 2,
     p: [[1, 1], [3, 3]]
@@ -242,103 +237,115 @@ assert.deepStrictEqual(compatibility.writes[0], {
 
 const alice = "@alice.ed25519";
 const bob = "@bob.ed25519";
-const aliceProfile = { k: "p", id: "alice-profile-1", ts: 10, n: "Alice", c: "#2563eb" };
-const bobProfile = { k: "p", id: "bob-profile-1", ts: 11, n: "Bob", c: "#dc2626" };
-const aliceStroke = owned("s", {
-    id: "alice-stroke-1", ts: 20, n: "Alice", c: "#2563eb", w: 2,
-    p: [[10, 10], [20, 20]]
-});
-const bobStroke = owned("s", {
-    id: "bob-stroke-1", ts: 21, n: "Bob", c: "#dc2626", w: 2,
-    p: [[30, 30], [40, 40]]
-});
-const aliceMove = owned("m", {
-    id: "alice-move-1", ts: 30, t: "alice-stroke-1", dx: 12, dy: 4, sc: 1.2
-});
-const bobUnauthorizedMove = owned("m", {
-    id: "bob-attack-1", ts: 99, t: "alice-stroke-1", dx: 900, dy: 900, sc: 4
-});
+const sharedBoard = loadBoard();
+apply(sharedBoard, stroke, alice);
+apply(sharedBoard, {
+    k: "m", id: "bob-move-1", ts: 400, t: stroke.id,
+    dx: 18, dy: 9, sc: 1.4
+}, bob);
+apply(sharedBoard, {
+    k: "k", id: "bob-color-1", ts: 410, t: stroke.id, c: "#12abef"
+}, bob);
+let sharedSnapshot = snapshot(sharedBoard);
+assert.deepStrictEqual(sharedSnapshot[0].transform, { dx: 18, dy: 9, sc: 1.4 });
+assert.strictEqual(sharedSnapshot[0].color, "#12abef");
 
-const editOwnBoard = loadBoard();
-apply(editOwnBoard, aliceProfile, alice);
-apply(editOwnBoard, bobProfile, bob);
-apply(editOwnBoard, bobUnauthorizedMove, bob); // can arrive before its target
-apply(editOwnBoard, aliceMove, alice);
-apply(editOwnBoard, bobStroke, bob);
-apply(editOwnBoard, aliceStroke, alice);
-editOwnBoard.cb_board_mode = "owned";
-let ownedSnapshot = snapshot(editOwnBoard);
-assert.deepStrictEqual(ownedSnapshot.map(function (item) { return item.id; }), ["alice-stroke-1", "bob-stroke-1"]);
-assert.deepStrictEqual(ownedSnapshot[0].transform, { dx: 12, dy: 4, sc: 1.2 });
-assert.strictEqual(ownedSnapshot[0].color, "#2563eb");
-assert.strictEqual(ownedSnapshot[1].color, "#dc2626");
-assert.strictEqual(editOwnBoard.cb_state().mods.length, 2);
-
-// Owned creates are self-describing and keep Max's event inside a wrapper.
-const ownedWire = loadBoard();
-ownedWire.tremola.collabboard = {
-    objects: [], clears: [], seen: [], mods: [], profiles: {}, mode: "owned",
-    localProfile: { n: "Alice", c: "#2563eb" }
-};
-ownedWire.cb_board_mode = "owned";
-ownedWire.cb_write_board_event({
-    k: "s", id: "local-owned-1", ts: 25, c: "#000000", w: 2,
-    p: [[1, 1], [2, 2]]
-}, false);
-assert.deepStrictEqual(ownedWire.writes[0], {
-    k: "o", a: "s", id: "local-owned-1", ts: 25,
-    n: "Alice", c: "#2563eb", w: 2, p: [[1, 1], [2, 2]]
-});
-
-// The object carries enough profile data to render before a profile event arrives.
-const profileFallback = loadBoard();
-apply(profileFallback, bobStroke, bob);
-assert.deepStrictEqual(
-    JSON.parse(JSON.stringify(profileFallback.cb_profile_for(bob))),
-    { n: "Bob", c: "#dc2626" }
-);
-apply(profileFallback, bobProfile, bob);
-apply(profileFallback, {
-    k: "p", id: "bob-profile-2", ts: 40, n: "Bobby", c: "#15803d"
+apply(sharedBoard, {
+    k: "t", id: "bob-text-1", ts: 420, c: "#7c3aed",
+    x: 40, y: 50, s: "SGVsbG8="
 }, bob);
 assert.deepStrictEqual(
-    JSON.parse(JSON.stringify(profileFallback.cb_profile_for(bob))),
-    { n: "Bobby", c: "#15803d" }
+    snapshot(sharedBoard).map(function (item) { return item.id; }),
+    [stroke.id, "bob-text-1"]
 );
-profileFallback.cb_board_mode = "owned";
-assert.strictEqual(snapshot(profileFallback)[0].color, "#15803d");
 
-// A local user may only edit objects signed by the same Tremola feed.
-editOwnBoard.myId = alice;
-assert.strictEqual(editOwnBoard.cb_is_own_object(editOwnBoard.cb_find_visible_object("alice-stroke-1")), true);
-assert.strictEqual(editOwnBoard.cb_is_own_object(editOwnBoard.cb_find_visible_object("bob-stroke-1")), false);
+// Clear is shared too: any peer clears the complete board.
+apply(sharedBoard, { k: "c", id: "bob-clear-1", ts: 430 }, bob);
+assert.deepStrictEqual(snapshot(sharedBoard), []);
 
-// Owned clear is per author. Alice's clear leaves Bob's object visible.
-apply(editOwnBoard, owned("c", { id: "alice-clear-1", ts: 40 }), alice);
-ownedSnapshot = snapshot(editOwnBoard);
-assert.deepStrictEqual(ownedSnapshot.map(function (item) { return item.id; }), ["bob-stroke-1"]);
+// The Android color picker stays unrestricted to valid six-digit hex colors.
+const colorBoard = loadBoard();
+colorBoard.document.getElementById = function (id) {
+    return id === "cb_color" ? { value: "#12abef" } : null;
+};
+assert.strictEqual(colorBoard.cb_color(), "#12abef");
+assert.strictEqual(colorBoard.cb_is_valid_color("#12abef"), true);
+assert.strictEqual(colorBoard.cb_is_valid_color("red"), false);
 
-// Missing verified author metadata is rejected for Owned and profile events.
-const unsigned = loadBoard();
-unsigned.cb_apply(aliceStroke);
-unsigned.cb_apply(aliceProfile);
-unsigned.cb_board_mode = "owned";
-assert.deepStrictEqual(snapshot(unsigned), []);
-assert.strictEqual(Object.keys(unsigned.cb_state().profiles).length, 0);
+const pickerBoard = loadBoard();
+const pickerListeners = {};
+const picker = {
+    value: "#12abef",
+    addEventListener: function (name, handler) { pickerListeners[name] = handler; }
+};
+const pickerCanvas = {
+    addEventListener: function () {}
+};
+pickerBoard.document.getElementById = function (id) {
+    if (id === "cb_canvas") return pickerCanvas;
+    if (id === "cb_color") return picker;
+    return null;
+};
+pickerBoard.window.addEventListener = function () {};
+pickerBoard.cb_redraw = function () {};
+apply(pickerBoard, stroke, alice);
+pickerBoard.myId = bob;
+pickerBoard.cb_sel = stroke.id;
+pickerBoard.cb_tool = "select";
+pickerBoard.cb_bind_canvas();
+pickerListeners.change();
+assert.strictEqual(pickerBoard.writes.length, 1);
+assert.strictEqual(pickerBoard.writes[0].k, "k");
+assert.strictEqual(pickerBoard.writes[0].c, "#12abef");
+assert.strictEqual(snapshot(pickerBoard)[0].color, "#12abef");
 
-// The profile palette is intentionally fixed to four colors.
-assert.strictEqual(unsigned.cb_is_valid_profile_data({ n: "Alice", c: "#2563eb" }), true);
-assert.strictEqual(unsigned.cb_is_valid_profile_data({ n: "Alice", c: "#000000" }), false);
-assert.strictEqual(unsigned.cb_clean_name("  Alice   Smith  "), "Alice Smith");
+// Events from the removed owner/profile experiment no longer enter the board.
+const legacy = loadBoard();
+apply(legacy, {
+    k: "o", a: "s", id: "legacy-owned-1", ts: 20,
+    n: "Alice", c: "#2563eb", w: 2, p: [[1, 1], [2, 2]]
+}, alice);
+apply(legacy, {
+    k: "p", id: "legacy-profile-1", ts: 21, n: "Alice", c: "#2563eb"
+}, alice);
+assert.deepStrictEqual(snapshot(legacy), []);
+assert.strictEqual(legacy.cb_state().seen.length, 0);
 
-// Mode separation: old/open content never leaks into Owned and vice versa.
-const separated = loadBoard();
-apply(separated, stroke, alice);
-apply(separated, aliceStroke, alice);
-separated.cb_board_mode = "open";
-assert.deepStrictEqual(snapshot(separated).map(function (item) { return item.id; }), [stroke.id]);
-separated.cb_board_mode = "owned";
-assert.deepStrictEqual(snapshot(separated).map(function (item) { return item.id; }), ["alice-stroke-1"]);
+// Updating removes old owner-only state but keeps the original shared board.
+const migration = loadBoard();
+migration.tremola.collabboard = {
+    objects: [
+        Object.assign({ _board: "open" }, stroke),
+        {
+            _board: "owned", _fid: alice, k: "s", id: "legacy-local-1", ts: 30,
+            n: "Alice", c: "#2563eb", w: 2, p: [[3, 3], [4, 4]]
+        }
+    ],
+    clears: [{ _board: "owned", _fid: alice, k: "c", id: "legacy-clear-1", ts: 31 }],
+    seen: [],
+    mods: [{
+        _board: "owned", _fid: alice, k: "m", id: "legacy-move-1", ts: 32,
+        t: "legacy-local-1", dx: 1, dy: 1, sc: 1
+    }],
+    profiles: { "@alice.ed25519": { n: "Alice", c: "#2563eb" } },
+    localProfile: { n: "Alice", c: "#2563eb" },
+    mode: "owned"
+};
+const migrated = migration.cb_state();
+assert.strictEqual(migrated.schema, 2);
+assert.deepStrictEqual(migrated.objects.map(function (item) { return item.id; }), [stroke.id]);
+assert.deepStrictEqual(migrated.clears, []);
+assert.deepStrictEqual(migrated.mods, []);
+assert.strictEqual(Object.prototype.hasOwnProperty.call(migrated, "mode"), false);
+assert.strictEqual(Object.prototype.hasOwnProperty.call(migrated, "profiles"), false);
+
+const boardMarkup = fs.readFileSync(
+    path.join(root, "miniApps/collabboard/resources/board.html"),
+    "utf8"
+);
+assert.strictEqual(boardMarkup.includes("cb_mode_switch"), false);
+assert.strictEqual(boardMarkup.includes("cb_profile"), false);
+assert.strictEqual(boardMarkup.includes("type='color'"), true);
 
 [
     "manifest.json",

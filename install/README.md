@@ -18,13 +18,11 @@ The APK contains Tremola, Collaboration Board, and BLE sync. It needs Android
 
 Tremola creates its identity automatically. No server login is needed.
 
-## Board Modes
+## Shared Board
 
-- **Edit all:** no name is needed; everyone can edit every object.
-- **Edit own:** enter a name and choose one of four colors; only the creator can
-  move or resize an object. Other people can select it only to see its owner.
-
-Use the same mode on both phones.
+- Everyone can edit every object.
+- Use the Android color picker for drawing, text, or recoloring an object.
+- No board name or profile is needed.
 
 ## USB Install
 
@@ -53,9 +51,9 @@ does not use the same BLE format.
 5. Wait until the board shows a nearby peer.
 6. Draw on phone A and check phone B.
 7. Add text on phone B and check phone A.
-8. In Edit own mode, verify that foreign objects say **view only**.
+8. Move, resize, and recolor phone A's object on phone B.
 9. Disconnect the phones, edit both, reconnect, and check recovery.
-10. Test **Clear** in both modes. In Edit own, it removes only your work.
+10. Test **Clear**. It removes the complete shared board.
 
 If no peer appears:
 

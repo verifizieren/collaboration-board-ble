@@ -6,18 +6,14 @@ A shared whiteboard mini-app inside Tremola for Android.
 
 - Draw and add text.
 - Move and resize objects.
+- Choose any color with the Android color picker.
 - Pan around the board.
 - Use a simple layout that fits normal Android phone screens.
 - Work without Internet.
 - Sync signed Tremola events between nearby phones over BLE.
 
-There are two board modes:
-
-- **Edit all** keeps Max's original behavior. Everyone can edit everything.
-- **Edit own** uses a name and one of four colors. People can edit only their own
-  objects. Foreign objects are view only.
-
-The modes use separate views. Old Edit all content is not changed by Edit own mode.
+There is one shared board. Everyone can edit every object. There are no profiles
+or owner locks.
 
 ## Android APK
 
@@ -42,11 +38,10 @@ See [`install/README.md`](install/README.md) for simple install steps.
 2. Allow Bluetooth and location access.
 3. Open the mini-apps view.
 4. Open **Collaboration Board**.
-5. Choose **Edit all** or **Edit own**.
-6. In Edit own mode, enter a name, choose a color, and press **Save**.
+5. Use **Draw**, **Text**, the color picker, or **Clear**.
 
 Tremola creates a local cryptographic identity on first start. There is no
-central account or server login. The name in Edit own mode is only a board label.
+central account or server login.
 
 ## Check And Build
 
@@ -76,8 +71,8 @@ With USB debugging enabled:
 ./scripts/android.sh logs
 ```
 
-For the real test, install the same APK on two phones, keep Tremola open on both,
-and edit the same mode. A finished action is sent immediately. Feed frontiers
+For the real test, install the same APK on two phones and keep Tremola open on
+both. A finished action is sent immediately. Feed frontiers
 are also exchanged every 8 seconds so missed events can be recovered.
 
 ## Browser Preview

@@ -15,13 +15,9 @@
  *   modify: { k:'m', id, t:<targetId>, dx, dy, sc } — move/scale an object;
  *           absolute offset+scale relative to the original, last write wins
  *   recolor:{ k:'k', id, t:<targetId>, c:<color> } — last write wins
- *   owned:  { k:'o', a:<operation kind>, ...operation fields }
- *   profile:{ k:'p', id, n:<display name>, c:<one of four colors> }
  *
- * Edit all events keep Max's original wire format. Edit own operations use the
- * internal `owned` wrapper, so an older Collaboration Board ignores them instead
- * of showing a partially compatible board. Ownership comes from the verified SSB header,
- * never from the user-supplied display name.
+ * All events keep Max's original shared wire format. Every peer may edit every
+ * object. Retired profile/owner events from experimental builds are ignored.
  *
  * The virtual backend delivers an author's own write twice, so every event
  * carries a unique id and we drop ids we have already applied (cb_state.seen).
@@ -67,9 +63,8 @@ var cb_draft = null;
 var cb_cam = { x: 0, y: 0 };
 var cb_drag = null;
 var cb_sel = null; // id of the selected object (select tool)
-var cb_board_mode = 'open';
-var cb_profile_color = '#2563eb';
 var cb_pointer_id = null;
+var cb_state_migrated = false;
 var CB_MAX_MODS = 2000;
 var CB_SEL_PAD = 6;
 var CB_HANDLE = 12; // visible side length of the resize handle square
@@ -85,8 +80,7 @@ var CB_HISTORY_LIMIT = 2500;
 var CB_MAX_OBJECTS = 1500;
 var CB_MAX_CLEARS = 8;
 var CB_MAX_SEEN = 4000;
-var CB_MAX_PROFILES = 128;
-var CB_PROFILE_COLORS = ['#2563eb', '#dc2626', '#15803d', '#7c3aed'];
+var CB_STATE_VERSION = 2;
 // generous bound for the "infinite" world plane; only guards against garbage
 var CB_COORD_LIMIT = 1000000;
 
@@ -95,7 +89,7 @@ var CB_COORD_LIMIT = 1000000;
 function cb_state() {
     if (typeof tremola.collabboard == "undefined") {
         tremola.collabboard = {
-            objects: [], clears: [], seen: [], mods: [], profiles: {}, mode: 'open'
+            objects: [], clears: [], seen: [], mods: [], schema: CB_STATE_VERSION
         };
     }
     if (!Array.isArray(tremola.collabboard.objects)) tremola.collabboard.objects = [];
@@ -106,16 +100,21 @@ function cb_state() {
         !isFinite(tremola.collabboard.clock) || tremola.collabboard.clock < 0) {
         tremola.collabboard.clock = 0;
     }
-    if (!tremola.collabboard.profiles || Array.isArray(tremola.collabboard.profiles) ||
-        typeof tremola.collabboard.profiles !== 'object') {
-        tremola.collabboard.profiles = {};
-    }
-    if (tremola.collabboard.mode !== 'owned') tremola.collabboard.mode = 'open';
-    if (tremola.collabboard.localProfile &&
-        !cb_is_valid_profile_data(tremola.collabboard.localProfile)) {
+    if (tremola.collabboard.schema !== CB_STATE_VERSION) {
+        tremola.collabboard.objects = tremola.collabboard.objects.filter(cb_is_shared_state_event);
+        tremola.collabboard.clears = tremola.collabboard.clears.filter(cb_is_shared_state_event);
+        tremola.collabboard.mods = tremola.collabboard.mods.filter(cb_is_shared_state_event);
+        delete tremola.collabboard.profiles;
         delete tremola.collabboard.localProfile;
+        delete tremola.collabboard.mode;
+        tremola.collabboard.schema = CB_STATE_VERSION;
+        cb_state_migrated = true;
     }
     return tremola.collabboard;
+}
+
+function cb_is_shared_state_event(event) {
+    return !!event && event._board !== 'owned' && event._board !== 'profile';
 }
 
 // --- lifecycle (called from manifest "init") -------------------------------
@@ -135,9 +134,11 @@ function cb_open() {
     c.innerHTML = "<font size=+1><strong>Collaboration Board</strong></font>";
 
     cb_bind_canvas();
-    cb_board_mode = cb_state().mode === 'owned' ? 'owned' : 'open';
-    cb_prepare_profile_form();
-    cb_update_mode_ui();
+    cb_state();
+    if (cb_state_migrated) {
+        cb_state_migrated = false;
+        persist();
+    }
     cb_set_tool('select');
     cb_fit_canvas();
     if (typeof Android === 'undefined') {
@@ -189,223 +190,6 @@ function cb_status_label(status, peers, queued) {
     return 'Starting';
 }
 
-// --- board mode and profiles ----------------------------------------------
-
-function cb_set_board_mode(mode) {
-    mode = mode === 'owned' ? 'owned' : 'open';
-    if (cb_board_mode === mode && cb_state().mode === mode) {
-        cb_update_mode_ui();
-        return;
-    }
-    cb_board_mode = mode;
-    cb_state().mode = mode;
-    cb_sel = null;
-    cb_drag = null;
-    cb_draft = null;
-    cb_cam = { x: 0, y: 0 };
-    cb_set_tool('select');
-    cb_prepare_profile_form();
-    cb_update_mode_ui();
-    persist();
-    cb_redraw();
-    setTimeout(cb_fit_canvas, 0);
-}
-
-function cb_update_mode_ui() {
-    var main = document.getElementById('div:collabboard-main');
-    var open = document.getElementById('cb_mode_open');
-    var owned = document.getElementById('cb_mode_owned');
-    var profile = document.getElementById('cb_profile');
-    var clear = document.getElementById('cb_clear_btn');
-    var isOwned = cb_board_mode === 'owned';
-
-    if (main) main.classList.toggle('cb_owned', isOwned);
-    if (open) open.setAttribute('aria-pressed', isOwned ? 'false' : 'true');
-    if (owned) owned.setAttribute('aria-pressed', isOwned ? 'true' : 'false');
-    if (profile) profile.style.display = isOwned ? 'grid' : 'none';
-    if (clear) clear.setAttribute('aria-label', isOwned ? 'Clear my work' : 'Clear board');
-
-    cb_update_controls();
-    cb_refresh_people();
-    cb_update_selection_status();
-}
-
-function cb_update_controls() {
-    var hasProfile = cb_board_mode !== 'owned' || !!cb_local_profile();
-    var pen = document.getElementById('cb_tool_pen');
-    var text = document.getElementById('cb_tool_text');
-    var clear = document.getElementById('cb_clear_btn');
-    if (pen) pen.disabled = !hasProfile;
-    if (text) text.disabled = !hasProfile;
-    if (clear) clear.disabled = !hasProfile;
-}
-
-function cb_prepare_profile_form() {
-    var profile = cb_local_profile();
-    var input = document.getElementById('cb_name');
-    if (profile) {
-        cb_profile_color = profile.c;
-        if (input) input.value = profile.n;
-    } else {
-        cb_profile_color = cb_default_profile_color();
-        if (input && !input.value) input.value = '';
-    }
-    cb_render_profile_color();
-}
-
-function cb_pick_profile_color(color) {
-    color = String(color || '').toLowerCase();
-    if (CB_PROFILE_COLORS.indexOf(color) < 0) return;
-    cb_profile_color = color;
-    cb_render_profile_color();
-}
-
-function cb_render_profile_color() {
-    var palette = document.getElementById('cb_palette');
-    if (!palette || !palette.querySelectorAll) return;
-    Array.prototype.forEach.call(palette.querySelectorAll('.cb_swatch'), function (button) {
-        button.setAttribute('role', 'radio');
-        button.setAttribute('aria-checked',
-            button.getAttribute('data-color') === cb_profile_color ? 'true' : 'false');
-    });
-}
-
-function cb_save_profile() {
-    var input = document.getElementById('cb_name');
-    var name = cb_clean_name(input ? input.value : '');
-    if (!name) {
-        cb_notice('Add a name first');
-        if (input) input.focus();
-        return false;
-    }
-    if (CB_PROFILE_COLORS.indexOf(cb_profile_color) < 0) {
-        cb_profile_color = cb_default_profile_color();
-    }
-    var st = cb_state();
-    st.localProfile = { n: name, c: cb_profile_color };
-    persist();
-    var ts = cb_next_ts();
-    var profileEvent = { k: 'p', id: cb_id(ts), ts: ts, n: name, c: cb_profile_color };
-    writeLogEntry(JSON.stringify(profileEvent));
-    cb_update_mode_ui();
-    cb_notice('Saved');
-    return false;
-}
-
-function cb_local_profile() {
-    var st = cb_state();
-    if (cb_is_valid_profile_data(st.localProfile)) return st.localProfile;
-    if (typeof myId === 'string') {
-        var event = st.profiles[myId];
-        if (event) return { n: event.n, c: event.c };
-    }
-    return null;
-}
-
-function cb_profile_for(fid) {
-    var st = cb_state();
-    var event = fid ? st.profiles[fid] : null;
-    if (event) return { n: event.n, c: event.c };
-    if (fid && typeof myId === 'string' && fid === myId) return cb_local_profile();
-    var fallback = null;
-    st.objects.forEach(function (object) {
-        if (cb_event_board(object) === 'owned' && object._fid === fid &&
-            cb_clean_name(object.n) === object.n && CB_PROFILE_COLORS.indexOf(object.c) >= 0 &&
-            (!fallback || cb_compare_events(object, fallback) > 0)) {
-            fallback = object;
-        }
-    });
-    if (fallback) return { n: fallback.n, c: fallback.c };
-    return null;
-}
-
-function cb_require_profile(showNotice) {
-    var profile = cb_local_profile();
-    if (profile) return profile;
-    if (showNotice !== false) cb_notice('Add a name first');
-    var input = document.getElementById('cb_name');
-    if (input) input.focus();
-    return null;
-}
-
-function cb_clean_name(value) {
-    if (typeof value !== 'string') return '';
-    var name = value.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
-    return name.length > 0 && name.length <= 20 ? name : '';
-}
-
-function cb_is_valid_profile_data(profile) {
-    return !!profile && cb_clean_name(profile.n) === profile.n &&
-        CB_PROFILE_COLORS.indexOf(String(profile.c || '').toLowerCase()) >= 0;
-}
-
-function cb_default_profile_color() {
-    var fid = typeof myId === 'string' ? myId : 'local';
-    var hash = 0;
-    for (var i = 0; i < fid.length; i++) hash = (hash * 31 + fid.charCodeAt(i)) >>> 0;
-    return CB_PROFILE_COLORS[hash % CB_PROFILE_COLORS.length];
-}
-
-function cb_refresh_people() {
-    var box = document.getElementById('cb_people');
-    if (!box) return;
-    box.textContent = '';
-    if (cb_board_mode !== 'owned') {
-        box.style.display = 'none';
-        return;
-    }
-
-    var fids = {};
-    cb_visible_objects(cb_state()).forEach(function (object) {
-        if (object._fid) fids[object._fid] = true;
-    });
-    if (typeof myId === 'string' && cb_local_profile()) fids[myId] = true;
-    Object.keys(fids).sort(function (a, b) {
-        return cb_profile_name(a).localeCompare(cb_profile_name(b));
-    }).forEach(function (fid) {
-        var profile = cb_profile_for(fid);
-        if (!profile) return;
-        var item = document.createElement('span');
-        item.className = 'cb_person';
-        item.textContent = profile.n;
-        item.style.color = profile.c;
-        item.title = fid;
-        box.appendChild(item);
-    });
-    box.style.display = box.childNodes && box.childNodes.length ? 'flex' : 'none';
-}
-
-function cb_profile_name(fid) {
-    var profile = cb_profile_for(fid);
-    return profile ? profile.n : 'Unknown';
-}
-
-function cb_update_selection_status() {
-    var box = document.getElementById('cb_selection_status');
-    if (!box) return;
-    if (cb_board_mode !== 'owned' || !cb_sel) {
-        box.style.display = 'none';
-        box.textContent = '';
-        return;
-    }
-    var selected = cb_find_visible_object(cb_sel);
-    if (!selected) {
-        box.style.display = 'none';
-        box.textContent = '';
-        return;
-    }
-    var profile = cb_profile_for(selected._fid);
-    box.textContent = cb_profile_name(selected._fid) +
-        (cb_is_own_object(selected) ? ' · yours' : ' · view only');
-    box.style.color = profile ? profile.c : '#555555';
-    box.style.display = 'block';
-}
-
-function cb_notice(message) {
-    if (typeof launch_snackbar === 'function') launch_snackbar(message);
-    else if (typeof console !== 'undefined' && console.log) console.log(message);
-}
-
 // --- toolbar ---------------------------------------------------------------
 
 // clicking an already-active tool button turns it off again (back to select)
@@ -414,10 +198,6 @@ function cb_toggle_tool(tool) {
 }
 
 function cb_set_tool(tool) {
-    if (cb_board_mode === 'owned' && (tool === 'pen' || tool === 'text') &&
-        !cb_require_profile(true)) {
-        tool = 'select';
-    }
     cb_tool = tool;
     var pen = document.getElementById('cb_tool_pen');
     var text = document.getElementById('cb_tool_text');
@@ -434,16 +214,11 @@ function cb_set_tool(tool) {
 }
 
 function cb_color() {
-    if (cb_board_mode === 'owned') {
-        var profile = cb_local_profile();
-        return profile ? profile.c : cb_profile_color;
-    }
     var el = document.getElementById('cb_color');
     return el ? el.value : '#000000';
 }
 
 function cb_clear() {
-    if (cb_board_mode === 'owned' && !cb_require_profile(true)) return;
     var ts = cb_next_ts();
     cb_sel = null;
     cb_write_board_event({ k: 'c', id: cb_id(ts), ts: ts }, true);
@@ -464,7 +239,7 @@ function cb_bind_canvas() {
     if (col) {
         // picking a color while an object is selected recolors that object
         col.addEventListener('change', function () {
-            if (cb_board_mode !== 'open' || !cb_sel || cb_tool !== 'select') return;
+            if (!cb_sel || cb_tool !== 'select') return;
             var ts = cb_next_ts();
             var ev = { k: 'k', id: cb_id(ts), ts: ts, t: cb_sel, c: col.value };
             cb_write_board_event(ev, true);
@@ -540,14 +315,10 @@ function cb_down(e) {
         var hit = cb_hit(st, p);
         if (hit) {
             cb_sel = hit.id;
-            if (cb_board_mode === 'open') cb_sync_color_picker(st, hit);
-            if (cb_is_own_object(hit)) {
-                var xf = cb_xf(st, hit);
-                cb_drag = { mode: 'move', target: hit.id, start: p, base: xf,
-                            xf: { dx: xf.dx, dy: xf.dy, sc: xf.sc } };
-            } else {
-                cb_drag = { mode: 'inspect', target: hit.id };
-            }
+            cb_sync_color_picker(st, hit);
+            var xf = cb_xf(st, hit);
+            cb_drag = { mode: 'move', target: hit.id, start: p, base: xf,
+                        xf: { dx: xf.dx, dy: xf.dy, sc: xf.sc } };
         } else {
             cb_sel = null;
             cb_drag = { mode: 'pan', last: cb_screen_pos(cv, e) };
@@ -690,24 +461,8 @@ function cb_place_text(p) {
 // --- apply incoming events -------------------------------------------------
 
 function cb_write_board_event(event, applyLocal) {
-    var wire = cb_board_mode === 'owned' ? cb_owned_wire(event) : event;
-    writeLogEntry(JSON.stringify(wire));
-    if (applyLocal) cb_apply(wire, cb_local_header(wire.ts));
-}
-
-function cb_owned_wire(event) {
-    var wire = {};
-    Object.keys(event).forEach(function (key) { wire[key] = event[key]; });
-    if (event.k === 's' || event.k === 't') {
-        var profile = cb_local_profile();
-        if (profile) {
-            wire.n = profile.n;
-            wire.c = profile.c;
-        }
-    }
-    wire.a = event.k;
-    wire.k = 'o';
-    return wire;
+    writeLogEntry(JSON.stringify(event));
+    if (applyLocal) cb_apply(event, cb_local_header(event.ts));
 }
 
 function cb_local_header(ts) {
@@ -729,22 +484,9 @@ function cb_normalize_event(raw, header) {
         if (key !== '_fid' && key !== '_board') event[key] = obj[key];
     });
     var fid = header && typeof header.fid === 'string' ? header.fid : null;
-    if (event.k === 'o') {
-        if (!fid || typeof event.a !== 'string') return null;
-        event.k = event.a;
-        delete event.a;
-        event._board = 'owned';
-        event._fid = fid;
-        if (typeof event.c === 'string') event.c = event.c.toLowerCase();
-    } else if (event.k === 'p') {
-        if (!fid) return null;
-        event._board = 'profile';
-        event._fid = fid;
-        if (typeof event.c === 'string') event.c = event.c.toLowerCase();
-    } else {
-        event._board = 'open';
-        if (fid) event._fid = fid;
-    }
+    if (event.k === 'o' || event.k === 'p') return null;
+    event._board = 'open';
+    if (fid) event._fid = fid;
     return event;
 }
 
@@ -756,16 +498,7 @@ function cb_apply(raw, header) {
     if (st.seen.indexOf(obj.id) >= 0) return; // already applied (incl. self-echo)
     st.seen.push(obj.id);
 
-    if (obj.k === 'p') {
-        var previous = st.profiles[obj._fid];
-        if (!previous || cb_compare_events(obj, previous) > 0) {
-            st.profiles[obj._fid] = obj;
-            if (typeof myId === 'string' && obj._fid === myId) {
-                st.localProfile = { n: obj.n, c: obj.c };
-                cb_profile_color = obj.c;
-            }
-        }
-    } else if (obj.k === 'c') {
+    if (obj.k === 'c') {
         st.clears.push(obj);
     } else if (obj.k === 'm' || obj.k === 'k') {
         st.mods.push(obj);
@@ -776,8 +509,6 @@ function cb_apply(raw, header) {
     }
     cb_prune_state(st);
     persist();
-    cb_update_controls();
-    cb_refresh_people();
     cb_redraw();
     setTimeout(cb_fit_canvas, 0);
 }
@@ -808,14 +539,12 @@ function cb_redraw() {
         else cb_sel = null;
     }
     ctx.restore();
-    cb_update_selection_status();
 }
 
 function cb_visible_objects(st) {
     return st.objects
         .filter(function (o) {
-            if (cb_event_board(o) !== cb_board_mode) return false;
-            var clear = cb_latest_clear_for(st, o);
+            var clear = cb_latest_clear(st);
             return !clear || cb_compare_events(o, clear) > 0;
         })
         .sort(cb_compare_events);
@@ -824,18 +553,15 @@ function cb_visible_objects(st) {
 function cb_draw_selection(ctx, st, o) {
     var b = cb_bbox(ctx, st, o);
     ctx.save();
-    var editable = cb_is_own_object(o);
-    ctx.strokeStyle = editable ? '#2563eb' : '#777777';
+    ctx.strokeStyle = '#2563eb';
     ctx.lineWidth = 1;
     ctx.setLineDash([5, 4]);
     ctx.strokeRect(b.x - CB_SEL_PAD, b.y - CB_SEL_PAD,
                    b.w + 2 * CB_SEL_PAD, b.h + 2 * CB_SEL_PAD);
     ctx.setLineDash([]);
     var h = cb_handle_rect(b);
-    if (editable) {
-        ctx.fillStyle = '#2563eb';
-        ctx.fillRect(h.x, h.y, h.w, h.h);
-    }
+    ctx.fillStyle = '#2563eb';
+    ctx.fillRect(h.x, h.y, h.w, h.h);
     ctx.restore();
 }
 
@@ -886,14 +612,8 @@ function cb_xf(st, o) {
 
 function cb_latest_mod(st, targetId, kind) {
     var best = null;
-    var target = null;
-    st.objects.forEach(function (object) {
-        if (object.id === targetId) target = object;
-    });
     st.mods.forEach(function (m) {
-        if (m.t === targetId && m.k === kind && target &&
-            cb_event_board(m) === cb_event_board(target) &&
-            (cb_event_board(target) !== 'owned' || m._fid === target._fid) &&
+        if (m.t === targetId && m.k === kind &&
             (!best || cb_compare_events(m, best) > 0)) best = m;
     });
     return best;
@@ -901,10 +621,6 @@ function cb_latest_mod(st, targetId, kind) {
 
 // effective color: latest recolor mod wins over the object's own color
 function cb_eff_color(st, o) {
-    if (cb_event_board(o) === 'owned') {
-        var profile = cb_profile_for(o._fid);
-        return profile ? profile.c : (o.c || '#555555');
-    }
     var best = cb_latest_mod(st, o.id, 'k');
     return best ? best.c : o.c;
 }
@@ -955,7 +671,7 @@ function cb_hit_handle(st, p) {
     var ctx = cv.getContext('2d');
     var obj = null;
     cb_visible_objects(st).forEach(function (o) { if (o.id === cb_sel) obj = o; });
-    if (!obj || !cb_is_own_object(obj)) return null;
+    if (!obj) return null;
     var h = cb_handle_rect(cb_bbox(ctx, st, obj));
     var cx = h.x + h.w / 2;
     var cy = h.y + h.h / 2;
@@ -987,23 +703,6 @@ function cb_hit(st, p) {
     return hit;
 }
 
-function cb_find_visible_object(id) {
-    var found = null;
-    cb_visible_objects(cb_state()).forEach(function (object) {
-        if (object.id === id) found = object;
-    });
-    return found;
-}
-
-function cb_is_own_object(object) {
-    if (!object || cb_event_board(object) !== 'owned') return true;
-    return typeof myId === 'string' && object._fid === myId;
-}
-
-function cb_event_board(event) {
-    return event && event._board === 'owned' ? 'owned' : 'open';
-}
-
 // --- helpers ---------------------------------------------------------------
 
 function cb_id(ts) {
@@ -1019,9 +718,6 @@ function cb_next_ts() {
     st.objects.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
     st.clears.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
     st.mods.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
-    Object.keys(st.profiles).forEach(function (fid) {
-        next = Math.max(next, cb_event_ts(st.profiles[fid]));
-    });
     st.clock = next + 1;
     return st.clock;
 }
@@ -1076,18 +772,10 @@ function cb_simplify_points(points, maxPoints) {
 
 function cb_is_valid_event(obj) {
     if (!obj || typeof obj.id !== 'string' || obj.id.length > 96) return false;
-    if (obj._board === 'profile') {
-        return obj.k === 'p' && cb_is_valid_fid(obj._fid) &&
-            cb_clean_name(obj.n) === obj.n && CB_PROFILE_COLORS.indexOf(obj.c) >= 0;
-    }
-    if (typeof obj._board !== 'undefined' &&
-        obj._board !== 'open' && obj._board !== 'owned') return false;
-    if (obj._board === 'owned' && !cb_is_valid_fid(obj._fid)) return false;
+    if (typeof obj._board !== 'undefined' && obj._board !== 'open') return false;
     if (obj.k === 'c') return true;
     if (obj.k === 't') {
-        return (obj._board !== 'owned' ||
-                (cb_clean_name(obj.n) === obj.n && CB_PROFILE_COLORS.indexOf(obj.c) >= 0)) &&
-            cb_is_finite_coord(obj.x) && cb_is_finite_coord(obj.y) &&
+        return cb_is_finite_coord(obj.x) && cb_is_finite_coord(obj.y) &&
             typeof obj.s === 'string' && obj.s.length <= 1024 &&
             cb_is_valid_color(obj.c);
     }
@@ -1101,9 +789,7 @@ function cb_is_valid_event(obj) {
             typeof obj.sc === 'number' && isFinite(obj.sc) && obj.sc >= 0.05 && obj.sc <= 20;
     }
     if (obj.k === 's') {
-        return (obj._board !== 'owned' ||
-                (cb_clean_name(obj.n) === obj.n && CB_PROFILE_COLORS.indexOf(obj.c) >= 0)) &&
-            Array.isArray(obj.p) && obj.p.length > 0 && obj.p.length <= CB_MAX_INCOMING_POINTS &&
+        return Array.isArray(obj.p) && obj.p.length > 0 && obj.p.length <= CB_MAX_INCOMING_POINTS &&
             (typeof obj.w === 'undefined' || (typeof obj.w === 'number' && isFinite(obj.w) && obj.w > 0 && obj.w <= 16)) &&
             cb_is_valid_color(obj.c) &&
             obj.p.every(function (p) {
@@ -1115,29 +801,16 @@ function cb_is_valid_event(obj) {
 
 function cb_prune_state(st) {
     st.objects = st.objects.filter(function (object) {
-        var clear = cb_latest_clear_for(st, object);
+        var clear = cb_latest_clear(st);
         return !clear || cb_compare_events(object, clear) > 0;
     });
     if (st.objects.length > CB_MAX_OBJECTS) {
         st.objects = st.objects.slice().sort(cb_compare_events).slice(-CB_MAX_OBJECTS);
     }
-    // Only the newest clear for Edit all and for each Edit own author is needed.
-    var clears = {};
-    st.clears.forEach(function (clear) {
-        var key = cb_event_board(clear) + ':' +
-            (cb_event_board(clear) === 'owned' ? clear._fid : 'all');
-        if (!clears[key] || cb_compare_events(clear, clears[key]) > 0) clears[key] = clear;
-    });
-    st.clears = Object.keys(clears).map(function (key) { return clears[key]; });
-    if (st.clears.length > Math.max(CB_MAX_CLEARS, CB_MAX_PROFILES)) {
-        st.clears = st.clears.slice().sort(cb_compare_events).slice(-CB_MAX_PROFILES);
-    }
-    // Keep one candidate per author in Owned mode. This preserves an owner's
-    // valid edit even if another feed sends a newer, unauthorized edit first.
+    st.clears = st.clears.slice().sort(cb_compare_events).slice(-CB_MAX_CLEARS);
     var latest = {};
     st.mods.forEach(function (m) {
-        var key = cb_event_board(m) + ':' + m.k + ':' + m.t + ':' +
-            (cb_event_board(m) === 'owned' ? m._fid : 'all');
+        var key = m.k + ':' + m.t;
         if (!latest[key] || cb_compare_events(m, latest[key]) > 0) latest[key] = m;
     });
     st.mods = Object.keys(latest).map(function (key) { return latest[key]; });
@@ -1146,14 +819,6 @@ function cb_prune_state(st) {
     }
     if (st.seen.length > CB_MAX_SEEN) {
         st.seen = st.seen.slice(st.seen.length - CB_MAX_SEEN);
-    }
-    var profileIds = Object.keys(st.profiles);
-    if (profileIds.length > CB_MAX_PROFILES) {
-        profileIds.sort(function (a, b) {
-            return cb_compare_events(st.profiles[a], st.profiles[b]);
-        }).slice(0, profileIds.length - CB_MAX_PROFILES).forEach(function (fid) {
-            delete st.profiles[fid];
-        });
     }
 }
 
@@ -1170,24 +835,12 @@ function cb_is_valid_color(c) {
     return typeof c === 'undefined' || cb_is_picker_color(c);
 }
 
-function cb_is_valid_fid(fid) {
-    return typeof fid === 'string' && fid.length > 0 && fid.length <= 160;
-}
-
-function cb_latest_clear(st, board, fid) {
-    board = board === 'owned' ? 'owned' : 'open';
+function cb_latest_clear(st) {
     var best = null;
     (st.clears || []).forEach(function (clear) {
-        if (cb_event_board(clear) !== board) return;
-        if (board === 'owned' && clear._fid !== fid) return;
         if (!best || cb_compare_events(clear, best) > 0) best = clear;
     });
     return best;
-}
-
-function cb_latest_clear_for(st, object) {
-    var board = cb_event_board(object);
-    return cb_latest_clear(st, board, board === 'owned' ? object._fid : null);
 }
 
 function cb_compare_events(a, b) {

@@ -1,6 +1,6 @@
 # Report Basis
 
-This file is a simple technical basis for the group report. It is not the final
+This is a simple technical basis for the group report. It is not the final
 report.
 
 ## Project Goal
@@ -8,142 +8,113 @@ report.
 Build a collaborative whiteboard inside Tremola. Nearby Android phones should
 work without Internet and exchange changes over Bluetooth Low Energy.
 
-## Problem
-
-A normal web whiteboard often needs a server and a permanent connection. Our
-project should work offline and should recover missing changes when two phones
-meet again. Concurrent edits should not destroy the board state.
-
 ## Implemented Solution
 
 - Collaboration Board is a Tremola mini-app.
-- It runs in the full Tremola Android APK.
-- It supports drawing, text, moving, resizing, panning, and clearing.
-- It has a simple mobile layout with short controls and a large board area.
+- It runs inside the full Tremola Android APK.
+- Everyone can edit every board object.
+- It supports drawing, text, moving, resizing, panning, recoloring, and clearing.
+- It uses the Android color picker.
 - It stores finished actions as signed append-only log events.
-- It syncs missing log entries directly between nearby phones over BLE.
+- It sends missing log entries directly between nearby phones over BLE.
 - It rebuilds the board by replaying events.
 - It works in a browser simulator and on Android.
 
-## Two Collaboration Modes
-
-### Edit all
-
-- Keeps Max's original event format and behavior.
-- No board username is needed.
-- Everyone can move, resize, recolor, or clear shared content.
-
-### Edit own
-
-- Each person chooses a display name and one of four colors.
-- Tremola's signed feed ID is the real owner identity.
-- A person can move or resize only objects created by the same feed.
-- Foreign objects show the owner's colored name and are view only.
-- `Clear` removes only the current person's objects.
-
-Edit all and Edit own content is kept separate. The code stores them internally
-as `open` and `owned` so existing board data stays compatible.
+There are no board usernames, profiles, or owner locks.
 
 ## Why Signed Events
 
-Tremola already gives every phone a cryptographic feed identity. A board action
-can therefore be signed, saved, replayed, and verified with the same system as
-other Tremola data. The display name is not used as proof of ownership.
+Tremola gives every phone a cryptographic feed identity. Each board action can
+therefore be signed, saved, replayed, and verified with Tremola's existing log.
 
-This also supports offline work. An action stays in the local append-only log
-until another phone is available.
+This also supports offline work. An action stays in the local log until another
+phone is available.
 
-## Why Event Sync Instead Of Live Pointer Sync
+## Why Finished Actions Are Sent
 
-Pointer positions can change many times per second and would create too much
-small BLE traffic. The app sends a completed action instead:
+A finger can move many times per second. Sending every pointer position would
+create unnecessary BLE traffic. The app sends:
 
-- one stroke event after the finger is lifted
-- one event after a move or resize is finished
-- one event for text, profile, color, or clear
+- one event after a stroke
+- one event after a move or resize
+- one event for text, color, or clear
 
-Local events are queued immediately. Every 8 seconds the phones also exchange
-feed frontiers and recover anything that was missed.
+Local events are queued immediately. Every 8 seconds, phones also exchange feed
+frontiers and recover anything that was missed.
 
 ## BLE Design
 
 - Both phones scan and advertise the same GATT service.
 - They exchange the latest known sequence for each feed.
 - They send only missing log entries.
-- Large entries are divided into small BLE frames.
-- Frames are sent one at a time and checked through Android's BLE callbacks.
-- Failed or stuck transfers retry or reconnect automatically.
-- The receiver verifies the signature and feed chain.
+- Large entries are split into small BLE frames.
+- Frames are sent one at a time through Android BLE callbacks.
+- Failed or stuck transfers retry or reconnect.
+- The receiver checks the signature and feed chain.
 - Duplicate entries are ignored.
-- Offline edits arrive on the next contact.
+- Offline edits arrive after the phones reconnect.
 
 BLE is used while Tremola is open. No server or cloud is required for nearby
-board sync.
+whiteboard sync.
 
 ## Conflict Handling
 
-The board is event based. It does not modify a shared file directly.
+The board is event based. It does not modify one shared file directly.
 
-- events can arrive in a different order
-- duplicate events are ignored
-- last-write-wins is used for move, resize, color, and profile updates
-- each phone advances its logical timestamp past events it has already seen
-- event ID breaks timestamp ties
-- Edit own changes are accepted only from the object's creator feed
-- clears are separated by board mode and author
+- Events may arrive in a different order.
+- Duplicate events are ignored.
+- Last-write-wins is used for move, resize, and color changes.
+- Each phone advances its logical timestamp past events it has seen.
+- Event ID breaks timestamp ties.
+- Clear affects the complete shared board.
 
 This is a small CRDT-like operation log. It gives deterministic replay for the
 implemented actions, but it is not a general CRDT library.
 
 ## Android Integration
 
-- The complete APK is based on Uni Basel Tremola.
+- The APK is based on Uni Basel Tremola.
 - HTML, CSS, and JavaScript are bundled as Android assets.
 - Android loads them through a local HTTPS WebView origin.
 - A JavaScript bridge writes mini-app actions to Tremola's signed log.
 - Native Kotlin code handles BLE.
-- Android 7.0 and newer are supported by the build configuration.
+- Android 7.0 and newer are supported.
 
-The tinySSB Android Kanban app is useful prior work because it also shows an
-offline-first collaborative app with BLE. It is a different codebase, so our
-project keeps the Uni Basel Tremola host and uses the same general log-sync idea.
+The tinySSB Android Kanban app is useful prior work because it also combines an
+offline collaborative app with BLE. Our project keeps the Uni Basel Tremola host
+and uses the same general log-sync idea.
 
 ## Test Evidence
 
-Automated checks currently cover:
+Automated checks cover:
 
-- original Edit all event compatibility
+- Max's original shared event format
 - replay in different event orders
 - duplicate handling
-- move, resize, recolor, and clear behavior
-- profile names and four allowed colors
-- rejection of unsigned Edit own events
-- rejection of edits signed by a different owner
-- per-author clear behavior
-- profile fallback and profile updates
-- BLE frame sizing, queue limits, retry delay, and reconnect limits
-- Android unit tests, lint, APK build, signature, and bundled content
+- drawing, text, move, resize, recolor, and clear
+- editing an object created by another Tremola feed
+- arbitrary valid colors from the Android color picker
+- clock differences between phones
+- cleanup of the removed profile/owner experiment
+- BLE frame size, queues, retry delay, and reconnect limits
+- Android unit tests, lint, APK build, signature, and bundled files
 
-Browser tests also cover 360, 390, and 432 pixel phone widths and Alice/Bob
-collaboration. The remaining final test is two physical Android phones using
-native BLE.
+The remaining final test is two physical Android phones using native BLE.
 
-## Limits To State Honestly
+## Limits
 
 - The committed APK is a debug build, not a Play Store release.
-- BLE was fully built and unit tested, but still needs the final two-phone test.
+- BLE still needs the final two-phone test.
 - BLE sync is intended for the foreground while Tremola is open.
-- Board events and display names are public to nearby compatible peers.
-- Names are not global accounts and do not have to be unique.
-- Concurrent Edit all changes use deterministic last-write-wins; only one wins.
-- Edit own mode prevents cross-feed changes; it does not hide the object.
+- Whiteboard events are public to nearby compatible Tremola peers.
+- Concurrent changes use deterministic last-write-wins, so only one change wins.
 
 ## Suggested Report Structure
 
 1. Motivation and requirements
 2. Tremola, SSB logs, and prior tinySSB Kanban work
 3. Whiteboard data model
-4. Edit all and Edit own collaboration modes
+4. Shared editing workflow
 5. Android WebView integration
 6. BLE frontier and frame protocol
 7. Conflict and offline behavior
@@ -154,10 +125,10 @@ native BLE.
 ## Useful Future Work
 
 - run and document the two-phone BLE test
-- add an optional board invitation or private board encryption
-- add an optional conflict history or undo feature
-- add a foreground service only if background BLE becomes a requirement
-- prepare a release-signed APK if distribution beyond the course is needed
+- add optional board invitations or private board encryption
+- add an optional history or undo feature
+- add a foreground service only if background BLE is required
+- prepare a release-signed APK for wider distribution
 
 ## Sources
 

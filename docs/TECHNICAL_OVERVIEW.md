@@ -3,20 +3,32 @@
 ## Base
 
 - The APK is the full Uni Basel Tremola Android app with our changes.
-- The board is a Tremola mini-app written in HTML, CSS, and JavaScript.
-- The board is included in the APK and runs inside Tremola's WebView.
-- The browser version is a simulator for fast UI and replay tests.
-- The controls stay compact and the canvas fills the remaining Tremola space.
-- Android support stays at API 24 or newer, which means Android 7.0 or newer.
+- Collaboration Board is a bundled HTML, CSS, and JavaScript mini-app.
+- Android runs the mini-app inside Tremola's WebView.
+- Android 7.0 and newer are supported.
+- The browser version is a simulator for quick UI and replay tests.
 
-The older Uni Basel Tremola repo is the Android host used here. The separate
-tinySSB Android app has chat, Kanban, and BLE, but uses a different native
-architecture. We used it as a design reference instead of copying its app.
+The separate tinySSB Android app was a useful reference for offline Kanban and
+BLE. Our project keeps the Uni Basel Tremola host and its mini-app interface.
+
+## Shared Board
+
+There is one board and one edit rule: every peer can edit every object.
+
+- Draw creates a stroke.
+- Text places a text object.
+- Drag moves an object.
+- The corner handle resizes an object.
+- The Android color picker sets the drawing or text color.
+- Changing the color while an object is selected recolors that object.
+- Clear removes the complete shared board.
+
+There are no board profiles, usernames, or owner locks.
 
 ## Data Flow
 
 ```text
-board action
+finished board action
   -> mini-app event
   -> signed Tremola SSB log entry
   -> local Room database
@@ -26,113 +38,75 @@ board action
   -> mini-app replay
 ```
 
-The app does not send every pointer movement. It sends one event after a stroke,
-text placement, move, resize, color change, profile change, or clear action is
-finished. This keeps BLE traffic small.
+The app sends one event after an action is finished. It does not send every
+pointer movement. This keeps BLE traffic small.
 
 ## Board Events
 
-Edit all mode uses the internal value `open` and keeps Max's original event format:
+The board keeps Max's original shared event format:
 
 - `s` - stroke
 - `t` - text
 - `m` - move or resize
 - `k` - color change
-- `c` - clear the Edit all board
+- `c` - clear the board
 
-Edit own mode uses the internal `owned` wrapper:
-
-```json
-{"k":"o","a":"s","id":"...","n":"Alice","c":"#15803d","p":[[10,10],[20,20]]}
-```
-
-- `k: "o"` marks an Edit own event.
-- `a` contains the original action type.
-- new strokes and text include the display name and fixed profile color.
-- older Max clients ignore the new wrapper and keep working in Edit all mode.
-
-Profile records use `k: "p"` and contain a name plus one of four colors.
-
-## Identity And Ownership
-
-- Tremola creates an Ed25519 feed identity on the phone.
-- Every log event is signed by that identity.
-- Android passes the verified feed ID to the mini-app with the event header.
-- Edit own objects store that verified feed ID as their creator.
-- A move or resize is accepted only when its signed feed ID matches the creator.
-- Display names are labels only. They are not trusted for ownership.
-- Names do not need to be unique.
-
-Edit all and Edit own are separate local views of the same log. Edit all keeps
-the old shared behavior. Edit own gives each signed feed control over only its own
-objects. Foreign objects can still be selected to show the owner and `view only`
-state.
-
-Changing a profile color also changes how that person's Edit own objects
-render. `Clear` hides only objects from the same signed feed in Edit own mode.
-
-This is an edit rule, not encryption. Board names and public board events can be
-read by nearby compatible peers.
+Temporary profile and owner events from versions 0.4.3 to 0.4.5 are ignored.
+Existing events from the original shared board remain available.
 
 ## Conflict Rules
 
 - Duplicate event IDs are ignored.
 - Events can arrive in any order.
-- Move, resize, color, and profile updates use last-write-wins.
-- Each phone advances a logical timestamp past all events it has already seen.
-- The event ID is the tie-breaker when timestamps match.
-- Edit own changes from a different feed are ignored for the target object.
-- Clear events are separate for Edit all and for each Edit own author.
+- Move, resize, and color updates use last-write-wins.
+- Each phone advances a logical timestamp past all events it has seen.
+- The event ID breaks a timestamp tie.
 - State is rebuilt by replaying the signed event log.
 
-The test suite replays events in different orders and checks that the same board
-state is produced. It also tests clear, move, and resize with a phone clock that
-is one minute ahead.
+The tests replay events in different orders. They also check clock differences,
+global clear, and edits made by a different Tremola feed.
 
 ## BLE Transport
 
-- Each phone advertises and scans for one Tremola GATT service.
-- A phone can act as both BLE client and GATT server.
-- Peers exchange a frontier: the newest sequence number known for each feed.
-- Only missing signed log entries are requested and sent.
-- A local completed event is queued immediately.
+- Each phone scans and advertises one Tremola GATT service.
+- A phone can be both BLE client and GATT server.
+- Peers exchange the newest sequence known for each feed.
+- Only missing signed log entries are sent.
+- A finished local event is queued immediately.
 - Frontier recovery runs every 8 seconds.
-- Large JSON messages are split into MTU-safe frames and rebuilt on receipt.
-- A complete frame batch is accepted or rejected as one queue operation.
-- GATT writes and notifications wait for their result before sending the next frame.
-- Failed operations retry with a short delay; missing callbacks reconnect the peer.
-- Turning Bluetooth off and on restarts BLE without restarting Tremola.
+- Large messages are split into MTU-safe frames.
+- GATT operations are sent one at a time.
+- Failed or stuck operations retry or reconnect.
+- Turning Bluetooth off and on restarts BLE sync.
 - Signatures and feed-chain links are checked before storage.
-- Duplicate or already known entries are ignored.
 - BLE is intended for use while Tremola is open.
 
-Private Tremola chat entries remain encrypted when moved over BLE. Collaboration
-Board events are public SSB entries.
+Private Tremola chat entries stay encrypted over BLE. Whiteboard events are
+public SSB entries.
 
 ## WebView
 
-Android loads the bundled web files through `WebViewAssetLoader` at a local HTTPS
+Android loads bundled web files through `WebViewAssetLoader` at a local HTTPS
 origin. File access and universal file URL access are disabled. JavaScript is
-required because Tremola's original UI and all mini-apps use JavaScript. The
-native bridge accepts a small set of Tremola commands, including signed mini-app
-log writes and BLE controls.
+required because Tremola and its mini-apps use JavaScript. A small native bridge
+writes signed log entries and exposes BLE status.
 
 ## Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- App version: `0.4.5`
+- App version: `0.4.6`
 - Minimum Android: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
-- Edit all event format: unchanged from Max's implementation
-- Edit own events: ignored by older board code
-- Existing Edit all objects remain available after update
-- BLE peers must use this APK; the separate tinySSB Kanban app uses another BLE format
+- Shared event format: unchanged from Max's implementation
+- Existing shared objects remain available after update
+- BLE peers should use the same APK
+- The tinySSB Kanban app uses a different BLE format
 
 ## Checks
 
-`./scripts/check.sh` performs:
+`./scripts/check.sh` runs:
 
-- browser/Android mini-app mirror check
+- browser and Android mini-app mirror check
 - JavaScript syntax and board behavior tests
 - Android BLE unit tests
 - Android lint
@@ -140,18 +114,16 @@ log writes and BLE controls.
 - APK signature and content check
 - SHA-256 checksum generation
 
-Browser checks cover mobile widths, profile setup, two-peer event delivery, and
-the foreign-object lock. The only remaining functional check is native BLE on
-two real Android phones.
+The remaining final check is BLE sync between two real Android phones.
 
 ## Main Files
 
 - `miniApps/collabboard/` - mini-app source
 - `app/src/main/assets/web/miniApps/collabboard/` - APK copy
 - `WebAppInterface.kt` - WebView to Tremola bridge
-- `TremolaState.kt` - safe local signed-log append
+- `TremolaState.kt` - signed-log append and storage
 - `BleSync.kt` - BLE discovery, framing, and frontier sync
-- `tests/collabboard.test.js` - board and ownership tests
+- `tests/collabboard.test.js` - board tests
 - `BleSyncTest.kt` - BLE frame and queue tests
 
 ## References
