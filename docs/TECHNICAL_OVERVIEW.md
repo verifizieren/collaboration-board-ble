@@ -17,6 +17,7 @@ There is one board and one edit rule: every peer can edit every object.
 
 - Draw creates a stroke.
 - Text places a text object.
+- Draw and Text stay active until their button is tapped again.
 - Drag moves an object.
 - The corner handle resizes an object.
 - The Android color picker sets the drawing or text color.
@@ -73,7 +74,8 @@ global clear, and edits made by a different Tremola feed.
 - Peers exchange the newest sequence known for each feed.
 - Only missing signed log entries are sent.
 - A finished local event is queued immediately.
-- Frontier recovery runs every 8 seconds.
+- The local board applies the action immediately before the signed echo returns.
+- Frontier recovery runs every 5 seconds.
 - Large messages are split into MTU-safe frames.
 - GATT operations are sent one at a time.
 - Failed or stuck operations retry or reconnect.
@@ -94,7 +96,7 @@ writes signed log entries and exposes BLE status.
 ## Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- App version: `0.4.6`
+- App version: `0.4.7`
 - Minimum Android: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Shared event format: unchanged from Max's implementation

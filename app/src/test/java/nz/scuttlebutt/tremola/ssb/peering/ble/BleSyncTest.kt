@@ -35,4 +35,35 @@ class BleSyncTest {
         assertEquals(false, BleSync.shouldDropLinkAfterFailures(2))
         assertEquals(true, BleSync.shouldDropLinkAfterFailures(3))
     }
+
+    @Test
+    fun everyReadyGattDirectionCarriesTheSameSyncMessage() {
+        assertEquals(
+            BleSync.ROUTE_CLIENT or BleSync.ROUTE_SERVER,
+            BleSync.outboundRouteMask(
+                hasClient = true,
+                clientReady = true,
+                hasServer = true,
+                serverSubscribed = true
+            )
+        )
+        assertEquals(
+            BleSync.ROUTE_SERVER,
+            BleSync.outboundRouteMask(
+                hasClient = true,
+                clientReady = false,
+                hasServer = true,
+                serverSubscribed = true
+            )
+        )
+        assertEquals(
+            BleSync.ROUTE_CLIENT,
+            BleSync.outboundRouteMask(
+                hasClient = true,
+                clientReady = false,
+                hasServer = false,
+                serverSubscribed = false
+            )
+        )
+    }
 }

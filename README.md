@@ -40,6 +40,9 @@ See [`install/README.md`](install/README.md) for simple install steps.
 4. Open **Collaboration Board**.
 5. Use **Draw**, **Text**, the color picker, or **Clear**.
 
+**Draw** and **Text** stay active for repeated work. Tap the active button again
+to move or resize objects.
+
 Tremola creates a local cryptographic identity on first start. There is no
 central account or server login.
 
@@ -73,7 +76,7 @@ With USB debugging enabled:
 
 For the real test, install the same APK on two phones and keep Tremola open on
 both. A finished action is sent immediately. Feed frontiers
-are also exchanged every 8 seconds so missed events can be recovered.
+are also exchanged every 5 seconds so missed events can be recovered.
 
 ## Browser Preview
 

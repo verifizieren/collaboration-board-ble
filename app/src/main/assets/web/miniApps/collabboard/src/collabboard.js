@@ -4,9 +4,9 @@
  *
  * A shared canvas. Pen strokes and text labels are written to the append-only
  * log via writeLogEntry() and replayed on every peer via the
- * "incoming_notification" callback. The log is the single source of truth:
- * the author applies its own change only when it comes back as a notification,
- * so authors and peers stay in sync through the exact same code path.
+ * "incoming_notification" callback. Finished local actions are also applied
+ * immediately so a WebView redraw cannot hide them while the signed log echo
+ * is still on its way. The echo is deduplicated by the event id.
  *
  * Event payloads (the object passed to writeLogEntry):
  *   stroke: { k:'s', id, c:<color>, w:<width>, p:[[x,y], ...] }
@@ -54,8 +54,8 @@ console.log("Collaboration Board loaded");
 
 // 'select' is the default mode: drag empty space to pan the camera, tap an
 // object to select it, drag it to move, drag the corner handle to resize.
-// Pen and Text are one-shot tools: after a stroke or a placed text the board
-// falls back to select mode.
+// Pen and Text stay active until their button is tapped again. This makes
+// repeated drawing and text placement predictable on a phone.
 var cb_tool = 'select';
 var cb_draft = null;
 // Camera: world coordinate shown at the canvas top-left. Objects live in an
@@ -412,8 +412,7 @@ function cb_up(e) {
     d.p = cb_simplify_points(d.p, CB_MAX_STROKE_POINTS);
     d.ts = cb_next_ts();
     d.id = cb_id(d.ts);
-    cb_write_board_event(d, false);
-    cb_set_tool('select'); // one-shot: back to the default mode
+    cb_write_board_event(d, true);
 }
 
 function cb_leave(e) {
@@ -453,9 +452,9 @@ function cb_place_text(p) {
     var ts = cb_next_ts();
     cb_write_board_event({
         k: 't', id: cb_id(ts), ts: ts, c: cb_color(), x: p[0], y: p[1], s: cb_enc(s)
-    }, false);
+    }, true);
     inp.value = '';
-    cb_set_tool('select'); // one-shot: back to the default mode
+    inp.focus();
 }
 
 // --- apply incoming events -------------------------------------------------

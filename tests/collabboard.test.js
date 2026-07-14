@@ -141,6 +141,49 @@ function finishTransform(board, transform) {
     });
 }
 
+// Android posts the signed log echo asynchronously. A completed local stroke
+// must already be in state before another tap causes a canvas redraw.
+const immediateStrokeBoard = loadBoard();
+immediateStrokeBoard.cb_tool = "pen";
+immediateStrokeBoard.cb_pointer_id = 23;
+immediateStrokeBoard.cb_draft = {
+    k: "s", c: "#2563eb", w: 2, p: [[8, 8], [18, 18]]
+};
+immediateStrokeBoard.cb_up({
+    pointerId: 23,
+    currentTarget: {
+        style: {},
+        releasePointerCapture: function () {},
+        hasPointerCapture: function () { return false; }
+    },
+    preventDefault: function () {}
+});
+assert.strictEqual(immediateStrokeBoard.writes.length, 1);
+assert.strictEqual(immediateStrokeBoard.cb_tool, "pen");
+assert.strictEqual(snapshot(immediateStrokeBoard).length, 1);
+apply(immediateStrokeBoard, immediateStrokeBoard.writes[0], "@alice.ed25519");
+assert.strictEqual(snapshot(immediateStrokeBoard).length, 1);
+
+// Text uses the same immediate path and remains active for another label.
+const immediateTextBoard = loadBoard();
+const immediateTextInput = {
+    value: "Persistent text",
+    style: {},
+    focus: function () {}
+};
+immediateTextBoard.document.getElementById = function (id) {
+    if (id === "cb_text") return immediateTextInput;
+    if (id === "cb_color") return { value: "#2563eb" };
+    return null;
+};
+immediateTextBoard.cb_tool = "text";
+immediateTextBoard.cb_place_text([30, 40]);
+assert.strictEqual(immediateTextBoard.writes.length, 1);
+assert.strictEqual(immediateTextBoard.cb_tool, "text");
+assert.strictEqual(snapshot(immediateTextBoard).length, 1);
+apply(immediateTextBoard, immediateTextBoard.writes[0], "@alice.ed25519");
+assert.strictEqual(snapshot(immediateTextBoard).length, 1);
+
 finishTransform(transformSender, { mode: "move", dx: 30, dy: -10, sc: 1 });
 assert.strictEqual(transformSender.writes[0].k, "m");
 assert.ok(transformSender.writes[0].ts > futureTransform.ts);

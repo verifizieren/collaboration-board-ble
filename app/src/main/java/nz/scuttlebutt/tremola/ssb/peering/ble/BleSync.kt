@@ -867,9 +867,10 @@ class BleSync(
         sendJsonToPeer(peerAddress, frontierMessage())
     }
 
-    private fun frontierMessage(): JSONObject {
+    private fun frontierMessage(requestReply: Boolean = true): JSONObject {
         val msg = JSONObject()
         msg.put("t", "frontier")
+        msg.put("reply", requestReply)
         val feeds = JSONObject()
         localFrontier().forEach { (lid, seq) -> feeds.put(lid, seq) }
         msg.put("feeds", feeds)
@@ -897,6 +898,9 @@ class BleSync(
             "frontier" -> {
                 val feeds = msg.optJSONObject("feeds") ?: JSONObject()
                 sendMissingEntries(peerAddress, feeds)
+                if (msg.optBoolean("reply", false)) {
+                    sendJsonToPeer(peerAddress, frontierMessage(false))
+                }
             }
             "event" -> {
                 val raw = Base64.decode(msg.getString("raw"), Base64.NO_WRAP)
@@ -956,15 +960,20 @@ class BleSync(
     private fun sendJsonToPeer(peerAddress: String, msg: JSONObject): Boolean {
         val client = clientLinks[peerAddress]
         val server = serverLinks[peerAddress]
-        if (client != null && client.ready) {
-            return enqueueClient(client, msg)
+        val routes = outboundRouteMask(
+            hasClient = client != null,
+            clientReady = client?.ready == true,
+            hasServer = server != null,
+            serverSubscribed = server?.subscribed == true
+        )
+        var accepted = false
+        if (client != null && routes and ROUTE_CLIENT != 0) {
+            accepted = enqueueClient(client, msg) || accepted
         }
-        if (server != null && server.subscribed) {
-            return enqueueServer(server, msg)
+        if (server != null && routes and ROUTE_SERVER != 0) {
+            accepted = enqueueServer(server, msg) || accepted
         }
-        if (client != null) return enqueueClient(client, msg)
-        if (server != null) return enqueueServer(server, msg)
-        return false
+        return accepted
     }
 
     private fun enqueueClient(link: ClientLink, msg: JSONObject): Boolean {
@@ -1241,7 +1250,7 @@ class BleSync(
         private const val MAX_INBOUND_MESSAGES = 32
         private const val MAX_QUEUED_FRAMES_PER_LINK = 2048
         private const val MAX_EVENTS_PER_PULSE = 24
-        private const val SYNC_INTERVAL_SECONDS = 8L
+        private const val SYNC_INTERVAL_SECONDS = 5L
         private const val SCAN_WINDOW_SECONDS = 5L
         private const val SCAN_RESTART_MS = 7000L
         private const val INBOUND_TTL_MS = 30000L
@@ -1268,6 +1277,24 @@ class BleSync(
 
         internal fun shouldDropLinkAfterFailures(failures: Int): Boolean {
             return failures >= MAX_FRAME_OPERATION_FAILURES
+        }
+
+        internal const val ROUTE_CLIENT = 1
+        internal const val ROUTE_SERVER = 2
+
+        internal fun outboundRouteMask(
+            hasClient: Boolean,
+            clientReady: Boolean,
+            hasServer: Boolean,
+            serverSubscribed: Boolean
+        ): Int {
+            var routes = 0
+            if (hasClient && clientReady) routes = routes or ROUTE_CLIENT
+            if (hasServer && serverSubscribed) routes = routes or ROUTE_SERVER
+            if (routes != 0) return routes
+            if (hasClient) return ROUTE_CLIENT
+            if (hasServer) return ROUTE_SERVER
+            return 0
         }
 
         val SERVICE_UUID: UUID = UUID.fromString("1d38bfa0-a38d-43f2-bbd4-aad371520001")

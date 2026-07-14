@@ -39,7 +39,7 @@ create unnecessary BLE traffic. The app sends:
 - one event after a move or resize
 - one event for text, color, or clear
 
-Local events are queued immediately. Every 8 seconds, phones also exchange feed
+Local events are queued immediately. Every 5 seconds, phones also exchange feed
 frontiers and recover anything that was missed.
 
 ## BLE Design
