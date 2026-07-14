@@ -228,7 +228,7 @@ assert.deepStrictEqual(paintCalls, [
 ]);
 assert.strictEqual(paintContext.fillStyle, "#ffffff");
 
-// Freeform mode keeps Max's original event format and behavior.
+// Edit all mode keeps Max's original event format and behavior.
 const compatibility = loadBoard();
 compatibility.cb_board_mode = "open";
 compatibility.cb_write_board_event({
@@ -259,20 +259,20 @@ const bobUnauthorizedMove = owned("m", {
     id: "bob-attack-1", ts: 99, t: "alice-stroke-1", dx: 900, dy: 900, sc: 4
 });
 
-const profilesBoard = loadBoard();
-apply(profilesBoard, aliceProfile, alice);
-apply(profilesBoard, bobProfile, bob);
-apply(profilesBoard, bobUnauthorizedMove, bob); // can arrive before its target
-apply(profilesBoard, aliceMove, alice);
-apply(profilesBoard, bobStroke, bob);
-apply(profilesBoard, aliceStroke, alice);
-profilesBoard.cb_board_mode = "owned";
-let ownedSnapshot = snapshot(profilesBoard);
+const editOwnBoard = loadBoard();
+apply(editOwnBoard, aliceProfile, alice);
+apply(editOwnBoard, bobProfile, bob);
+apply(editOwnBoard, bobUnauthorizedMove, bob); // can arrive before its target
+apply(editOwnBoard, aliceMove, alice);
+apply(editOwnBoard, bobStroke, bob);
+apply(editOwnBoard, aliceStroke, alice);
+editOwnBoard.cb_board_mode = "owned";
+let ownedSnapshot = snapshot(editOwnBoard);
 assert.deepStrictEqual(ownedSnapshot.map(function (item) { return item.id; }), ["alice-stroke-1", "bob-stroke-1"]);
 assert.deepStrictEqual(ownedSnapshot[0].transform, { dx: 12, dy: 4, sc: 1.2 });
 assert.strictEqual(ownedSnapshot[0].color, "#2563eb");
 assert.strictEqual(ownedSnapshot[1].color, "#dc2626");
-assert.strictEqual(profilesBoard.cb_state().mods.length, 2);
+assert.strictEqual(editOwnBoard.cb_state().mods.length, 2);
 
 // Owned creates are self-describing and keep Max's event inside a wrapper.
 const ownedWire = loadBoard();
@@ -309,13 +309,13 @@ profileFallback.cb_board_mode = "owned";
 assert.strictEqual(snapshot(profileFallback)[0].color, "#15803d");
 
 // A local user may only edit objects signed by the same Tremola feed.
-profilesBoard.myId = alice;
-assert.strictEqual(profilesBoard.cb_is_own_object(profilesBoard.cb_find_visible_object("alice-stroke-1")), true);
-assert.strictEqual(profilesBoard.cb_is_own_object(profilesBoard.cb_find_visible_object("bob-stroke-1")), false);
+editOwnBoard.myId = alice;
+assert.strictEqual(editOwnBoard.cb_is_own_object(editOwnBoard.cb_find_visible_object("alice-stroke-1")), true);
+assert.strictEqual(editOwnBoard.cb_is_own_object(editOwnBoard.cb_find_visible_object("bob-stroke-1")), false);
 
 // Owned clear is per author. Alice's clear leaves Bob's object visible.
-apply(profilesBoard, owned("c", { id: "alice-clear-1", ts: 40 }), alice);
-ownedSnapshot = snapshot(profilesBoard);
+apply(editOwnBoard, owned("c", { id: "alice-clear-1", ts: 40 }), alice);
+ownedSnapshot = snapshot(editOwnBoard);
 assert.deepStrictEqual(ownedSnapshot.map(function (item) { return item.id; }), ["bob-stroke-1"]);
 
 // Missing verified author metadata is rejected for Owned and profile events.

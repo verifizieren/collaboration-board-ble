@@ -20,8 +20,8 @@ Tremola creates its identity automatically. No server login is needed.
 
 ## Board Modes
 
-- **Freeform:** no name is needed; everyone can edit every object.
-- **Profiles:** enter a name and choose one of four colors; only the creator can
+- **Edit all:** no name is needed; everyone can edit every object.
+- **Edit own:** enter a name and choose one of four colors; only the creator can
   move or resize an object. Other people can select it only to see its owner.
 
 Use the same mode on both phones.
@@ -53,9 +53,9 @@ does not use the same BLE format.
 5. Wait until the board shows a nearby peer.
 6. Draw on phone A and check phone B.
 7. Add text on phone B and check phone A.
-8. In Profiles mode, verify that foreign objects say **view only**.
+8. In Edit own mode, verify that foreign objects say **view only**.
 9. Disconnect the phones, edit both, reconnect, and check recovery.
-10. Test **Clear** in both modes. In Profiles, it removes only your work.
+10. Test **Clear** in both modes. In Edit own, it removes only your work.
 
 If no peer appears:
 

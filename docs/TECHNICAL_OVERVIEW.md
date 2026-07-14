@@ -32,44 +32,44 @@ finished. This keeps BLE traffic small.
 
 ## Board Events
 
-Freeform mode uses the internal value `open` and keeps Max's original event format:
+Edit all mode uses the internal value `open` and keeps Max's original event format:
 
 - `s` - stroke
 - `t` - text
 - `m` - move or resize
 - `k` - color change
-- `c` - clear the Freeform board
+- `c` - clear the Edit all board
 
-Profiles mode uses the internal `owned` wrapper:
+Edit own mode uses the internal `owned` wrapper:
 
 ```json
 {"k":"o","a":"s","id":"...","n":"Alice","c":"#15803d","p":[[10,10],[20,20]]}
 ```
 
-- `k: "o"` marks a Profiles event.
+- `k: "o"` marks an Edit own event.
 - `a` contains the original action type.
 - new strokes and text include the display name and fixed profile color.
-- older Max clients ignore the new wrapper and keep working in Freeform mode.
+- older Max clients ignore the new wrapper and keep working in Edit all mode.
 
-Profiles use `k: "p"` and contain a name plus one of four colors.
+Profile records use `k: "p"` and contain a name plus one of four colors.
 
 ## Identity And Ownership
 
 - Tremola creates an Ed25519 feed identity on the phone.
 - Every log event is signed by that identity.
 - Android passes the verified feed ID to the mini-app with the event header.
-- Profiles objects store that verified feed ID as their creator.
+- Edit own objects store that verified feed ID as their creator.
 - A move or resize is accepted only when its signed feed ID matches the creator.
 - Display names are labels only. They are not trusted for ownership.
 - Names do not need to be unique.
 
-Freeform and Profiles are separate local views of the same log. Freeform keeps
-the old shared behavior. Profiles gives each signed feed control over only its own
+Edit all and Edit own are separate local views of the same log. Edit all keeps
+the old shared behavior. Edit own gives each signed feed control over only its own
 objects. Foreign objects can still be selected to show the owner and `view only`
 state.
 
-Changing a profile color also changes how that person's Profiles objects
-render. `Clear` hides only objects from the same signed feed in Profiles mode.
+Changing a profile color also changes how that person's Edit own objects
+render. `Clear` hides only objects from the same signed feed in Edit own mode.
 
 This is an edit rule, not encryption. Board names and public board events can be
 read by nearby compatible peers.
@@ -81,8 +81,8 @@ read by nearby compatible peers.
 - Move, resize, color, and profile updates use last-write-wins.
 - Each phone advances a logical timestamp past all events it has already seen.
 - The event ID is the tie-breaker when timestamps match.
-- Profiles edits from a different feed are ignored for the target object.
-- Clear events are separate for Freeform and for each Profiles author.
+- Edit own changes from a different feed are ignored for the target object.
+- Clear events are separate for Edit all and for each Edit own author.
 - State is rebuilt by replaying the signed event log.
 
 The test suite replays events in different orders and checks that the same board
@@ -120,12 +120,12 @@ log writes and BLE controls.
 ## Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- App version: `0.4.4`
+- App version: `0.4.5`
 - Minimum Android: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
-- Freeform event format: unchanged from Max's implementation
-- Profiles events: ignored by older board code
-- Existing Freeform objects remain available after update
+- Edit all event format: unchanged from Max's implementation
+- Edit own events: ignored by older board code
+- Existing Edit all objects remain available after update
 - BLE peers must use this APK; the separate tinySSB Kanban app uses another BLE format
 
 ## Checks

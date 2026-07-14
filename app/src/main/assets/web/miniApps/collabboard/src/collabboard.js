@@ -18,7 +18,7 @@
  *   owned:  { k:'o', a:<operation kind>, ...operation fields }
  *   profile:{ k:'p', id, n:<display name>, c:<one of four colors> }
  *
- * Freeform events keep Max's original wire format. Profiles operations use the
+ * Edit all events keep Max's original wire format. Edit own operations use the
  * internal `owned` wrapper, so an older Collaboration Board ignores them instead
  * of showing a partially compatible board. Ownership comes from the verified SSB header,
  * never from the user-supplied display name.
@@ -1121,7 +1121,7 @@ function cb_prune_state(st) {
     if (st.objects.length > CB_MAX_OBJECTS) {
         st.objects = st.objects.slice().sort(cb_compare_events).slice(-CB_MAX_OBJECTS);
     }
-    // Only the newest clear for Freeform and for each Profiles author is needed.
+    // Only the newest clear for Edit all and for each Edit own author is needed.
     var clears = {};
     st.clears.forEach(function (clear) {
         var key = cb_event_board(clear) + ':' +

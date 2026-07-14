@@ -13,11 +13,11 @@ A shared whiteboard mini-app inside Tremola for Android.
 
 There are two board modes:
 
-- **Freeform** keeps Max's original behavior. Everyone can edit everything.
-- **Profiles** uses a name and one of four colors. People can edit only their own
+- **Edit all** keeps Max's original behavior. Everyone can edit everything.
+- **Edit own** uses a name and one of four colors. People can edit only their own
   objects. Foreign objects are view only.
 
-The modes use separate views. Old Freeform content is not changed by Profiles mode.
+The modes use separate views. Old Edit all content is not changed by Edit own mode.
 
 ## Android APK
 
@@ -42,11 +42,11 @@ See [`install/README.md`](install/README.md) for simple install steps.
 2. Allow Bluetooth and location access.
 3. Open the mini-apps view.
 4. Open **Collaboration Board**.
-5. Choose **Freeform** or **Profiles**.
-6. In Profiles mode, enter a name, choose a color, and press **Save**.
+5. Choose **Edit all** or **Edit own**.
+6. In Edit own mode, enter a name, choose a color, and press **Save**.
 
 Tremola creates a local cryptographic identity on first start. There is no
-central account or server login. The Profiles name is only a board label.
+central account or server login. The name in Edit own mode is only a board label.
 
 ## Check And Build
 

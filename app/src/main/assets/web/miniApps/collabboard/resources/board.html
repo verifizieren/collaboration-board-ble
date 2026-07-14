@@ -1,9 +1,11 @@
 <div id='div:collabboard-main' style='display: none;'>
   <div id='cb_mode_switch' class='cb_segmented' role='group' aria-label='Editing mode'>
     <button id='cb_mode_open' type='button' aria-pressed='true'
-            onclick='cb_set_board_mode("open")'>Freeform</button>
+            aria-label='Everyone can edit all objects'
+            onclick='cb_set_board_mode("open")'>Edit all</button>
     <button id='cb_mode_owned' type='button' aria-pressed='false'
-            onclick='cb_set_board_mode("owned")'>Profiles</button>
+            aria-label='Edit only your own objects'
+            onclick='cb_set_board_mode("owned")'>Edit own</button>
   </div>
   <form id='cb_profile' class='cb_profile' style='display: none;'
         aria-label='Profile' onsubmit='cb_save_profile(); return false;'>
