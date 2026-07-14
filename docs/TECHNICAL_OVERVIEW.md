@@ -18,10 +18,12 @@ There is one board and one edit rule: every peer can edit every object.
 - Draw creates a stroke.
 - Text places a text object.
 - Draw and Text stay active until their button is tapped again.
+- Edit selects an object.
 - Drag moves an object.
 - The corner handle resizes an object.
 - The Android color picker sets the drawing or text color.
 - Changing the color while an object is selected recolors that object.
+- Delete removes one selected object.
 - Clear removes the complete shared board.
 
 There are no board profiles, usernames, or owner locks.
@@ -44,12 +46,13 @@ pointer movement. This keeps BLE traffic small.
 
 ## Board Events
 
-The board keeps Max's original shared event format:
+The board keeps Max's original shared events and adds one delete event:
 
 - `s` - stroke
 - `t` - text
 - `m` - move or resize
 - `k` - color change
+- `d` - delete one object
 - `c` - clear the board
 
 Temporary profile and owner events from versions 0.4.3 to 0.4.5 are ignored.
@@ -59,7 +62,7 @@ Existing events from the original shared board remain available.
 
 - Duplicate event IDs are ignored.
 - Events can arrive in any order.
-- Move, resize, and color updates use last-write-wins.
+- Move, resize, color, and delete updates converge in any arrival order.
 - Each phone advances a logical timestamp past all events it has seen.
 - The event ID breaks a timestamp tie.
 - State is rebuilt by replaying the signed event log.
@@ -75,7 +78,8 @@ global clear, and edits made by a different Tremola feed.
 - Only missing signed log entries are sent.
 - A finished local event is queued immediately.
 - The local board applies the action immediately before the signed echo returns.
-- Frontier recovery runs every 5 seconds.
+- Frontier recovery runs every 3 seconds.
+- A valid event that arrives too early waits for its missing feed entries.
 - Large messages are split into MTU-safe frames.
 - GATT operations are sent one at a time.
 - Failed or stuck operations retry or reconnect.
@@ -96,10 +100,10 @@ writes signed log entries and exposes BLE status.
 ## Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- App version: `0.4.8`
+- App version: `0.4.9`
 - Minimum Android: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
-- Shared event format: unchanged from Max's implementation
+- Max's stroke, text, move, color, and clear event formats are unchanged
 - Existing shared objects remain available after update
 - BLE peers should use the same APK
 - The tinySSB Kanban app uses a different BLE format

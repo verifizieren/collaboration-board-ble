@@ -15,9 +15,11 @@
  *   modify: { k:'m', id, t:<targetId>, dx, dy, sc } — move/scale an object;
  *           absolute offset+scale relative to the original, last write wins
  *   recolor:{ k:'k', id, t:<targetId>, c:<color> } — last write wins
+ *   delete: { k:'d', id, t:<targetId> } — removes one object
  *
- * All events keep Max's original shared wire format. Every peer may edit every
- * object. Retired profile/owner events from experimental builds are ignored.
+ * Max's stroke, text, move, color, and clear formats stay unchanged; delete is
+ * one small extension. Every peer may edit every object. Retired profile/owner
+ * events from experimental builds are ignored.
  *
  * The virtual backend delivers an author's own write twice, so every event
  * carries a unique id and we drop ids we have already applied (cb_state.seen).
@@ -79,8 +81,9 @@ var CB_MAX_INCOMING_POINTS = 512;
 var CB_HISTORY_LIMIT = 2500;
 var CB_MAX_OBJECTS = 1500;
 var CB_MAX_CLEARS = 8;
+var CB_MAX_DELETES = 2000;
 var CB_MAX_SEEN = 4000;
-var CB_STATE_VERSION = 2;
+var CB_STATE_VERSION = 3;
 // generous bound for the "infinite" world plane; only guards against garbage
 var CB_COORD_LIMIT = 1000000;
 
@@ -89,11 +92,12 @@ var CB_COORD_LIMIT = 1000000;
 function cb_state() {
     if (typeof tremola.collabboard == "undefined") {
         tremola.collabboard = {
-            objects: [], clears: [], seen: [], mods: [], schema: CB_STATE_VERSION
+            objects: [], clears: [], deletes: [], seen: [], mods: [], schema: CB_STATE_VERSION
         };
     }
     if (!Array.isArray(tremola.collabboard.objects)) tremola.collabboard.objects = [];
     if (!Array.isArray(tremola.collabboard.clears)) tremola.collabboard.clears = [];
+    if (!Array.isArray(tremola.collabboard.deletes)) tremola.collabboard.deletes = [];
     if (!Array.isArray(tremola.collabboard.seen)) tremola.collabboard.seen = [];
     if (!Array.isArray(tremola.collabboard.mods)) tremola.collabboard.mods = [];
     if (typeof tremola.collabboard.clock !== 'number' ||
@@ -103,6 +107,7 @@ function cb_state() {
     if (tremola.collabboard.schema !== CB_STATE_VERSION) {
         tremola.collabboard.objects = tremola.collabboard.objects.filter(cb_is_shared_state_event);
         tremola.collabboard.clears = tremola.collabboard.clears.filter(cb_is_shared_state_event);
+        tremola.collabboard.deletes = tremola.collabboard.deletes.filter(cb_is_shared_state_event);
         tremola.collabboard.mods = tremola.collabboard.mods.filter(cb_is_shared_state_event);
         delete tremola.collabboard.profiles;
         delete tremola.collabboard.localProfile;
@@ -201,8 +206,19 @@ function cb_set_tool(tool) {
     cb_tool = tool;
     var pen = document.getElementById('cb_tool_pen');
     var text = document.getElementById('cb_tool_text');
-    if (pen) pen.classList.toggle('cb_active', tool === 'pen');
-    if (text) text.classList.toggle('cb_active', tool === 'text');
+    var edit = document.getElementById('cb_tool_select');
+    if (pen) {
+        pen.classList.toggle('cb_active', tool === 'pen');
+        pen.setAttribute('aria-pressed', tool === 'pen' ? 'true' : 'false');
+    }
+    if (text) {
+        text.classList.toggle('cb_active', tool === 'text');
+        text.setAttribute('aria-pressed', tool === 'text' ? 'true' : 'false');
+    }
+    if (edit) {
+        edit.classList.toggle('cb_active', tool === 'select');
+        edit.setAttribute('aria-pressed', tool === 'select' ? 'true' : 'false');
+    }
     var cv = document.getElementById('cb_canvas');
     if (cv) cv.style.cursor = (tool === 'select') ? 'grab' : 'crosshair';
     var inp = document.getElementById('cb_text');
@@ -210,6 +226,7 @@ function cb_set_tool(tool) {
         inp.style.display = (tool === 'text') ? null : 'none';
         if (tool === 'text') inp.focus();
     }
+    cb_update_selection_controls();
     setTimeout(cb_fit_canvas, 0);
 }
 
@@ -221,7 +238,22 @@ function cb_color() {
 function cb_clear() {
     var ts = cb_next_ts();
     cb_sel = null;
+    cb_update_selection_controls();
     cb_write_board_event({ k: 'c', id: cb_id(ts), ts: ts }, true);
+}
+
+function cb_delete_selected() {
+    if (!cb_sel || cb_tool !== 'select') return;
+    var target = cb_sel;
+    var ts = cb_next_ts();
+    cb_sel = null;
+    cb_update_selection_controls();
+    cb_write_board_event({ k: 'd', id: cb_id(ts), ts: ts, t: target }, true);
+}
+
+function cb_update_selection_controls() {
+    var button = document.getElementById('cb_delete_btn');
+    if (button) button.disabled = !cb_sel || cb_tool !== 'select';
 }
 
 // --- pointer input ---------------------------------------------------------
@@ -299,6 +331,10 @@ function cb_down(e) {
     var p = cb_pos(cv, e);
     if (cb_tool === 'text') {
         cb_place_text(p);
+        // Text placement finishes on pointer-down. Do not wait for pointer-up:
+        // focusing the input can retarget that event in Android WebView and
+        // otherwise leave the board locked to the old pointer id.
+        cb_pointer_id = null;
         return;
     }
     if (cb_tool === 'select') {
@@ -324,6 +360,7 @@ function cb_down(e) {
             cb_drag = { mode: 'pan', last: cb_screen_pos(cv, e) };
             cv.style.cursor = 'grabbing';
         }
+        cb_update_selection_controls();
         if (cv.setPointerCapture) cv.setPointerCapture(e.pointerId);
         cb_redraw();
         setTimeout(cb_fit_canvas, 0);
@@ -501,6 +538,8 @@ function cb_apply(raw, header) {
         st.clears.push(obj);
     } else if (obj.k === 'm' || obj.k === 'k') {
         st.mods.push(obj);
+    } else if (obj.k === 'd') {
+        st.deletes.push(obj);
     } else {
         if (!st.objects.some(function (o) { return o.id === obj.id; })) {
             st.objects.push(obj);
@@ -537,14 +576,24 @@ function cb_redraw() {
         if (selObj) cb_draw_selection(ctx, st, selObj);
         else cb_sel = null;
     }
+    cb_update_selection_controls();
     ctx.restore();
 }
 
 function cb_visible_objects(st) {
+    var clear = cb_latest_clear(st);
+    var latestDeletes = Object.create(null);
+    (st.deletes || []).forEach(function (deletion) {
+        if (!latestDeletes[deletion.t] ||
+            cb_compare_events(deletion, latestDeletes[deletion.t]) > 0) {
+            latestDeletes[deletion.t] = deletion;
+        }
+    });
     return st.objects
         .filter(function (o) {
-            var clear = cb_latest_clear(st);
-            return !clear || cb_compare_events(o, clear) > 0;
+            if (clear && cb_compare_events(o, clear) <= 0) return false;
+            var deletion = latestDeletes[o.id];
+            return !deletion || cb_compare_events(o, deletion) > 0;
         })
         .sort(cb_compare_events);
 }
@@ -723,6 +772,7 @@ function cb_next_ts() {
     var next = Math.max(Date.now(), st.clock || 0);
     st.objects.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
     st.clears.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
+    st.deletes.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
     st.mods.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
     st.clock = next + 1;
     return st.clock;
@@ -789,6 +839,9 @@ function cb_is_valid_event(obj) {
         return typeof obj.t === 'string' && obj.t.length > 0 && obj.t.length <= 96 &&
             typeof obj.c === 'string' && cb_is_valid_color(obj.c);
     }
+    if (obj.k === 'd') {
+        return typeof obj.t === 'string' && obj.t.length > 0 && obj.t.length <= 96;
+    }
     if (obj.k === 'm') {
         return typeof obj.t === 'string' && obj.t.length > 0 && obj.t.length <= 96 &&
             cb_is_finite_coord(obj.dx) && cb_is_finite_coord(obj.dy) &&
@@ -806,15 +859,33 @@ function cb_is_valid_event(obj) {
 }
 
 function cb_prune_state(st) {
+    var clear = cb_latest_clear(st);
+    st.clears = st.clears.slice().sort(cb_compare_events).slice(-CB_MAX_CLEARS);
+
+    var latestDeletes = Object.create(null);
+    st.deletes.forEach(function (deletion) {
+        if (clear && cb_compare_events(deletion, clear) <= 0) return;
+        if (!latestDeletes[deletion.t] ||
+            cb_compare_events(deletion, latestDeletes[deletion.t]) > 0) {
+            latestDeletes[deletion.t] = deletion;
+        }
+    });
+    st.deletes = Object.keys(latestDeletes).map(function (target) {
+        return latestDeletes[target];
+    });
+    if (st.deletes.length > CB_MAX_DELETES) {
+        st.deletes = st.deletes.slice().sort(cb_compare_events).slice(-CB_MAX_DELETES);
+    }
+
     st.objects = st.objects.filter(function (object) {
-        var clear = cb_latest_clear(st);
-        return !clear || cb_compare_events(object, clear) > 0;
+        if (clear && cb_compare_events(object, clear) <= 0) return false;
+        var deletion = latestDeletes[object.id];
+        return !deletion || cb_compare_events(object, deletion) > 0;
     });
     if (st.objects.length > CB_MAX_OBJECTS) {
         st.objects = st.objects.slice().sort(cb_compare_events).slice(-CB_MAX_OBJECTS);
     }
-    st.clears = st.clears.slice().sort(cb_compare_events).slice(-CB_MAX_CLEARS);
-    var latest = {};
+    var latest = Object.create(null);
     st.mods.forEach(function (m) {
         var key = m.k + ':' + m.t;
         if (!latest[key] || cb_compare_events(m, latest[key]) > 0) latest[key] = m;

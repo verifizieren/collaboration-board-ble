@@ -66,4 +66,16 @@ class BleSyncTest {
             )
         )
     }
+
+    @Test
+    fun outOfOrderFeedEventsAreBufferedUntilTheirPredecessorArrives() {
+        assertEquals(true, BleSync.isNextEvent(null, null, 1, null))
+        assertEquals(false, BleSync.isNextEvent(null, null, 2, "%first"))
+        assertEquals(true, BleSync.shouldBufferEvent(null, 2))
+
+        assertEquals(true, BleSync.isNextEvent(4, "%four", 5, "%four"))
+        assertEquals(false, BleSync.isNextEvent(4, "%four", 5, "%fork"))
+        assertEquals(false, BleSync.shouldBufferEvent(4, 5))
+        assertEquals(true, BleSync.shouldBufferEvent(4, 6))
+    }
 }

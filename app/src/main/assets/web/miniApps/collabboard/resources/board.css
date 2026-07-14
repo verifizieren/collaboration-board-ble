@@ -26,12 +26,20 @@
 
 #cb_toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 44px;
   gap: 5px;
   align-items: stretch;
   padding: 0;
   margin: 0 0 6px;
   box-sizing: border-box;
+}
+
+#cb_delete_btn {
+  grid-column: 1 / span 2;
+}
+
+#cb_clear_btn {
+  grid-column: 3 / span 2;
 }
 
 .cb_tool {
@@ -50,10 +58,11 @@
 }
 
 .cb_tool.cb_active {
-  border-color: #bfd1ed;
-  background: var(--cb-accent-soft);
-  color: #174f9f;
+  border-color: #174f9f;
+  background: var(--cb-accent);
+  color: #ffffff;
   font-weight: 600;
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.22);
 }
 
 .cb_tool:disabled {
@@ -153,7 +162,7 @@
   }
 
   .cb_tool.cb_active:hover {
-    background: #dfeaf9;
+    background: #1d529f;
   }
 }
 

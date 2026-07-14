@@ -84,12 +84,20 @@ assert.strictEqual(forward.cb_state().mods.length, 2);
 assert.strictEqual(forward.cb_state().seen.length, 4);
 
 const clear = { k: "c", id: "peer-150-1", ts: 150 };
+const deletion = { k: "d", id: "peer-140-1", ts: 140, t: stroke.id };
 const text = {
     k: "t", id: "peer-160-1", ts: 160, c: "#000000",
     x: 12, y: 18, s: "SGVsbG8="
 };
 const cleared = replay([winningMove, text, clear, stroke]);
 assert.deepStrictEqual(snapshot(cleared).map(function (item) { return item.id; }), [text.id]);
+
+// A per-object deletion converges even if it arrives before the object.
+const deletedForward = replay([stroke, deletion]);
+const deletedReverse = replay([deletion, stroke]);
+assert.deepStrictEqual(snapshot(deletedForward), []);
+assert.deepStrictEqual(snapshot(deletedReverse), []);
+assert.strictEqual(deletedForward.cb_state().deletes.length, 1);
 
 // Clear must work in the Android host even when window.confirm returns false.
 // A logical timestamp also makes it newer than content from a fast device clock.
@@ -198,6 +206,167 @@ assert.strictEqual(snapshot(immediateTextBoard).length, 1);
 apply(immediateTextBoard, immediateTextBoard.writes[0], "@alice.ed25519");
 assert.strictEqual(snapshot(immediateTextBoard).length, 1);
 
+// Delete uses the same immediate signed-event path as the other board actions.
+const immediateDeleteBoard = loadBoard();
+apply(immediateDeleteBoard, stroke, "@alice.ed25519");
+immediateDeleteBoard.cb_tool = "select";
+immediateDeleteBoard.cb_sel = stroke.id;
+immediateDeleteBoard.cb_delete_selected();
+assert.strictEqual(immediateDeleteBoard.writes.length, 1);
+assert.strictEqual(immediateDeleteBoard.writes[0].k, "d");
+assert.strictEqual(immediateDeleteBoard.writes[0].t, stroke.id);
+assert.deepStrictEqual(snapshot(immediateDeleteBoard), []);
+apply(immediateDeleteBoard, immediateDeleteBoard.writes[0], "@alice.ed25519");
+assert.deepStrictEqual(snapshot(immediateDeleteBoard), []);
+
+function pointerHarness(board, colorValue) {
+    const colorListeners = {};
+    const context = {
+        save: function () {},
+        restore: function () {},
+        translate: function () {},
+        clearRect: function () {},
+        fillRect: function () {},
+        beginPath: function () {},
+        moveTo: function () {},
+        lineTo: function () {},
+        stroke: function () {},
+        fill: function () {},
+        arc: function () {},
+        strokeRect: function () {},
+        setLineDash: function () {},
+        fillText: function () {},
+        measureText: function (value) { return { width: String(value).length * 8 }; }
+    };
+    const canvas = {
+        width: 320,
+        height: 240,
+        style: {},
+        captured: null,
+        addEventListener: function () {},
+        getContext: function () { return context; },
+        getBoundingClientRect: function () {
+            return { left: 0, top: 0, width: 320, height: 240 };
+        },
+        setPointerCapture: function (id) { this.captured = id; },
+        hasPointerCapture: function (id) { return this.captured === id; },
+        releasePointerCapture: function () { this.captured = null; }
+    };
+    const color = {
+        value: colorValue,
+        addEventListener: function (name, handler) { colorListeners[name] = handler; }
+    };
+    const textInput = { value: "", style: {}, focus: function () {} };
+    const deleteButton = { disabled: true };
+    board.document.getElementById = function (id) {
+        if (id === "cb_canvas") return canvas;
+        if (id === "cb_color") return color;
+        if (id === "cb_text") return textInput;
+        if (id === "cb_delete_btn") return deleteButton;
+        return null;
+    };
+    board.window.addEventListener = function () {};
+    board.cb_redraw = function () {};
+    board.cb_bind_canvas();
+    return {
+        canvas: canvas,
+        color: color,
+        colorListeners: colorListeners,
+        textInput: textInput,
+        deleteButton: deleteButton,
+        context: context
+    };
+}
+
+function pointerEvent(canvas, id, x, y) {
+    return {
+        currentTarget: canvas,
+        pointerId: id,
+        isPrimary: true,
+        clientX: x,
+        clientY: y,
+        preventDefault: function () {}
+    };
+}
+
+// Full phone gesture path: draw -> remote replay -> move -> resize -> recolor.
+const gestureSender = loadBoard();
+const gestureReceiver = loadBoard();
+const gestureUi = pointerHarness(gestureSender, "#e11d48");
+gestureSender.cb_set_tool("pen");
+gestureSender.cb_down(pointerEvent(gestureUi.canvas, 31, 20, 20));
+gestureSender.cb_move(pointerEvent(gestureUi.canvas, 31, 40, 40));
+gestureSender.cb_up(pointerEvent(gestureUi.canvas, 31, 40, 40));
+assert.strictEqual(gestureSender.writes[0].k, "s");
+assert.strictEqual(gestureSender.writes[0].c, "#e11d48");
+apply(gestureReceiver, gestureSender.writes[0], "@alice.ed25519");
+assert.strictEqual(snapshot(gestureReceiver)[0].color, "#e11d48");
+
+gestureSender.cb_set_tool("select");
+gestureSender.cb_down(pointerEvent(gestureUi.canvas, 32, 30, 30));
+gestureSender.cb_move(pointerEvent(gestureUi.canvas, 32, 60, 50));
+gestureSender.cb_up(pointerEvent(gestureUi.canvas, 32, 60, 50));
+assert.strictEqual(gestureSender.writes[1].k, "m");
+apply(gestureReceiver, gestureSender.writes[1], "@alice.ed25519");
+assert.deepStrictEqual(snapshot(gestureReceiver)[0].transform, { dx: 30, dy: 20, sc: 1 });
+
+const gestureState = gestureSender.cb_state();
+const gestureObject = gestureSender.cb_visible_objects(gestureState)[0];
+const gestureBox = gestureSender.cb_bbox(gestureUi.context, gestureState, gestureObject);
+const gestureHandle = gestureSender.cb_handle_rect(gestureBox);
+const handleX = gestureHandle.x + gestureHandle.w / 2;
+const handleY = gestureHandle.y + gestureHandle.h / 2;
+gestureSender.cb_down(pointerEvent(gestureUi.canvas, 33, handleX, handleY));
+gestureSender.cb_move(pointerEvent(gestureUi.canvas, 33, handleX + 24, handleY + 24));
+gestureSender.cb_up(pointerEvent(gestureUi.canvas, 33, handleX + 24, handleY + 24));
+assert.strictEqual(gestureSender.writes[2].k, "m");
+assert.ok(gestureSender.writes[2].sc > 1);
+apply(gestureReceiver, gestureSender.writes[2], "@alice.ed25519");
+assert.ok(snapshot(gestureReceiver)[0].transform.sc > 1);
+
+gestureUi.color.value = "#16a34a";
+gestureUi.colorListeners.change();
+assert.strictEqual(gestureSender.writes[3].k, "k");
+apply(gestureReceiver, gestureSender.writes[3], "@alice.ed25519");
+assert.strictEqual(snapshot(gestureReceiver)[0].color, "#16a34a");
+
+gestureSender.cb_delete_selected();
+assert.strictEqual(gestureSender.writes[4].k, "d");
+apply(gestureReceiver, gestureSender.writes[4], "@alice.ed25519");
+assert.deepStrictEqual(snapshot(gestureReceiver), []);
+
+// Text has its own color and is also visible immediately on the other board.
+gestureUi.color.value = "#7c3aed";
+gestureUi.textInput.value = "Shared text";
+gestureSender.cb_set_tool("text");
+gestureSender.cb_down(pointerEvent(gestureUi.canvas, 34, 90, 80));
+assert.strictEqual(gestureSender.cb_pointer_id, null);
+gestureSender.cb_up(pointerEvent(gestureUi.canvas, 34, 90, 80));
+assert.strictEqual(gestureSender.writes[5].k, "t");
+apply(gestureReceiver, gestureSender.writes[5], "@alice.ed25519");
+assert.strictEqual(snapshot(gestureReceiver)[0].color, "#7c3aed");
+
+// Repeated drawing keeps each chosen Android color, even with reverse replay.
+const multiColorSender = loadBoard();
+const multiColorReceiver = loadBoard();
+const multiColorUi = pointerHarness(multiColorSender, "#dc2626");
+multiColorSender.cb_set_tool("pen");
+multiColorSender.cb_down(pointerEvent(multiColorUi.canvas, 41, 15, 15));
+multiColorSender.cb_move(pointerEvent(multiColorUi.canvas, 41, 35, 25));
+multiColorSender.cb_up(pointerEvent(multiColorUi.canvas, 41, 35, 25));
+multiColorUi.color.value = "#0891b2";
+multiColorSender.cb_down(pointerEvent(multiColorUi.canvas, 42, 60, 60));
+multiColorSender.cb_move(pointerEvent(multiColorUi.canvas, 42, 80, 75));
+multiColorSender.cb_up(pointerEvent(multiColorUi.canvas, 42, 80, 75));
+assert.strictEqual(multiColorSender.cb_tool, "pen");
+assert.strictEqual(multiColorSender.writes.length, 2);
+apply(multiColorReceiver, multiColorSender.writes[1], "@alice.ed25519");
+apply(multiColorReceiver, multiColorSender.writes[0], "@alice.ed25519");
+assert.deepStrictEqual(
+    snapshot(multiColorReceiver).map(function (item) { return item.color; }),
+    ["#dc2626", "#0891b2"]
+);
+
 finishTransform(transformSender, { mode: "move", dx: 30, dy: -10, sc: 1 });
 assert.strictEqual(transformSender.writes[0].k, "m");
 assert.ok(transformSender.writes[0].ts > futureTransform.ts);
@@ -233,6 +402,45 @@ validation.cb_cancel({
 assert.strictEqual(validation.cb_pointer_id, null);
 assert.strictEqual(validation.cb_drag, null);
 assert.strictEqual(validation.cb_draft, null);
+
+function modeButton() {
+    return {
+        active: false,
+        pressed: "false",
+        classList: {
+            toggle: function (name, value) {
+                if (name === "cb_active") this.owner.active = value;
+            },
+            owner: null
+        },
+        setAttribute: function (name, value) {
+            if (name === "aria-pressed") this.pressed = value;
+        }
+    };
+}
+
+const modeBoard = loadBoard();
+const penButton = modeButton();
+const textButton = modeButton();
+const editButton = modeButton();
+penButton.classList.owner = penButton;
+textButton.classList.owner = textButton;
+editButton.classList.owner = editButton;
+modeBoard.document.getElementById = function (id) {
+    if (id === "cb_tool_pen") return penButton;
+    if (id === "cb_tool_text") return textButton;
+    if (id === "cb_tool_select") return editButton;
+    return null;
+};
+modeBoard.cb_set_tool("pen");
+assert.strictEqual(penButton.active, true);
+assert.strictEqual(penButton.pressed, "true");
+assert.strictEqual(editButton.active, false);
+modeBoard.cb_toggle_tool("pen");
+assert.strictEqual(modeBoard.cb_tool, "select");
+assert.strictEqual(penButton.active, false);
+assert.strictEqual(editButton.active, true);
+assert.strictEqual(editButton.pressed, "true");
 
 const statusBoard = loadBoard();
 const statusBox = { className: "" };
@@ -316,6 +524,13 @@ assert.deepStrictEqual(
     [stroke.id, "bob-text-1"]
 );
 
+// Any peer may delete an object created by another feed.
+apply(sharedBoard, { k: "d", id: "bob-delete-1", ts: 425, t: stroke.id }, bob);
+assert.deepStrictEqual(
+    snapshot(sharedBoard).map(function (item) { return item.id; }),
+    ["bob-text-1"]
+);
+
 // Clear is shared too: any peer clears the complete board.
 apply(sharedBoard, { k: "c", id: "bob-clear-1", ts: 430 }, bob);
 assert.deepStrictEqual(snapshot(sharedBoard), []);
@@ -389,12 +604,13 @@ migration.tremola.collabboard = {
     mode: "owned"
 };
 const migrated = migration.cb_state();
-assert.strictEqual(migrated.schema, 2);
+assert.strictEqual(migrated.schema, 3);
 assert.deepStrictEqual(migrated.objects.map(function (item) { return item.id; }), [stroke.id]);
 assert.deepStrictEqual(migrated.clears, []);
 assert.deepStrictEqual(migrated.mods, []);
 assert.strictEqual(Object.prototype.hasOwnProperty.call(migrated, "mode"), false);
 assert.strictEqual(Object.prototype.hasOwnProperty.call(migrated, "profiles"), false);
+assert.strictEqual(migrated.deletes.length, 0);
 
 const boardMarkup = fs.readFileSync(
     path.join(root, "miniApps/collabboard/resources/board.html"),
@@ -403,6 +619,8 @@ const boardMarkup = fs.readFileSync(
 assert.strictEqual(boardMarkup.includes("cb_mode_switch"), false);
 assert.strictEqual(boardMarkup.includes("cb_profile"), false);
 assert.strictEqual(boardMarkup.includes("type='color'"), true);
+assert.strictEqual(boardMarkup.includes("cb_tool_select"), true);
+assert.strictEqual(boardMarkup.includes("cb_delete_btn"), true);
 
 [
     "manifest.json",

@@ -21,6 +21,7 @@ Tremola creates its identity automatically. No server login is needed.
 ## Shared Board
 
 - Everyone can edit every object.
+- Use **Edit** to select, move, resize, recolor, or delete any object.
 - Use the Android color picker for drawing, text, or recoloring an object.
 - No board name or profile is needed.
 
@@ -51,9 +52,9 @@ does not use the same BLE format.
 5. Wait until the board shows a nearby peer.
 6. Draw on phone A and check phone B.
 7. Add text on phone B and check phone A.
-8. Move, resize, and recolor phone A's object on phone B.
+8. Move, resize, recolor, and delete phone A's object on phone B.
 9. Disconnect the phones, edit both, reconnect, and check recovery.
-10. Test **Clear**. It removes the complete shared board.
+10. Test **Clear all**. It removes the complete shared board.
 
 If no peer appears:
 

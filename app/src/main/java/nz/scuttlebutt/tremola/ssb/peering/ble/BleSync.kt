@@ -67,6 +67,7 @@ class BleSync(
     private val clientLinks = ConcurrentHashMap<String, ClientLink>()
     private val serverLinks = ConcurrentHashMap<String, ServerLink>()
     private val inbound = ConcurrentHashMap<String, InboundMessage>()
+    private val pendingEvents = ConcurrentHashMap<FeedSequence, PendingEvent>()
     private val remoteFeedIds = ConcurrentHashMap<String, String>()
     private val connecting = ConcurrentHashMap.newKeySet<String>()
     private val nextMessageId = AtomicInteger(1)
@@ -117,6 +118,13 @@ class BleSync(
         val total: Int,
         val createdAt: Long = System.currentTimeMillis(),
         val chunks: MutableMap<Int, ByteArray> = mutableMapOf()
+    )
+
+    private data class FeedSequence(val feedId: String, val sequence: Int)
+
+    private data class PendingEvent(
+        val entry: LogEntry,
+        val createdAt: Long = System.currentTimeMillis()
     )
 
     private data class OutboundAttempt(
@@ -202,6 +210,7 @@ class BleSync(
         serverLinks.clear()
         connecting.clear()
         inbound.clear()
+        pendingEvents.clear()
         remoteFeedIds.clear()
         reportStatus("BLE stopped")
         if (shutdownWorker) worker.shutdownNow()
@@ -939,22 +948,57 @@ class BleSync(
     private fun ingestRawEvent(peerAddress: String, raw: ByteArray) {
         val body = raw.decodeToString()
         val entry = tremolaState.msgTypes.jsonToLogEntry(body, raw) ?: return
-        if (tremolaState.logDAO.getEventByHashId(entry.hid).isNotEmpty()) return
+        val key = FeedSequence(entry.lid, entry.lsq)
+        if (tremolaState.logDAO.getEventByHashId(entry.hid).isNotEmpty()) {
+            pendingEvents.remove(key)
+            return
+        }
 
         val latest = tremolaState.logDAO.getMostRecentEventFromLogId(entry.lid)
-        val chainOk = if (entry.lsq == 1) {
-            latest == null
-        } else {
-            latest != null && latest.lsq + 1 == entry.lsq && latest.hid == entry.pre
-        }
+        val chainOk = isNextEvent(latest?.lsq, latest?.hid, entry.lsq, entry.pre)
         if (!chainOk) {
+            if (shouldBufferEvent(latest?.lsq, entry.lsq)) {
+                rememberPendingEvent(entry)
+            }
             Log.d(TAG, "missing chain before ${entry.lid}/${entry.lsq}, latest=${latest?.lsq}")
             sendFrontier(peerAddress)
             return
         }
 
+        acceptVerifiedEvent(entry)
+        drainPendingEvents(entry.lid)
+    }
+
+    private fun rememberPendingEvent(entry: LogEntry) {
+        val key = FeedSequence(entry.lid, entry.lsq)
+        if (pendingEvents.containsKey(key)) return
+        if (pendingEvents.size >= MAX_PENDING_EVENTS) {
+            pendingEvents.entries.minByOrNull { it.value.createdAt }?.let {
+                pendingEvents.remove(it.key, it.value)
+            }
+        }
+        pendingEvents.putIfAbsent(key, PendingEvent(entry))
+    }
+
+    private fun acceptVerifiedEvent(entry: LogEntry) {
+        if (tremolaState.logDAO.getEventByHashId(entry.hid).isNotEmpty()) return
         tremolaState.wai.rx_event(entry)
         Log.i(TAG, "accepted event ${entry.lsq} from ${shortPeer(entry.lid)}")
+    }
+
+    private fun drainPendingEvents(feedId: String) {
+        while (true) {
+            val latest = tremolaState.logDAO.getMostRecentEventFromLogId(feedId)
+            val nextSequence = (latest?.lsq ?: 0) + 1
+            val key = FeedSequence(feedId, nextSequence)
+            val pending = pendingEvents.remove(key) ?: return
+            val entry = pending.entry
+            if (!isNextEvent(latest?.lsq, latest?.hid, entry.lsq, entry.pre)) {
+                Log.w(TAG, "discarding forked pending event ${entry.lid}/${entry.lsq}")
+                continue
+            }
+            acceptVerifiedEvent(entry)
+        }
     }
 
     private fun sendJsonToAll(msg: JSONObject) {
@@ -1204,6 +1248,8 @@ class BleSync(
     private fun pruneInbound() {
         val deadline = System.currentTimeMillis() - INBOUND_TTL_MS
         inbound.entries.removeIf { it.value.createdAt < deadline }
+        val pendingDeadline = System.currentTimeMillis() - PENDING_EVENT_TTL_MS
+        pendingEvents.entries.removeIf { it.value.createdAt < pendingDeadline }
     }
 
     private fun payloadSize(mtu: Int): Int {
@@ -1218,7 +1264,7 @@ class BleSync(
             synchronized(link) { link.queue.size + if (link.writing) 1 else 0 }
         } + serverLinks.values.sumOf { link ->
             synchronized(link) { link.queue.size + if (link.sending) 1 else 0 }
-        }
+        } + pendingEvents.size
         Log.i(TAG, "$text (peers=${peers.size}, queue=$queued)")
         val status = JSONObject.quote(text)
         val js = "if (typeof b2f_ble_status === 'function') " +
@@ -1255,12 +1301,14 @@ class BleSync(
         private const val MAX_FRAME_PAYLOAD = 180
         private const val MAX_CHUNKS = 1024
         private const val MAX_INBOUND_MESSAGES = 32
+        private const val MAX_PENDING_EVENTS = 512
         private const val MAX_QUEUED_FRAMES_PER_LINK = 2048
-        private const val MAX_EVENTS_PER_PULSE = 24
-        private const val SYNC_INTERVAL_SECONDS = 5L
+        private const val MAX_EVENTS_PER_PULSE = 64
+        private const val SYNC_INTERVAL_SECONDS = 3L
         private const val SCAN_WINDOW_SECONDS = 5L
         private const val SCAN_RESTART_MS = 7000L
         private const val INBOUND_TTL_MS = 30000L
+        private const val PENDING_EVENT_TTL_MS = 300000L
         private const val GATT_OPERATION_TIMEOUT_SECONDS = 2L
         private const val FRAME_OPERATION_TIMEOUT_MS = 5000L
         private const val CLIENT_SETUP_TIMEOUT_MS = 15000L
@@ -1277,6 +1325,20 @@ class BleSync(
         internal fun canQueueFrames(queued: Int, batch: Int): Boolean {
             return batch > 0 && batch <= MAX_QUEUED_FRAMES_PER_LINK &&
                 queued >= 0 && queued + batch <= MAX_QUEUED_FRAMES_PER_LINK
+        }
+
+        internal fun isNextEvent(
+            latestSequence: Int?,
+            latestHash: String?,
+            incomingSequence: Int,
+            incomingPrevious: String?
+        ): Boolean {
+            if (latestSequence == null) return incomingSequence == 1
+            return incomingSequence == latestSequence + 1 && incomingPrevious == latestHash
+        }
+
+        internal fun shouldBufferEvent(latestSequence: Int?, incomingSequence: Int): Boolean {
+            return incomingSequence > (latestSequence ?: 0) + 1
         }
 
         internal fun frameRetryDelayMillis(failures: Int): Long {

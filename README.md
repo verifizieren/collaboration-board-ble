@@ -6,6 +6,7 @@ A shared whiteboard mini-app inside Tremola for Android.
 
 - Draw and add text.
 - Move and resize objects.
+- Delete one selected object or clear the board.
 - Choose any color with the Android color picker.
 - Pan around the board.
 - Use a simple layout that fits normal Android phone screens.
@@ -38,10 +39,10 @@ See [`install/README.md`](install/README.md) for simple install steps.
 2. Allow Bluetooth and location access.
 3. Open the mini-apps view.
 4. Open **Collaboration Board**.
-5. Use **Draw**, **Text**, the color picker, or **Clear**.
+5. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, or **Clear all**.
 
-**Draw** and **Text** stay active for repeated work. Tap the active button again
-to move or resize objects.
+**Draw** and **Text** stay active for repeated work. Use **Edit** and tap an
+object to move, resize, recolor, or delete it.
 
 Tremola creates a local cryptographic identity on first start. There is no
 central account or server login.
@@ -76,7 +77,7 @@ With USB debugging enabled:
 
 For the real test, install the same APK on two phones and keep Tremola open on
 both. A finished action is sent immediately. Feed frontiers
-are also exchanged every 5 seconds so missed events can be recovered.
+are also exchanged every 3 seconds so missed events can be recovered.
 
 ## Browser Preview
 

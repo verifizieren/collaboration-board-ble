@@ -13,7 +13,7 @@ work without Internet and exchange changes over Bluetooth Low Energy.
 - Collaboration Board is a Tremola mini-app.
 - It runs inside the full Tremola Android APK.
 - Everyone can edit every board object.
-- It supports drawing, text, moving, resizing, panning, recoloring, and clearing.
+- It supports drawing, text, moving, resizing, panning, recoloring, deleting, and clearing.
 - It uses the Android color picker.
 - It stores finished actions as signed append-only log events.
 - It sends missing log entries directly between nearby phones over BLE.
@@ -37,9 +37,9 @@ create unnecessary BLE traffic. The app sends:
 
 - one event after a stroke
 - one event after a move or resize
-- one event for text, color, or clear
+- one event for text, color, delete, or clear
 
-Local events are queued immediately. Every 5 seconds, phones also exchange feed
+Local events are queued immediately. Every 3 seconds, phones also exchange feed
 frontiers and recover anything that was missed.
 
 ## BLE Design
@@ -51,6 +51,7 @@ frontiers and recover anything that was missed.
 - Frames are sent one at a time through Android BLE callbacks.
 - Failed or stuck transfers retry or reconnect.
 - The receiver checks the signature and feed chain.
+- An early event waits until its missing predecessor arrives.
 - Duplicate entries are ignored.
 - Offline edits arrive after the phones reconnect.
 
@@ -63,7 +64,7 @@ The board is event based. It does not modify one shared file directly.
 
 - Events may arrive in a different order.
 - Duplicate events are ignored.
-- Last-write-wins is used for move, resize, and color changes.
+- Move, resize, color, and delete events converge in any arrival order.
 - Each phone advances its logical timestamp past events it has seen.
 - Event ID breaks timestamp ties.
 - Clear affects the complete shared board.
@@ -91,12 +92,12 @@ Automated checks cover:
 - Max's original shared event format
 - replay in different event orders
 - duplicate handling
-- drawing, text, move, resize, recolor, and clear
+- drawing, text, move, resize, recolor, delete, and clear
 - editing an object created by another Tremola feed
 - arbitrary valid colors from the Android color picker
 - clock differences between phones
 - cleanup of the removed profile/owner experiment
-- BLE frame size, queues, retry delay, and reconnect limits
+- BLE frame size, queues, event order, retry delay, and reconnect limits
 - Android unit tests, lint, APK build, signature, and bundled files
 
 The remaining final test is two physical Android phones using native BLE.
