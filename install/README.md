@@ -43,6 +43,9 @@ If more than one phone is connected:
 
 ## Test BLE With Two Phones
 
+Use this APK on both phones. The separate tinySSB Kanban app is a reference and
+does not use the same BLE format.
+
 1. Install the same APK on both phones.
 2. Enable Bluetooth on both phones.
 3. Keep Tremola open on both phones.

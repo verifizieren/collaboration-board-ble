@@ -125,6 +125,7 @@ log writes and BLE controls.
 - Open event format: unchanged from Max's implementation
 - Protected/profile events: ignored by older board code
 - Existing Open objects remain available after update
+- BLE peers must use this APK; the separate tinySSB Kanban app uses another BLE format
 
 ## Checks
 
