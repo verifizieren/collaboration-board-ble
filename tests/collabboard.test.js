@@ -127,9 +127,42 @@ statusBoard.document.getElementById = function (id) {
 };
 statusBoard.cb_ble_status("BLE sync active", 1, 3);
 assert.strictEqual(statusBox.className, "cb_sync_status cb_sync_ready");
-assert.strictEqual(statusText.textContent, "BLE sync active | peers 1 | queue 3");
+assert.strictEqual(statusText.textContent, "Syncing");
+assert.strictEqual(statusBox.title, "BLE sync active | peers 1 | queue 3");
 statusBoard.cb_ble_status("Bluetooth disabled", 0, 0);
 assert.strictEqual(statusBox.className, "cb_sync_status cb_sync_error");
+assert.strictEqual(statusText.textContent, "Bluetooth off");
+assert.strictEqual(statusBoard.cb_status_label("Browser preview", 0, 0), "Preview");
+assert.strictEqual(statusBoard.cb_status_label("BLE sync active", 1, 0), "1 nearby");
+assert.strictEqual(statusBoard.cb_status_label("BLE sync active", 2, 0), "2 nearby");
+assert.strictEqual(statusBoard.cb_status_label("Permission required", 0, 0), "Allow Bluetooth");
+
+const paintBoard = loadBoard();
+const paintCalls = [];
+const paintContext = {
+    fillStyle: null,
+    clearRect: function (x, y, width, height) {
+        paintCalls.push(["clear", x, y, width, height]);
+    },
+    fillRect: function (x, y, width, height) {
+        paintCalls.push(["fill", x, y, width, height]);
+    },
+    save: function () {},
+    translate: function () {},
+    restore: function () {}
+};
+paintBoard.document.getElementById = function (id) {
+    if (id === "cb_canvas") {
+        return { width: 320, height: 200, getContext: function () { return paintContext; } };
+    }
+    return null;
+};
+paintBoard.cb_redraw();
+assert.deepStrictEqual(paintCalls, [
+    ["clear", 0, 0, 320, 200],
+    ["fill", 0, 0, 320, 200]
+]);
+assert.strictEqual(paintContext.fillStyle, "#ffffff");
 
 // Open mode keeps Max's original event format and behavior.
 const compatibility = loadBoard();

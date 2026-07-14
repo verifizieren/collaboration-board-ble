@@ -6,6 +6,7 @@
 - The board is a Tremola mini-app written in HTML, CSS, and JavaScript.
 - The board is included in the APK and runs inside Tremola's WebView.
 - The browser version is a simulator for fast UI and replay tests.
+- The controls stay compact and the canvas fills the remaining Tremola space.
 - Android support stays at API 24 or newer, which means Android 7.0 or newer.
 
 The older Uni Basel Tremola repo is the Android host used here. The separate
@@ -39,13 +40,13 @@ Open mode keeps Max's original event format:
 - `k` - color change
 - `c` - clear the Open board
 
-Owned mode uses a wrapper:
+Protected mode uses the internal `owned` wrapper:
 
 ```json
 {"k":"o","a":"s","id":"...","n":"Alice","c":"#15803d","p":[[10,10],[20,20]]}
 ```
 
-- `k: "o"` marks an Owned event.
+- `k: "o"` marks a Protected event.
 - `a` contains the original action type.
 - new strokes and text include the display name and fixed profile color.
 - older Max clients ignore the new wrapper and keep working in Open mode.
@@ -57,17 +58,18 @@ Profiles use `k: "p"` and contain a name plus one of four colors.
 - Tremola creates an Ed25519 feed identity on the phone.
 - Every log event is signed by that identity.
 - Android passes the verified feed ID to the mini-app with the event header.
-- Owned objects store that verified feed ID as their creator.
+- Protected objects store that verified feed ID as their creator.
 - A move or resize is accepted only when its signed feed ID matches the creator.
 - Display names are labels only. They are not trusted for ownership.
 - Names do not need to be unique.
 
-Open and Owned are separate local views of the same log. Open keeps the old
-shared behavior. Owned gives each signed feed control over only its own objects.
-Foreign objects can still be selected to show the owner and `view only` state.
+Open and Protected are separate local views of the same log. Open keeps the old
+shared behavior. Protected gives each signed feed control over only its own
+objects. Foreign objects can still be selected to show the owner and `view only`
+state.
 
-Changing a profile color also changes how that person's Owned objects render.
-`Clear mine` hides only objects from the same signed feed.
+Changing a profile color also changes how that person's Protected objects
+render. `Clear` hides only objects from the same signed feed in Protected mode.
 
 This is an edit rule, not encryption. Board names and public board events can be
 read by nearby compatible peers.
@@ -78,8 +80,8 @@ read by nearby compatible peers.
 - Events can arrive in any order.
 - Move, resize, color, and profile updates use last-write-wins.
 - The event timestamp is compared first and the event ID is the tie-breaker.
-- Owned edits from a different feed are ignored for the target object.
-- Clear events are separate for Open and for each Owned author.
+- Protected edits from a different feed are ignored for the target object.
+- Clear events are separate for Open and for each Protected author.
 - State is rebuilt by replaying the signed event log.
 
 The test suite replays events in different orders and checks that the same board
@@ -114,11 +116,11 @@ log writes and BLE controls.
 ## Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- App version: `0.4.0`
+- App version: `0.4.1`
 - Minimum Android: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Open event format: unchanged from Max's implementation
-- Owned/profile events: ignored by older board code
+- Protected/profile events: ignored by older board code
 - Existing Open objects remain available after update
 
 ## Checks

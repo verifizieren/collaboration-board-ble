@@ -21,7 +21,7 @@ Tremola creates its identity automatically. No server login is needed.
 ## Board Modes
 
 - **Open:** no board name is needed; everyone can edit every object.
-- **Owned:** enter a name and choose one of four colors; only the creator can
+- **Protected:** enter a name and choose one of four colors; only the creator can
   move or resize an object. Other people can select it only to see its owner.
 
 Use the same mode on both phones.
@@ -50,9 +50,9 @@ If more than one phone is connected:
 5. Wait until the board shows a nearby peer.
 6. Draw on phone A and check phone B.
 7. Add text on phone B and check phone A.
-8. In Owned mode, verify that foreign objects say **view only**.
+8. In Protected mode, verify that foreign objects say **view only**.
 9. Disconnect the phones, edit both, reconnect, and check recovery.
-10. Test **Clear** in Open and **Clear mine** in Owned.
+10. Test **Clear** in both modes. In Protected, it removes only your work.
 
 Show live BLE logs with:
 

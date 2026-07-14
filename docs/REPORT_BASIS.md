@@ -19,6 +19,7 @@ meet again. Concurrent edits should not destroy the board state.
 - Collaboration Board is a Tremola mini-app.
 - It runs in the full Tremola Android APK.
 - It supports drawing, text, moving, resizing, panning, and clearing.
+- It has a simple mobile layout with short controls and a large board area.
 - It stores finished actions as signed append-only log events.
 - It syncs missing log entries directly between nearby phones over BLE.
 - It rebuilds the board by replaying events.
@@ -32,16 +33,16 @@ meet again. Concurrent edits should not destroy the board state.
 - No board username is needed.
 - Everyone can move, resize, recolor, or clear shared content.
 
-### Owned
+### Protected
 
 - Each person chooses a display name and one of four colors.
 - Tremola's signed feed ID is the real owner identity.
 - A person can move or resize only objects created by the same feed.
 - Foreign objects show the owner's colored name and are view only.
-- `Clear mine` removes only the current person's objects.
+- `Clear` removes only the current person's objects.
 
-Open and Owned content is kept separate. This protects compatibility with the
-existing board.
+Open and Protected content is kept separate. The code stores Protected as
+`owned` so existing board data stays compatible.
 
 ## Why Signed Events
 
@@ -85,7 +86,7 @@ The board is event based. It does not modify a shared file directly.
 - duplicate events are ignored
 - last-write-wins is used for move, resize, color, and profile updates
 - event ID breaks timestamp ties
-- Owned edits are accepted only from the object's creator feed
+- Protected edits are accepted only from the object's creator feed
 - clears are separated by board mode and author
 
 This is a small CRDT-like operation log. It gives deterministic replay for the
@@ -113,15 +114,16 @@ Automated checks currently cover:
 - duplicate handling
 - move, resize, recolor, and clear behavior
 - profile names and four allowed colors
-- rejection of unsigned Owned events
+- rejection of unsigned Protected events
 - rejection of edits signed by a different owner
 - per-author clear behavior
 - profile fallback and profile updates
 - BLE frame sizing and atomic queue limits
 - Android unit tests, lint, APK build, signature, and bundled content
 
-Browser tests also cover phone-sized layouts and Alice/Bob collaboration. The
-remaining final test is two physical Android phones using native BLE.
+Browser tests also cover 360, 390, and 432 pixel phone widths and Alice/Bob
+collaboration. The remaining final test is two physical Android phones using
+native BLE.
 
 ## Limits To State Honestly
 
@@ -131,14 +133,14 @@ remaining final test is two physical Android phones using native BLE.
 - Board events and display names are public to nearby compatible peers.
 - Names are not global accounts and do not have to be unique.
 - Open last-write-wins can be affected by very different phone clocks.
-- Owned mode prevents cross-feed edits; it does not hide the object.
+- Protected mode prevents cross-feed edits; it does not hide the object.
 
 ## Suggested Report Structure
 
 1. Motivation and requirements
 2. Tremola, SSB logs, and prior tinySSB Kanban work
 3. Whiteboard data model
-4. Open and Owned collaboration modes
+4. Open and Protected collaboration modes
 5. Android WebView integration
 6. BLE frontier and frame protocol
 7. Conflict and offline behavior

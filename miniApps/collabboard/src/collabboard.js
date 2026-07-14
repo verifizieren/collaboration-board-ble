@@ -158,7 +158,8 @@ function cb_ble_status(status, peers, queued) {
     var label = typeof status === 'string' && status ? status : 'BLE starting';
     var peerCount = Number.isFinite(Number(peers)) ? Number(peers) : 0;
     var queueCount = Number.isFinite(Number(queued)) ? Number(queued) : 0;
-    text.textContent = label + ' | peers ' + peerCount + ' | queue ' + queueCount;
+    text.textContent = cb_status_label(label, peerCount, queueCount);
+    box.title = label + ' | peers ' + peerCount + ' | queue ' + queueCount;
 
     var lower = label.toLowerCase();
     var stateClass = 'cb_sync_waiting';
@@ -168,6 +169,20 @@ function cb_ble_status(status, peers, queued) {
         stateClass = 'cb_sync_ready';
     }
     box.className = 'cb_sync_status ' + stateClass;
+}
+
+function cb_status_label(status, peers, queued) {
+    var lower = String(status || '').toLowerCase();
+    if (lower === 'browser preview') return 'Preview';
+    if (/permission/.test(lower)) return 'Allow Bluetooth';
+    if (/disabled/.test(lower)) return 'Bluetooth off';
+    if (/unavailable|unsupported|not available/.test(lower)) return 'Bluetooth unavailable';
+    if (/stopped/.test(lower)) return 'Sync off';
+    if (/failed|error/.test(lower)) return 'Sync problem';
+    if (queued > 0) return 'Syncing';
+    if (peers > 0) return peers === 1 ? '1 nearby' : peers + ' nearby';
+    if (/starting|active|ready|connected|advertising|service/.test(lower)) return 'Looking nearby';
+    return 'Starting';
 }
 
 // --- board mode and profiles ----------------------------------------------
@@ -204,7 +219,7 @@ function cb_update_mode_ui() {
     if (open) open.setAttribute('aria-pressed', isOwned ? 'false' : 'true');
     if (owned) owned.setAttribute('aria-pressed', isOwned ? 'true' : 'false');
     if (profile) profile.style.display = isOwned ? 'grid' : 'none';
-    if (clear) clear.textContent = isOwned ? 'Clear mine' : 'Clear';
+    if (clear) clear.setAttribute('aria-label', isOwned ? 'Clear my work' : 'Clear board');
 
     cb_update_controls();
     cb_refresh_people();
@@ -255,7 +270,7 @@ function cb_save_profile() {
     var input = document.getElementById('cb_name');
     var name = cb_clean_name(input ? input.value : '');
     if (!name) {
-        cb_notice('Enter a name first');
+        cb_notice('Add a name first');
         if (input) input.focus();
         return false;
     }
@@ -269,7 +284,7 @@ function cb_save_profile() {
     var profileEvent = { k: 'p', id: cb_id(ts), ts: ts, n: name, c: cb_profile_color };
     writeLogEntry(JSON.stringify(profileEvent));
     cb_update_mode_ui();
-    cb_notice('Profile saved');
+    cb_notice('Saved');
     return false;
 }
 
@@ -303,7 +318,7 @@ function cb_profile_for(fid) {
 function cb_require_profile(showNotice) {
     var profile = cb_local_profile();
     if (profile) return profile;
-    if (showNotice !== false) cb_notice('Set your name and color first');
+    if (showNotice !== false) cb_notice('Add a name first');
     var input = document.getElementById('cb_name');
     if (input) input.focus();
     return null;
@@ -358,7 +373,7 @@ function cb_refresh_people() {
 
 function cb_profile_name(fid) {
     var profile = cb_profile_for(fid);
-    return profile ? profile.n : 'Unknown user';
+    return profile ? profile.n : 'Unknown';
 }
 
 function cb_update_selection_status() {
@@ -425,7 +440,7 @@ function cb_color() {
 
 function cb_clear() {
     if (cb_board_mode === 'owned' && !cb_require_profile(true)) return;
-    var prompt = cb_board_mode === 'owned' ? 'Clear your objects?' : 'Clear the whole board?';
+    var prompt = cb_board_mode === 'owned' ? 'Clear your work?' : 'Clear board?';
     if (typeof confirm === 'function' && !confirm(prompt)) return;
     var ts = Date.now();
     cb_sel = null;
@@ -771,6 +786,8 @@ function cb_redraw() {
     if (!cv) return;
     var ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.save();
     ctx.translate(-cb_cam.x, -cb_cam.y);
     var st = cb_state();
