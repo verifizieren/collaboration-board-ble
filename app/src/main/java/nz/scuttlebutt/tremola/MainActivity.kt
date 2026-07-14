@@ -11,9 +11,12 @@ import android.os.Handler
 import android.text.format.Formatter
 import android.util.Log
 import android.view.Window
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewClientCompat
 import com.google.zxing.integration.android.IntentIntegrator
 import nz.scuttlebutt.tremola.ssb.TremolaState
 import nz.scuttlebutt.tremola.ssb.peering.RpcResponder
@@ -32,6 +35,9 @@ import kotlin.concurrent.thread
 class MainActivity : Activity() {
     companion object {
         private const val BLE_PERMISSION_REQUEST = 2241
+        private const val APP_URL_PREFIX =
+            "https://appassets.androidplatform.net/assets/web/"
+        private const val APP_START_URL = "${APP_URL_PREFIX}tremola.html"
     }
 
     private lateinit var tremolaState: TremolaState
@@ -65,11 +71,35 @@ class MainActivity : Activity() {
         tremolaState.wai = WebAppInterface(this, tremolaState, webView)
 
         webView.setBackgroundColor(0) // Color.parseColor("#FFffa0a0"))
-        webView.webViewClient = WebViewClient()
+        val assetLoader = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+        webView.webViewClient = object : WebViewClientCompat() {
+            override fun shouldInterceptRequest(
+                view: WebView,
+                request: WebResourceRequest
+            ): WebResourceResponse? {
+                return assetLoader.shouldInterceptRequest(request.url)
+            }
+
+            override fun shouldOverrideUrlLoading(
+                view: WebView,
+                request: WebResourceRequest
+            ): Boolean {
+                val url = request.url.toString()
+                return !url.startsWith(APP_URL_PREFIX)
+            }
+        }
         webView.addJavascriptInterface(tremolaState.wai, "Android")
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
-        webView.loadUrl("file:///android_asset/web/tremola.html")
+        webView.settings.javaScriptCanOpenWindowsAutomatically = false
+        webView.settings.setSupportMultipleWindows(false)
+        webView.settings.allowFileAccess = false
+        webView.settings.allowFileAccessFromFileURLs = false
+        webView.settings.allowUniversalAccessFromFileURLs = false
+        webView.settings.allowContentAccess = false
+        webView.loadUrl(APP_START_URL)
         // webSettings?.javaScriptCanOpenWindowsAutomatically = true
 
         bleSync = BleSync(this, tremolaState)
@@ -316,7 +346,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun startBleSyncIfPermitted() {
+    fun startBleSyncIfPermitted() {
         val missing = BleSync.missingPermissions(this)
         if (missing.isEmpty()) {
             bleSync?.start()

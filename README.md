@@ -1,141 +1,85 @@
 # Collaboration Board
 
-A simple whiteboard for Tremola.
+A shared whiteboard mini-app inside Tremola for Android.
 
-You can:
+## What It Can Do
 
-- draw
-- add text
-- select drawings and text to move, resize, or recolor them
-- pan around an infinite canvas
-- clear the board
-- share changes with nearby phones over BLE
+- Draw and add text.
+- Move and resize objects.
+- Pan around the board.
+- Work without Internet.
+- Sync signed Tremola events between nearby phones over BLE.
 
-This project was inspired by the
-[tinySSB Android app](https://github.com/tinySSB/android-app).
+There are two board views:
 
-## What This App Is
+- **Open** keeps Max's original behavior. Everyone can edit everything.
+- **Owned** uses a name and one of four colors. People can edit only their own
+  objects. Foreign objects are view only.
 
-This is not a separate whiteboard app.
+The views are separate. Old Open content is not changed by Owned mode.
 
-It is a Tremola Android app with the whiteboard included.
+## Android APK
 
-So the final APK is:
+The ready test build is here:
 
-- Tremola
-- plus the Collaboration Board mini-app
-- plus BLE sync
+[`install/tremola-collaboration-board-debug.apk`](install/tremola-collaboration-board-debug.apk)
 
-You install this APK on the phone.
+It contains the full Tremola app, the mini-app, and native BLE sync. It is not a
+standalone whiteboard.
 
-Then the whiteboard is opened from inside Tremola.
+Requirements:
 
-For submission, include the whole branch.
+- Android 7.0 or newer
+- Bluetooth Low Energy for nearby sync
+- two Android phones for the final BLE test
 
-Do not submit only the whiteboard folder.
+See [`install/README.md`](install/README.md) for simple install steps.
 
-The Android code is needed because BLE sync is inside the Android app.
+## First Use
 
-## Android Setup
+1. Install and open Tremola.
+2. Allow Bluetooth and location access.
+3. Open the mini-apps view.
+4. Open **Collaboration Board**.
+5. Choose **Open** or **Owned**.
+6. In Owned mode, enter a name, choose a color, and press **Save**.
 
-Use Android for the real test.
+Tremola creates a local cryptographic identity on first start. There is no
+central account or server login. The Owned name is only a board label.
 
-You need:
+## Check And Build
 
-- Android Studio
-- Android SDK
+Requirements for building:
+
 - JDK 11
-- one Android phone for normal testing
-- two Android phones for BLE testing
+- Android SDK
+- Node.js
 
-Use JDK 11. Newer Java versions can break the Android build.
-
-On this Mac, JDK 11 is here:
-
-```text
-/opt/homebrew/opt/openjdk@11/libexec/openjdk.jdk/Contents/Home
-```
-
-## Build
-
-Run this from the repo folder:
+Run:
 
 ```bash
-JAVA_HOME=/opt/homebrew/opt/openjdk@11/libexec/openjdk.jdk/Contents/Home \
-ANDROID_HOME=$HOME/Library/Android/sdk \
-ANDROID_SDK_ROOT=$HOME/Library/Android/sdk \
-./gradlew assembleDebug
+./scripts/check.sh
 ```
 
-The APK will be here:
+This checks the browser and Android copies, runs JavaScript and Kotlin tests,
+runs Android lint, builds the APK, verifies its signature and contents, and
+updates the file in `install/`.
 
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
+## Test On Phones
 
-For easy sharing, there is also a copy here:
-
-```text
-install/tremola-collaboration-board-debug.apk
-```
-
-## Install On Phone
-
-Connect your phone with USB.
-
-Enable USB debugging.
-
-Then run:
+With USB debugging enabled:
 
 ```bash
-$HOME/Library/Android/sdk/platform-tools/adb install -r \
-  app/build/outputs/apk/debug/app-debug.apk
+./scripts/android.sh devices
+./scripts/android.sh install
+./scripts/android.sh logs
 ```
 
-## Open The Board
-
-On the phone:
-
-1. Open Tremola.
-2. Allow Bluetooth and location.
-3. Tap the mini-apps button.
-4. Tap Collaboration Board.
-5. Draw, add text, or clear the board.
-
-## Test BLE Sync
-
-Use two Android phones.
-
-On both phones:
-
-- install the same APK
-- enable Bluetooth
-- enable location
-- open Tremola
-- open Collaboration Board
-- keep the app open
-
-Then test:
-
-1. Draw on phone A.
-2. Check if it appears on phone B.
-3. Draw on phone B.
-4. Check if it appears on phone A.
-5. Try editing while phones are apart.
-6. Bring phones close again.
-7. Check if changes sync.
-
-Useful log command:
-
-```bash
-adb logcat -s BleSync FrontendRequest CMD
-```
+For the real test, install the same APK on two phones, keep Tremola open on both,
+and edit the same mode. A finished action is sent immediately. Feed frontiers
+are also exchanged every 8 seconds so missed events can be recovered.
 
 ## Browser Preview
-
-Use this only for quick UI testing.
-
-It does not test Android or real BLE.
 
 Run:
 
@@ -143,62 +87,23 @@ Run:
 ./start.sh
 ```
 
-Or:
-
-```bash
-python3 -m http.server 8000
-```
-
-Then open:
-
-```text
-http://localhost:8000
-```
-
-Open Alice and Bob in two browser tabs.
-
-Then:
-
-1. Tap mini-apps.
-2. Open Collaboration Board.
-3. Draw in one tab.
-4. Check the other tab.
-
-## How Sync Works
-
-The board does not send every finger movement.
-
-It sends finished actions:
-
-- one stroke
-- one text label
-- one clear action
-
-Tremola saves these actions.
-
-Other phones receive them and rebuild the same board.
-
-BLE sends missing actions between nearby phones.
+Open Alice and Bob, then open **MiniApps > Collaboration Board** in both tabs.
+The browser checks the UI, offline replay, and collaboration rules. It does not
+test native Android BLE.
 
 ## Project Files
 
-- `app/` - Android app
-- `app/src/main/assets/web/` - web files inside the Android app
-- `miniApps/collabboard/` - whiteboard mini-app
-- `src/` - browser preview code
-- `doc/20250327-miniApps.md` - notes
+- `miniApps/collabboard/` - board source
+- `app/` - full Tremola Android app and BLE code
+- `app/src/main/assets/web/` - web files included in the APK
+- `install/` - APK and checksum
+- `scripts/` - check, build, install, and log commands
+- `docs/TECHNICAL_OVERVIEW.md` - technical design
+- `docs/REPORT_BASIS.md` - simple basis for the project report
 
-## Current Status
+## Submission
 
-- Android APK builds with JDK 11.
-- The board is inside Tremola.
-- Browser preview works.
-- Mobile layout fits phone screens.
-- Real BLE sync still needs two-phone testing.
+Submit the full repository and the APK in `install/`. The mini-app folder alone
+does not contain signed log storage or native BLE transport.
 
-## Important Notes
-
-- Use JDK 11.
-- Use real phones for BLE.
-- Keep the app open while testing BLE.
-- Emulator is okay for layout, but not for the BLE test.
+The remaining final check is a real two-phone BLE test.

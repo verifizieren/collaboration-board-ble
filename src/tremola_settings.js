@@ -43,21 +43,25 @@ function applySetting(nm, val) {
     } else if (nm == 'hide_forgotten_contacts') {
         load_contact_list();
     } else if (nm == 'websocket') {
+        var container = document.getElementById("container:settings_ws_url");
+        if (!container) return;
         if (val)
-            document.getElementById("container:settings_ws_url").style.display = 'flex'
+            container.style.display = 'flex'
         else
-            document.getElementById("container:settings_ws_url").style.display = 'none'
+            container.style.display = 'none'
     }
 }
 
 function setSetting(nm, val) {
     // console.log("setting", nm, val)
     if (nm == "websocket_url") {
-      document.getElementById("settings_urlInput").value = val
+      var urlInput = document.getElementById("settings_urlInput");
+      if (urlInput) urlInput.value = val;
       return
     }
     applySetting(nm, val);
-    document.getElementById(nm).checked = val;
+    var input = document.getElementById(nm);
+    if (input) input.checked = val;
 }
 
 /* async */

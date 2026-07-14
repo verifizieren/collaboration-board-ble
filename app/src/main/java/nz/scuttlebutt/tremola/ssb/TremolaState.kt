@@ -44,6 +44,7 @@ class TremolaState(val context: Context) {
     lateinit var wai: WebAppInterface
     var bleSync: BleSync? = null
     val msgTypes = SSBmsgTypes(this)
+    private val localAppendLock = Any()
 
     init {
         executorPool = Executors.newScheduledThreadPool(
@@ -98,7 +99,18 @@ class TremolaState(val context: Context) {
     }
 
     fun addLogEntry(e: LogEntry) {
-        executorPool.submit { logDAO.insert(e) }
+        // Persist before another local event reads the feed frontier. Delaying
+        // this insert can create two signed entries with the same sequence.
+        logDAO.insert(e)
+    }
+
+    fun appendLocalEvent(createRaw: () -> String): LogEntry? {
+        return synchronized(localAppendLock) {
+            val raw = createRaw()
+            val entry = msgTypes.jsonToLogEntry(raw, raw.encodeToByteArray())
+            entry?.let { wai.rx_event(it) }
+            entry
+        }
     }
 
     fun addContact(fid: String, alias: String?) {

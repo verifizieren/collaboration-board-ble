@@ -11,7 +11,8 @@ import nz.scuttlebutt.tremola.utils.SingletonHolder
 @Database(
     entities = [Contact::class, LogEntry::class, Pub::class,
                 Blob::class, Follow::class],
-    version = 15
+    version = 15,
+    exportSchema = false
 )
 
 abstract class TremolaDatabase : RoomDatabase(){

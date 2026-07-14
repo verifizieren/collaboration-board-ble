@@ -319,12 +319,9 @@ class Lookup(
      */
     private fun addNewContact(targetId: String, targetShortName: String) {
         tremolaState.addContact(targetId, null)
-        val rawStr = tremolaState.msgTypes.mkFollow(targetId, false)
-        val event = tremolaState.msgTypes.jsonToLogEntry(
-            rawStr,
-            rawStr.toByteArray(StandardCharsets.UTF_8)
-        )!!
-        tremolaState.wai.rx_event(event)
+        tremolaState.appendLocalEvent {
+            tremolaState.msgTypes.mkFollow(targetId, false)
+        }
         tremolaState.peers.newContact(targetId) // inform online peers via EBT
         val eval = "b2f_new_contact_lookup('$targetShortName','$targetId')"
         tremolaState.wai.eval(eval)

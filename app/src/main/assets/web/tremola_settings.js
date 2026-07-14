@@ -22,7 +22,8 @@ function toggle_changed(e) {
 }
 
 function getSetting(nm) {
-    return document.getElementById(nm).checked
+    var input = document.getElementById(nm);
+    return input ? input.checked : false;
 }
 
 function applySetting(nm, val) {
@@ -41,7 +42,8 @@ function applySetting(nm, val) {
 function setSetting(nm, val) {
     // console.log("setting", nm, val)
     applySetting(nm, val);
-    document.getElementById(nm).checked = val;
+    var input = document.getElementById(nm);
+    if (input) input.checked = val;
 }
 
 async function settings_wipe() {

@@ -25,6 +25,7 @@ function setup(name) {
     offline = false
 
     var hdr = document.createElement("h2")
+    hdr.style = 'margin: 0 0 8px; font-size: 16px; line-height: 1.35;'
     hdr.innerHTML= "<label id='rst' style='color: red;font-size: 100%;border: 2mm outset;'>&#x2A37;</label>&nbsp; " +
         "This is " + name +
         ", status=<label id='lbl' style='background-color: green; border: 2mm outset;padding: 3px;'>ONLINE</label> " +
@@ -33,7 +34,9 @@ function setup(name) {
 
     var tre = document.createElement("div")
     tre.innerHTML = '<hr>\n' +
-        '<iframe id=tre src="resources/tremola.html?virtualBackend=true" style="width: 100%; height: 600;"></iframe> <hr>\n'
+        '<iframe id=tre src="resources/tremola.html?virtualBackend=true" ' +
+        'style="width: 100%; height: calc(100vh - 110px); min-height: 500px; ' +
+        'border: 1px solid #cccccc;"></iframe> <hr>\n'
 
     var vec = document.createElement("p")
     vec.id = 'vec'
@@ -203,10 +206,13 @@ function virtualBackend(event) {
     if (cmd[0] == 'wipe') {
         frontEnd.postMessage(['b2f', 'reset', IDs[myname]], '*');
         add_peers();
+        return;
     }
-    if (cmd[0] == 'exportSecret')
+    if (cmd[0] == 'exportSecret') {
         event.source.postMessage(['b2f', 'exportSecret',
                                   'secret_of_id_which_is@AAAA==.ed25519'], '*');
+        return;
+    }
     if (cmd[0] == 'publ:post') {
         console.log('cmd1 =', cmd);
         var draft = atob(cmd[2]);
@@ -221,6 +227,7 @@ function virtualBackend(event) {
                 }
         frontEnd.postMessage(['b2f', 'new_event', e], '*')
         broadcast(e);
+        return;
     } 
     if (cmd[0] == 'customApp:writeEntry') {
         //read cmd[2]
@@ -238,6 +245,7 @@ function virtualBackend(event) {
         }
         frontEnd.postMessage(['b2f', 'new_event', e], '*')
         broadcast(e);
+        return;
     } 
     if (cmd[0] == 'customApp:readEntries') {
         var appId = cmd[1];
@@ -246,6 +254,7 @@ function virtualBackend(event) {
         if (limit > 0 && entries.length > limit)
             entries = entries.slice(entries.length - limit);
         entries.forEach(e => frontEnd.postMessage(['b2f', 'new_event', e], '*'));
+        return;
     }
     if (cmd[0] == 'priv:post') {
         var draft = atob(cmd[1])
@@ -261,6 +270,7 @@ function virtualBackend(event) {
                 }
         frontEnd.postMessage(['b2f', 'new_event', e], '*')
         broadcast(e);
+        return;
     }
     if (cmd[0] == 'kanban') {
         console.log('kanban', cmd[1], cmd[4])
@@ -287,6 +297,7 @@ function virtualBackend(event) {
                 }
         frontEnd.postMessage(['b2f', 'new_event', e], '*')
         broadcast(e);
+        return;
     }
     if (cmd[0] == 'iam') {
         console.log('iam', atob(cmd[1]));
@@ -302,10 +313,10 @@ function virtualBackend(event) {
                 }
         frontEnd.postMessage(['b2f', 'new_event', e], '*')
         broadcast(e);
-    } else {
-        console.log(cmd);
-        handleRequest(cmd);
+        return;
     }
+    console.log(cmd);
+    handleRequest(cmd);
 }
 
 function handleRequest(args) {
@@ -348,15 +359,24 @@ function handleRequest(args) {
         }
 
         let [miniAppID, command] = firstArg.split(":", 2);
-        let jsonArgs = JSON.stringify({ args: args.slice(1) });
-        console.log("jssoooon ", jsonArgs);
+        let requestArgs = args.slice(1);
+        let header = null;
+        if (command === "incoming_notification" && requestArgs.length > 1) {
+            let candidate = requestArgs[requestArgs.length - 1];
+            if (candidate && typeof candidate === "object" && typeof candidate.fid === "string") {
+                header = requestArgs.pop();
+            }
+        }
+        let request = { args: requestArgs };
+        if (header) request.header = header;
+        console.log("MiniApp request", request);
 
         if (!globalWindow.miniApps[miniAppID] || !globalWindow.miniApps[miniAppID].handleRequest) {
             console.error(`❌ handleRequest function not found for MiniApp: ${miniAppID}`);
             return;
         }
 
-        let response = globalWindow.miniApps[miniAppID].handleRequest(command, JSON.parse(jsonArgs));
+        let response = globalWindow.miniApps[miniAppID].handleRequest(command, request);
         console.log("✅ Response from", miniAppID, ":", response);
     }
 

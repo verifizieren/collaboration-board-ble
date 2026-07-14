@@ -7,3 +7,5 @@ build/
 local.properties
 .idea/
 .vscode/
+lib/
+qr-scan.png

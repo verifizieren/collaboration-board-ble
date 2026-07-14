@@ -1,6 +1,6 @@
 {
   "name": "Collaboration Board",
-  "description": "Draw and add text. Share changes with nearby phones.",
+  "description": "Draw together in Open or Owned mode.",
   "icon": "assets/board.svg",
   "init": "cb_open()",
   "id": "collabboard",

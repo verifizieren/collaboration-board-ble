@@ -1230,7 +1230,11 @@ function b2f_new_event(e) { // incoming SSB log event: we get map with three ent
             var customAppID = e.public[1];
             var customAppData = e.public[2]; // keep it as an object
             console.log("CUStom event: ", customAppID, customAppData);
-            virtBackEnd.handleRequest([customAppID + ":incoming_notification", customAppData]);
+            // Include the verified event header. Mini-apps that do not need
+            // author metadata continue to read args[0] as before.
+            virtBackEnd.handleRequest([
+                customAppID + ":incoming_notification", customAppData, e.header
+            ]);
 
 
         }

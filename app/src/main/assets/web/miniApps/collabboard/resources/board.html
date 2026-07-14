@@ -1,10 +1,39 @@
 <div id='div:collabboard-main' style='display: none;'>
-  <div id='cb_toolbar'>
-    <button id='cb_tool_pen' class='cb_tool cb_active' onclick='cb_set_tool("pen")'>Pen</button>
-    <button id='cb_tool_text' class='cb_tool' onclick='cb_set_tool("text")'>Text</button>
-    <input id='cb_color' class='cb_color' type='color' value='#2563eb' title='Color'>
-    <button class='cb_tool' onclick='cb_clear()'>Clear</button>
+  <div id='cb_mode_switch' class='cb_segmented' role='group' aria-label='Board mode'>
+    <button id='cb_mode_open' type='button' aria-pressed='true'
+            onclick='cb_set_board_mode("open")'>Open</button>
+    <button id='cb_mode_owned' type='button' aria-pressed='false'
+            onclick='cb_set_board_mode("owned")'>Owned</button>
   </div>
+  <form id='cb_profile' class='cb_profile' style='display: none;'
+        onsubmit='cb_save_profile(); return false;'>
+    <input id='cb_name' type='text' maxlength='20' autocomplete='off'
+           placeholder='Your name' aria-label='Your name'>
+    <div id='cb_palette' class='cb_palette' role='radiogroup' aria-label='Your color'>
+      <button type='button' class='cb_swatch' data-color='#2563eb' title='Blue'
+              aria-label='Blue' onclick='cb_pick_profile_color("#2563eb")'></button>
+      <button type='button' class='cb_swatch' data-color='#dc2626' title='Red'
+              aria-label='Red' onclick='cb_pick_profile_color("#dc2626")'></button>
+      <button type='button' class='cb_swatch' data-color='#15803d' title='Green'
+              aria-label='Green' onclick='cb_pick_profile_color("#15803d")'></button>
+      <button type='button' class='cb_swatch' data-color='#7c3aed' title='Purple'
+              aria-label='Purple' onclick='cb_pick_profile_color("#7c3aed")'></button>
+    </div>
+    <button id='cb_profile_save' class='cb_profile_save' type='submit'>Save</button>
+  </form>
+  <div id='cb_toolbar'>
+    <button id='cb_tool_pen' class='cb_tool' onclick='cb_toggle_tool("pen")'>Pen</button>
+    <button id='cb_tool_text' class='cb_tool' onclick='cb_toggle_tool("text")'>Text</button>
+    <input id='cb_color' class='cb_color' type='color' value='#2563eb' title='Color'>
+    <button id='cb_clear_btn' class='cb_tool' onclick='cb_clear()'>Clear</button>
+  </div>
+  <div id='cb_sync_status' class='cb_sync_status cb_sync_waiting' aria-live='polite'>
+    <span id='cb_sync_dot' class='cb_sync_dot' aria-hidden='true'></span>
+    <span id='cb_sync_text'>BLE starting | peers 0 | queue 0</span>
+  </div>
+  <div id='cb_people' class='cb_people' style='display: none;' aria-label='Board members'></div>
+  <div id='cb_selection_status' class='cb_selection_status' style='display: none;'
+       aria-live='polite'></div>
   <input id='cb_text' class='cb_textinput' type='text' maxlength='120'
          placeholder='Type, then tap the board to place' style='display: none;'>
   <canvas id='cb_canvas' width='340' height='460'></canvas>

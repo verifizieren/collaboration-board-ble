@@ -104,28 +104,22 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
                     args[1],
                     Base64.decode(args[2], Base64.NO_WRAP).decodeToString()
                 )
-                val rawStr = tremolaState.msgTypes.mkFollow(args[1])
-                val evnt = tremolaState.msgTypes.jsonToLogEntry(
-                    rawStr,
-                    rawStr.encodeToByteArray()
-                )
+                val evnt = tremolaState.appendLocalEvent {
+                    tremolaState.msgTypes.mkFollow(args[1])
+                }
                 evnt?.let {
-                    rx_event(it) // persist it, propagate horizontally and also up
                     tremolaState.peers.newContact(args[1]) // inform online peers via EBT
                 }
                 return
             }
             "priv:post" -> { // Post a private chat
                 // atob(text) recipient1 recipient2 ...
-                val rawStr = tremolaState.msgTypes.mkPost(
-                    Base64.decode(args[1], Base64.NO_WRAP).decodeToString(),
-                    args.slice(2..args.lastIndex)
-                )
-                val evnt = tremolaState.msgTypes.jsonToLogEntry(
-                    rawStr,
-                    rawStr.encodeToByteArray()
-                )
-                evnt?.let { rx_event(it) } // persist it, propagate horizontally and also up
+                tremolaState.appendLocalEvent {
+                    tremolaState.msgTypes.mkPost(
+                        Base64.decode(args[1], Base64.NO_WRAP).decodeToString(),
+                        args.slice(2..args.lastIndex)
+                    )
+                }
                 return
             }
             "priv:hash" -> { // Compute the shortname from the public key
@@ -192,11 +186,16 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
 
     private fun handleBleRequest(s: String): Boolean {
         if (!s.startsWith("ble:")) return false
-        when (s) {
-            "ble:start" -> tremolaState.bleSync?.start()
-            "ble:stop" -> tremolaState.bleSync?.stop()
-            "ble:kick" -> tremolaState.bleSync?.kick()
-            else -> Log.d("BLE request", "unknown $s")
+        act.runOnUiThread {
+            when (s) {
+                "ble:start" -> (act as? MainActivity)?.startBleSyncIfPermitted()
+                "ble:stop" -> tremolaState.bleSync?.stop()
+                "ble:kick" -> {
+                    (act as? MainActivity)?.startBleSyncIfPermitted()
+                    tremolaState.bleSync?.kick()
+                }
+                else -> Log.d("BLE request", "unknown $s")
+            }
         }
         return true
     }
@@ -206,12 +205,9 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
             val args = s.split(" ", limit = 3)
             if (args.size < 3) return true
             try {
-                val rawStr = tremolaState.msgTypes.mkCustomApp(args[1], args[2])
-                val evnt = tremolaState.msgTypes.jsonToLogEntry(
-                    rawStr,
-                    rawStr.encodeToByteArray()
-                )
-                evnt?.let { rx_event(it) }
+                tremolaState.appendLocalEvent {
+                    tremolaState.msgTypes.mkCustomApp(args[1], args[2])
+                }
             } catch (e: Exception) {
                 Log.e("customApp:writeEntry", e.stackTraceToString())
             }
