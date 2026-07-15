@@ -6,6 +6,14 @@ import org.junit.Test
 
 class BleSyncTest {
     @Test
+    fun boardChangesAreReleasedOnFiveSecondBatches() {
+        assertEquals(true, BleSync.shouldRunBoardBatch(0L, 1_000L))
+        assertEquals(false, BleSync.shouldRunBoardBatch(1_000L, 5_999L))
+        assertEquals(true, BleSync.shouldRunBoardBatch(1_000L, 6_000L))
+        assertEquals(true, BleSync.shouldRunBoardBatch(6_000L, 5_000L))
+    }
+
+    @Test
     fun framePayloadFitsInsideGattValue() {
         // Default BLE MTU: 23 - 3 ATT bytes - 8 frame header bytes.
         assertEquals(12, BleSync.framePayloadSize(23))

@@ -16,14 +16,18 @@ A shared whiteboard mini-app inside Tremola for Android.
 
 Every admitted member can edit every object.
 
-## Android APK
+## Android APKs
 
-The ready test build is here:
+This experiment branch contains two builds:
 
-[`install/tremola-collaboration-board-debug.apk`](install/tremola-collaboration-board-debug.apk)
+- [`install/whiteboardlive.apk`](install/whiteboardlive.apk) sends a finished
+  action immediately.
+- [`install/whiteboard5sek.apk`](install/whiteboard5sek.apk) saves locally and
+  exchanges new operations in 5-second batches.
 
-The APK contains the full Tremola app, the mini-app, local storage, and native
-BLE sync. It is not a separate whiteboard app.
+Both APKs contain the full Tremola app, the mini-app, local storage, and native
+BLE sync. They use the same Android package, so install only one variant at a
+time and use the same variant on every test phone.
 
 Requirements:
 
@@ -49,15 +53,14 @@ member. A board has one owner and at most three other members.
 
 Keep the invite code private. It contains the board key.
 
-## Reliable Sync
+## 5-Second Sync
 
-A finished action is saved before it is sent. BLE sends frames one at a time
-and waits for Android's callback. The receiver acknowledges the complete board
-operation. Missing operations are requested again with board frontiers and
-WANT ranges.
+A finished action is applied and saved immediately on its phone. The BLE layer
+collects new operations until the next 5-second frontier exchange. It sends
+only missing operations, not a full canvas snapshot. The receiver acknowledges
+each complete operation and requests missing ranges again.
 
-- operation retry: about every 2 seconds while connected
-- frontier check: about every 5 seconds
+- operation batch and retry: about every 5 seconds while connected
 - no pointer movement is sent while a finger is still moving
 - only operations for the active board use the board sync queue
 

@@ -12,6 +12,16 @@ The tinySSB Android project was used as a design reference. We keep the Uni
 Basel Tremola app and use a board-specific replication protocol because the two
 projects use different log formats.
 
+## Project Family
+
+- Secure Scuttlebutt is a decentralized system of signed, append-only user feeds.
+- Tremola is the Uni Basel Android client and provides identity, storage, and the
+  mini-app host.
+- Tremola mini-apps are HTML and JavaScript interfaces running inside the app.
+- tinySSB is a related compact protocol for small BLE and LoRa packets. Its
+  recovery ideas are useful here, but its binary log is not a drop-in Tremola
+  replacement.
+
 ## Board Operations
 
 The board sends one operation after a user finishes an action:
@@ -30,7 +40,7 @@ Tremola screen. Different phone sizes therefore use the same shared positions.
 
 - Tremola creates an Ed25519 feed identity on first start.
 - Every board operation is signed with that identity.
-- The clear payload is compressed before encryption when this saves space.
+- Board payloads are compressed before encryption when this saves space.
 - AES-256-GCM encrypts board content with the key in the invite code.
 - Operations are stored in Room before BLE transmission.
 - Each local operation is also added to the local Tremola custom-app log.
@@ -69,9 +79,11 @@ frame starts only after `onCharacteristicWrite` or `onNotificationSent`.
 Indications are used when available. A complete operation still needs a `ba`
 acknowledgement, so a dropped notification causes a retry.
 
-Operations retry after about 2 seconds. Frontiers are exchanged about every 5
-seconds. WANT ranges recover missed and offline operations. Stored operations
-can also be relayed by another admitted member.
+This experiment stores local and relayed operations without sending them
+immediately. About every 5 seconds, peers exchange frontiers and transfer the
+missing operations as a batch. Failed operations retry on a later batch. WANT
+ranges recover missed and offline operations. Stored operations can also be
+relayed by another admitted member.
 
 Event payloads are compressed before encryption. This makes long strokes much
 smaller than the old Base64 Tremola JSON path. Board traffic is separate from
@@ -103,7 +115,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.5.0` (`versionCode 18`)
+- Version: `0.5.0-5s` (`versionCode 18`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.

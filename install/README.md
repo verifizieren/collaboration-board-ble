@@ -1,13 +1,15 @@
 # Install On Android
 
-Current test build: **0.5.0** (`versionCode 18`).
+Current batch test build: **0.5.0-5s** (`versionCode 18`).
 
-Download and install:
+Install the same variant on every test phone:
 
-[`tremola-collaboration-board-debug.apk`](tremola-collaboration-board-debug.apk)
+- [`whiteboard5sek.apk`](whiteboard5sek.apk) - 5-second batch experiment
+- [`whiteboardlive.apk`](whiteboardlive.apk) - immediate-send reference
 
-This APK contains the full Tremola app, Collaboration Board, local storage, and
-native BLE sync. It needs Android 7.0 or newer.
+The APKs contain the full Tremola app, Collaboration Board, local storage, and
+native BLE sync. They need Android 7.0 or newer. Both use the same package and
+cannot be installed side by side.
 
 ## Direct Install
 
@@ -52,7 +54,9 @@ Enable USB debugging, connect the phone, and run from the repo folder:
 
 ## Two-Phone BLE Test
 
-Use the same APK on both phones.
+Use the same APK on both phones. For the batch experiment, use
+`whiteboard5sek.apk` and allow up to 10 seconds for an update and its BLE
+transfer.
 
 1. Turn off Wi-Fi and mobile data on both phones.
 2. Turn on Bluetooth. On Android 7-11, also turn on Location.
@@ -106,4 +110,4 @@ If no peer appears:
 - move the phones close together
 - create a fresh board if four member slots were already used
 
-The expected APK hash is stored in `SHA256SUMS`.
+The expected hashes for both variants are stored in `SHA256SUMS`.

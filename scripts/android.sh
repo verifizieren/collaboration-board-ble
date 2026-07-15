@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APK="$ROOT/install/tremola-collaboration-board-debug.apk"
+APK="${APK:-$ROOT/install/whiteboard5sek.apk}"
 PACKAGE="nz.scuttlebutt.tremola"
 ADB="${ADB:-${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb}"
 

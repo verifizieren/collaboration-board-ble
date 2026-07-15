@@ -330,7 +330,8 @@ class BleSync(
         tremolaState.appendLocalEvent {
             tremolaState.msgTypes.mkCustomApp(COLLAB_BOARD_APP_ID, decoded.operation.wireJson)
         }
-        executeWorker { queueBoardOperationForAll(decoded.operation) }
+        // The 5-second variant keeps the operation in Room until the next
+        // frontier pulse. The UI has already applied it locally.
         return true
     }
 
@@ -404,9 +405,9 @@ class BleSync(
                 sendFrontierToAll()
             } else {
                 sendBoardHelloToAll(onlyUnauthenticated = true)
-                retryBoardDeliveries()
                 val now = System.currentTimeMillis()
-                if (now - lastBoardFrontierAt >= BOARD_FRONTIER_INTERVAL_MS) {
+                if (shouldRunBoardBatch(lastBoardFrontierAt, now)) {
+                    retryBoardDeliveries()
                     sendBoardFrontierToAll()
                     lastBoardFrontierAt = now
                 }
@@ -488,7 +489,6 @@ class BleSync(
                     val decoded = BoardProtocol.decodeOperation(config, wire)
                     if (decoded != null && decoded.operation.authorId == entry.lid) {
                         storeBoardOperation(decoded)
-                        queueBoardOperationForAll(decoded.operation, excludedPeerAddress)
                     }
                 }
                 return@executeWorker
@@ -1534,7 +1534,8 @@ class BleSync(
         sendBoardAck(peerAddress, decoded.operation.operationId)
         if (inserted) {
             deliverBoardOperation(decoded)
-            queueBoardOperationForAll(decoded.operation, peerAddress)
+            // Relay on the next batch frontier instead of immediately. The
+            // stored operation can still be requested by any admitted peer.
             val frontier = localBoardFrontier(config.roomId)[decoded.operation.authorId] ?: 0
             if (decoded.operation.authorSequence > frontier + 1) sendBoardFrontier(peerAddress)
         }
@@ -1576,16 +1577,6 @@ class BleSync(
         try {
             tremolaState.wai.eval(js)
         } catch (_: Exception) {
-        }
-    }
-
-    private fun queueBoardOperationForAll(
-        operation: BoardOperation,
-        excludedPeerAddress: String? = null
-    ) {
-        val excludedFeed = excludedPeerAddress?.let { authenticatedBoardPeers[it] }
-        logicalBoardPeerAddresses().forEach { (peerFeed, address) ->
-            if (peerFeed != excludedFeed) queueBoardOperationForPeer(address, operation)
         }
     }
 
@@ -2281,8 +2272,13 @@ class BleSync(
         private const val MAX_BOARD_WANT_RANGES = 16
         private const val MAX_BOARD_OPERATIONS_PER_PULSE = 24
         private const val MAX_BOARD_DELIVERY_ATTEMPTS = 12
-        private const val BOARD_OPERATION_RETRY_MS = 2000L
-        private const val BOARD_FRONTIER_INTERVAL_MS = 5000L
+        private const val BOARD_BATCH_INTERVAL_MS = 5000L
+        private const val BOARD_OPERATION_RETRY_MS = BOARD_BATCH_INTERVAL_MS
+
+        internal fun shouldRunBoardBatch(lastBatchAt: Long, now: Long): Boolean {
+            if (lastBatchAt <= 0L || now < lastBatchAt) return true
+            return now - lastBatchAt >= BOARD_BATCH_INTERVAL_MS
+        }
 
         internal fun framePayloadSize(mtu: Int): Int {
             // A GATT value may use MTU - 3 bytes. The frame header is part of

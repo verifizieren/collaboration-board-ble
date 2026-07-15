@@ -49,6 +49,9 @@ finished board action
 ```
 
 The app sends one event after an action. It does not send every finger position.
+In the 5-second experiment, finished actions are stored locally and released
+during the next periodic frontier exchange. Only missing operations are sent;
+the full board image is never transmitted.
 
 ## Why The Old Sync Failed
 
