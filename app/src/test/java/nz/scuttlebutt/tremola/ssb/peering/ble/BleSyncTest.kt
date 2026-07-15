@@ -1,5 +1,6 @@
 package nz.scuttlebutt.tremola.ssb.peering.ble
 
+import android.bluetooth.BluetoothGattCharacteristic
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -24,6 +25,83 @@ class BleSyncTest {
         assertEquals(false, BleSync.canQueueFrames(2000, 49))
         assertEquals(false, BleSync.canQueueFrames(0, 2049))
         assertEquals(false, BleSync.canQueueFrames(0, 0))
+    }
+
+    @Test
+    fun outboundQueueCoalescesDuplicatesAndPrioritizesControlMessages() {
+        val queue = BleOutboundQueue(8)
+        val eventFrames = listOf(byteArrayOf(1), byteArrayOf(2), byteArrayOf(3))
+        val frontierFrames = listOf(byteArrayOf(8), byteArrayOf(9))
+
+        assertEquals(true, queue.enqueue("event:%one", eventFrames, false, false))
+        assertEquals(3, queue.size)
+
+        // Repeated frontier pulses must not append the same long event again.
+        repeat(100) {
+            assertEquals(true, queue.enqueue("event:%one", eventFrames, false, false))
+        }
+        assertEquals(3, queue.size)
+
+        // A later move event still has room instead of being starved by copies.
+        assertEquals(true, queue.enqueue("event:%move", listOf(byteArrayOf(4)), false, false))
+        assertEquals(4, queue.size)
+
+        val eventInFlight = queue.removeFirst()
+        assertEquals("event:%one", eventInFlight.messageKey)
+        assertEquals(true, queue.enqueue("frontier:true", frontierFrames, true, true))
+        assertEquals("frontier:true", queue.removeFirst().messageKey)
+        val frontierLast = queue.removeFirst()
+        assertEquals(true, frontierLast.completesMessage)
+        queue.complete(frontierLast)
+
+        // Completing the control message releases only its own dedupe key.
+        assertEquals(true, queue.enqueue("frontier:true", listOf(byteArrayOf(10)), true, true))
+        assertEquals(true, queue.contains("event:%one"))
+        assertEquals(true, queue.contains("frontier:true"))
+
+        queue.complete(queue.removeFirst())
+        queue.complete(eventInFlight)
+        queue.complete(queue.removeFirst())
+        queue.complete(queue.removeFirst())
+        assertEquals(false, queue.contains("event:%one"))
+        assertEquals(true, queue.enqueue("event:%one", eventFrames, false, true))
+    }
+
+    @Test
+    fun compressedEventsRoundTripAndStayCompatibleWithProtocolOne() {
+        val raw = ("{\"type\":\"CUS\",\"points\":[[10,20],[11,21],[12,22]]}".repeat(80))
+            .encodeToByteArray()
+        val compressed = BleSync.compressEvent(raw)
+
+        assertEquals(true, compressed.size < raw.size)
+        assertEquals(false, BleSync.shouldUseCompressedEvent(1, raw.size, compressed.size))
+        assertEquals(true, BleSync.shouldUseCompressedEvent(2, raw.size, compressed.size))
+        assertEquals(true, BleSync.decompressEvent(compressed, raw.size)?.contentEquals(raw))
+        assertEquals(null, BleSync.decompressEvent(compressed, 200000))
+        assertEquals(null, BleSync.decompressEvent(byteArrayOf(1, 2, 3), raw.size))
+    }
+
+    @Test
+    fun activeInboundTransfersExpireOnlyAfterTheyStopMakingProgress() {
+        assertEquals(false, BleSync.isInboundTransferStale(1_000L, 121_000L))
+        assertEquals(true, BleSync.isInboundTransferStale(1_000L, 121_001L))
+        assertEquals(false, BleSync.isInboundTransferStale(2_000L, 1_000L))
+    }
+
+    @Test
+    fun theLocalFeedIsRecoveredBeforeRelayedHistory() {
+        assertEquals(0, BleSync.feedPriority("@me", "@me"))
+        assertEquals(1, BleSync.feedPriority("@old-peer", "@me"))
+    }
+
+    @Test
+    fun newPeersCanUseAcknowledgedGattIndications() {
+        assertEquals(
+            true,
+            BleSync.supportsIndications(BluetoothGattCharacteristic.PROPERTY_NOTIFY or
+                BluetoothGattCharacteristic.PROPERTY_INDICATE)
+        )
+        assertEquals(false, BleSync.supportsIndications(BluetoothGattCharacteristic.PROPERTY_NOTIFY))
     }
 
     @Test

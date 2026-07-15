@@ -452,6 +452,37 @@ secondary.isPrimary = false;
 leaveBoard.cb_down(secondary);
 assert.strictEqual(leaveBoard.writes.length, 1);
 
+// Android WebView may cancel or lose pointer capture after visible movement.
+// Completed-looking work is committed instead of disappearing without a log.
+const cancelBoard = loadBoard();
+const cancelUi = pointerHarness(cancelBoard, "#2563eb");
+cancelBoard.cb_set_tool("pen");
+cancelBoard.cb_down(pointerEvent(cancelUi.canvas, 63, 10, 10));
+cancelBoard.cb_move(pointerEvent(cancelUi.canvas, 63, 30, 30));
+cancelBoard.cb_cancel(pointerEvent(cancelUi.canvas, 63, 30, 30));
+assert.strictEqual(cancelBoard.writes.length, 1);
+assert.strictEqual(cancelBoard.writes[0].k, "s");
+
+const lostCaptureBoard = loadBoard();
+const lostCaptureUi = pointerHarness(lostCaptureBoard, "#2563eb");
+lostCaptureBoard.cb_set_tool("pen");
+lostCaptureBoard.cb_down(pointerEvent(lostCaptureUi.canvas, 64, 10, 10));
+lostCaptureBoard.cb_move(pointerEvent(lostCaptureUi.canvas, 64, 20, 20));
+lostCaptureBoard.cb_lost_capture(pointerEvent(lostCaptureUi.canvas, 64, 20, 20));
+assert.strictEqual(lostCaptureBoard.writes.length, 1);
+
+const cancelMoveBoard = loadBoard();
+const cancelMoveUi = pointerHarness(cancelMoveBoard, "#2563eb");
+apply(cancelMoveBoard, {
+    k: "s", id: "cancel-move", ts: 3, c: "#2563eb", w: 2, p: [[20, 20], [40, 40]]
+}, "@alice.ed25519");
+cancelMoveBoard.cb_set_tool("select");
+cancelMoveBoard.cb_down(pointerEvent(cancelMoveUi.canvas, 65, 25, 25));
+cancelMoveBoard.cb_move(pointerEvent(cancelMoveUi.canvas, 65, 40, 35));
+cancelMoveBoard.cb_cancel(pointerEvent(cancelMoveUi.canvas, 65, 40, 35));
+assert.strictEqual(cancelMoveBoard.writes.length, 1);
+assert.strictEqual(cancelMoveBoard.writes[0].k, "m");
+
 finishTransform(transformSender, { mode: "move", dx: 30, dy: -10, sc: 1 });
 assert.strictEqual(transformSender.writes[0].k, "m");
 assert.ok(transformSender.writes[0].ts > futureTransform.ts);

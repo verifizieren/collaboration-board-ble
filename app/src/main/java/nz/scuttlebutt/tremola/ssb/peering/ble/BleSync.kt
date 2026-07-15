@@ -32,6 +32,7 @@ import android.util.Log
 import nz.scuttlebutt.tremola.ssb.TremolaState
 import nz.scuttlebutt.tremola.ssb.db.entities.LogEntry
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.util.ArrayDeque
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -41,8 +42,73 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.zip.Deflater
+import java.util.zip.Inflater
 import kotlin.math.max
 import kotlin.math.min
+
+internal data class BleOutboundFrame(
+    val value: ByteArray,
+    val messageKey: String,
+    val completesMessage: Boolean,
+    val priority: Boolean
+)
+
+/** A bounded per-link queue that keeps retries but coalesces duplicate messages. */
+internal class BleOutboundQueue(private val maxFrames: Int) {
+    private val priorityFrames = ArrayDeque<BleOutboundFrame>()
+    private val normalFrames = ArrayDeque<BleOutboundFrame>()
+    private val messageKeys = HashSet<String>()
+
+    val size: Int get() = priorityFrames.size + normalFrames.size
+
+    fun isEmpty(): Boolean = priorityFrames.isEmpty() && normalFrames.isEmpty()
+
+    fun isNotEmpty(): Boolean = !isEmpty()
+
+    fun contains(messageKey: String): Boolean = messageKeys.contains(messageKey)
+
+    fun enqueue(
+        messageKey: String,
+        values: List<ByteArray>,
+        priority: Boolean,
+        hasInFlightFrame: Boolean
+    ): Boolean {
+        if (messageKeys.contains(messageKey)) return true
+        if (values.isEmpty()) return false
+        val pending = size + if (hasInFlightFrame) 1 else 0
+        if (pending < 0 || values.size > maxFrames || pending + values.size > maxFrames) return false
+
+        val wrapped = values.mapIndexed { index, value ->
+            BleOutboundFrame(value, messageKey, index == values.lastIndex, priority)
+        }
+        if (priority) {
+            wrapped.forEach { priorityFrames.addLast(it) }
+        } else {
+            wrapped.forEach { normalFrames.addLast(it) }
+        }
+        messageKeys.add(messageKey)
+        return true
+    }
+
+    fun removeFirst(): BleOutboundFrame {
+        return if (priorityFrames.isNotEmpty()) priorityFrames.removeFirst() else normalFrames.removeFirst()
+    }
+
+    fun addFirst(frame: BleOutboundFrame) {
+        if (frame.priority) priorityFrames.addFirst(frame) else normalFrames.addFirst(frame)
+    }
+
+    fun complete(frame: BleOutboundFrame) {
+        if (frame.completesMessage) messageKeys.remove(frame.messageKey)
+    }
+
+    fun clear() {
+        priorityFrames.clear()
+        normalFrames.clear()
+        messageKeys.clear()
+    }
+}
 
 /**
  * BLE transport for Tremola log entries.
@@ -69,6 +135,7 @@ class BleSync(
     private val inbound = ConcurrentHashMap<String, InboundMessage>()
     private val pendingEvents = ConcurrentHashMap<FeedSequence, PendingEvent>()
     private val remoteFeedIds = ConcurrentHashMap<String, String>()
+    private val remoteProtocolVersions = ConcurrentHashMap<String, Int>()
     private val connecting = ConcurrentHashMap.newKeySet<String>()
     private val nextMessageId = AtomicInteger(1)
     private val lifecycleGeneration = AtomicInteger(0)
@@ -98,8 +165,8 @@ class BleSync(
         var writing: Boolean = false,
         var writeOperationId: Int = 0,
         var writeFailures: Int = 0,
-        var inFlightFrame: ByteArray? = null,
-        val queue: ArrayDeque<ByteArray> = ArrayDeque()
+        var inFlightFrame: BleOutboundFrame? = null,
+        val queue: BleOutboundQueue = BleOutboundQueue(MAX_QUEUED_FRAMES_PER_LINK)
     )
 
     private data class ServerLink(
@@ -107,16 +174,17 @@ class BleSync(
         val device: BluetoothDevice,
         @Volatile var mtu: Int = DEFAULT_MTU,
         @Volatile var subscribed: Boolean = false,
+        @Volatile var useIndications: Boolean = false,
         var sending: Boolean = false,
         var sendOperationId: Int = 0,
         var sendFailures: Int = 0,
-        var inFlightFrame: ByteArray? = null,
-        val queue: ArrayDeque<ByteArray> = ArrayDeque()
+        var inFlightFrame: BleOutboundFrame? = null,
+        val queue: BleOutboundQueue = BleOutboundQueue(MAX_QUEUED_FRAMES_PER_LINK)
     )
 
     private data class InboundMessage(
         val total: Int,
-        val createdAt: Long = System.currentTimeMillis(),
+        @Volatile var updatedAt: Long = System.currentTimeMillis(),
         val chunks: MutableMap<Int, ByteArray> = mutableMapOf()
     )
 
@@ -128,7 +196,7 @@ class BleSync(
     )
 
     private data class OutboundAttempt(
-        val frame: ByteArray,
+        val frame: BleOutboundFrame,
         val operationId: Int
     )
 
@@ -212,6 +280,7 @@ class BleSync(
         inbound.clear()
         pendingEvents.clear()
         remoteFeedIds.clear()
+        remoteProtocolVersions.clear()
         reportStatus("BLE stopped")
         if (shutdownWorker) worker.shutdownNow()
     }
@@ -229,10 +298,7 @@ class BleSync(
 
     fun onLocalLogEntry(entry: LogEntry) {
         executeWorker {
-            val msg = JSONObject()
-            msg.put("t", "event")
-            msg.put("raw", Base64.encodeToString(entry.raw, Base64.NO_WRAP))
-            sendJsonToAll(msg)
+            sendEventToAll(entry)
             Log.d(TAG, "queued local event ${entry.lsq} from ${shortPeer(entry.lid)}")
         }
     }
@@ -249,7 +315,8 @@ class BleSync(
             FRAME_UUID,
             BluetoothGattCharacteristic.PROPERTY_READ or
                 BluetoothGattCharacteristic.PROPERTY_WRITE or
-                BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                BluetoothGattCharacteristic.PROPERTY_NOTIFY or
+                BluetoothGattCharacteristic.PROPERTY_INDICATE,
             BluetoothGattCharacteristic.PERMISSION_READ or
                 BluetoothGattCharacteristic.PERMISSION_WRITE
         )
@@ -410,6 +477,10 @@ class BleSync(
                     link.subscribing = false
                     link.characteristic = null
                 }
+                try {
+                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                } catch (_: Exception) {
+                }
                 val requestedMtu = try {
                     gatt.requestMtu(PREFERRED_MTU)
                 } catch (_: Exception) {
@@ -485,6 +556,7 @@ class BleSync(
                 link.inFlightFrame = null
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     link.writeFailures = 0
+                    link.queue.complete(frame)
                 } else {
                     link.queue.addFirst(frame)
                     link.writeFailures += 1
@@ -586,8 +658,10 @@ class BleSync(
             offset: Int,
             value: ByteArray
         ) {
-            val enable = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            val enableNotification = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            val enableIndication = value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)
             val disable = value.contentEquals(BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE)
+            val enable = enableNotification || enableIndication
             val valid = descriptor.uuid == CCCD_UUID && !preparedWrite && offset == 0 && (enable || disable)
             val link = if (valid) {
                 serverLinks.getOrPut(device.address) { ServerLink(device.address, device) }
@@ -597,6 +671,7 @@ class BleSync(
             if (link != null) {
                 synchronized(link) {
                     link.subscribed = enable
+                    link.useIndications = enableIndication
                     if (!enable) link.queue.clear()
                 }
             }
@@ -626,6 +701,7 @@ class BleSync(
                     active.inFlightFrame = null
                     if (status == BluetoothGatt.GATT_SUCCESS) {
                         active.sendFailures = 0
+                        active.queue.complete(frame)
                     } else {
                         active.queue.addFirst(frame)
                         active.sendFailures += 1
@@ -647,7 +723,10 @@ class BleSync(
     private fun dropClientLink(link: ClientLink, status: String) {
         if (!clientLinks.remove(link.address, link)) return
         connecting.remove(link.address)
-        remoteFeedIds.remove(link.address)
+        if (!serverLinks.containsKey(link.address)) {
+            remoteFeedIds.remove(link.address)
+            remoteProtocolVersions.remove(link.address)
+        }
         synchronized(link) {
             link.ready = false
             link.servicesRequested = false
@@ -673,12 +752,16 @@ class BleSync(
         cancelConnection: Boolean = true
     ) {
         if (!serverLinks.remove(link.address, link)) return
-        remoteFeedIds.remove(link.address)
+        if (!clientLinks.containsKey(link.address)) {
+            remoteFeedIds.remove(link.address)
+            remoteProtocolVersions.remove(link.address)
+        }
         synchronized(serverSendLock) {
             if (activeServerLink === link) activeServerLink = null
         }
         synchronized(link) {
             link.subscribed = false
+            link.useIndications = false
             link.sending = false
             link.inFlightFrame = null
             link.queue.clear()
@@ -832,7 +915,11 @@ class BleSync(
                 link.subscribing = false
                 false
             } else {
-                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                descriptor.value = if (supportsIndications(characteristic.properties)) {
+                    BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+                } else {
+                    BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                }
                 val writeStarted = try {
                     link.gatt.writeDescriptor(descriptor)
                 } catch (_: Exception) {
@@ -869,7 +956,7 @@ class BleSync(
     private fun sendHello(peerAddress: String? = null) {
         val msg = JSONObject()
         msg.put("t", "hello")
-        msg.put("v", 1)
+        msg.put("v", PROTOCOL_VERSION)
         msg.put("fid", tremolaState.idStore.identity.toRef())
         if (peerAddress == null) sendJsonToAll(msg) else sendJsonToPeer(peerAddress, msg)
     }
@@ -908,6 +995,7 @@ class BleSync(
             "hello" -> {
                 val fid = msg.optString("fid", "")
                 if (fid.isNotBlank()) remoteFeedIds[peerAddress] = fid
+                remoteProtocolVersions[peerAddress] = max(1, msg.optInt("v", 1))
                 reportStatus("BLE peer ${shortPeer(fid)}")
                 sendFrontier(peerAddress)
             }
@@ -919,25 +1007,66 @@ class BleSync(
                 }
             }
             "event" -> {
-                val raw = Base64.decode(msg.getString("raw"), Base64.NO_WRAP)
-                ingestRawEvent(peerAddress, raw)
+                decodeEventMessage(msg)?.let { ingestRawEvent(peerAddress, it) }
             }
         }
+    }
+
+    private fun sendEventToAll(entry: LogEntry) {
+        val peers = HashSet<String>()
+        peers.addAll(clientLinks.keys)
+        peers.addAll(serverLinks.keys)
+        peers.forEach { sendEventToPeer(it, entry) }
+    }
+
+    private fun sendEventToPeer(peerAddress: String, entry: LogEntry): Boolean {
+        val msg = JSONObject()
+        msg.put("t", "event")
+        msg.put("hid", entry.hid)
+        val remoteVersion = remoteProtocolVersions[peerAddress] ?: 1
+        val compressed = if (remoteVersion >= PROTOCOL_VERSION) compressEvent(entry.raw) else ByteArray(0)
+        if (shouldUseCompressedEvent(
+                remoteVersion,
+                entry.raw.size,
+                compressed.size
+            )
+        ) {
+            msg.put("enc", "deflate")
+            msg.put("size", entry.raw.size)
+            msg.put("raw", Base64.encodeToString(compressed, Base64.NO_WRAP))
+        } else {
+            msg.put("raw", Base64.encodeToString(entry.raw, Base64.NO_WRAP))
+        }
+        return sendJsonToPeer(peerAddress, msg)
+    }
+
+    private fun decodeEventMessage(msg: JSONObject): ByteArray? {
+        val encoded = try {
+            Base64.decode(msg.getString("raw"), Base64.NO_WRAP)
+        } catch (_: Exception) {
+            return null
+        }
+        if (msg.optString("enc") != "deflate") {
+            return encoded.takeIf { it.size <= MAX_RAW_EVENT_BYTES }
+        }
+        return decompressEvent(encoded, msg.optInt("size", -1))
     }
 
     private fun sendMissingEntries(peerAddress: String, remoteFrontier: JSONObject) {
         var sent = 0
         val local = localFrontier()
-        for ((lid, localSeq) in local.entries.sortedBy { it.key }) {
+        val ownFeed = tremolaState.idStore.identity.toRef()
+        val orderedFeeds = local.entries.sortedWith(
+            compareBy<Map.Entry<String, Int>> { feedPriority(it.key, ownFeed) }
+                .thenBy { it.key }
+        )
+        for ((lid, localSeq) in orderedFeeds) {
             val remoteSeq = max(0, remoteFrontier.optInt(lid, 0))
             if (localSeq <= remoteSeq) continue
             var seq = remoteSeq + 1
             while (seq <= localSeq && sent < MAX_EVENTS_PER_PULSE) {
                 val event = tremolaState.logDAO.getEventByLogIdAndSeq(lid, seq) ?: break
-                val msg = JSONObject()
-                msg.put("t", "event")
-                msg.put("raw", Base64.encodeToString(event.raw, Base64.NO_WRAP))
-                if (!sendJsonToPeer(peerAddress, msg)) return
+                if (!sendEventToPeer(peerAddress, event)) return
                 sent += 1
                 seq += 1
             }
@@ -1028,9 +1157,13 @@ class BleSync(
     }
 
     private fun enqueueClient(link: ClientLink, msg: JSONObject): Boolean {
+        val messageKey = messageQueueKey(msg)
         val frames = makeFrames(msg, link.mtu)
         val accepted = synchronized(link) {
-            enqueueFrames(link.queue, frames, link.writing)
+            link.queue.enqueue(messageKey, frames, isControlMessage(msg), link.writing)
+        }
+        if (!accepted && frames.size > MAX_QUEUED_FRAMES_PER_LINK) {
+            Log.w(TAG, "BLE frame batch too large: ${frames.size}")
         }
         if (accepted) drainClient(link)
         return accepted
@@ -1053,7 +1186,7 @@ class BleSync(
             OutboundAttempt(frame, link.writeOperationId)
         }
         ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-        ch.value = attempt.frame
+        ch.value = attempt.frame.value
         val started = try {
             link.gatt.writeCharacteristic(ch)
         } catch (_: Exception) {
@@ -1090,31 +1223,34 @@ class BleSync(
 
     private fun enqueueServer(link: ServerLink, msg: JSONObject): Boolean {
         if (!link.subscribed) return false
+        val messageKey = messageQueueKey(msg)
         val frames = makeFrames(msg, link.mtu)
         val accepted = synchronized(link) {
-            enqueueFrames(link.queue, frames, link.sending)
+            link.queue.enqueue(messageKey, frames, isControlMessage(msg), link.sending)
+        }
+        if (!accepted && frames.size > MAX_QUEUED_FRAMES_PER_LINK) {
+            Log.w(TAG, "BLE frame batch too large: ${frames.size}")
         }
         if (accepted) drainServer(link)
         return accepted
     }
 
-    private fun enqueueFrames(
-        queue: ArrayDeque<ByteArray>,
-        frames: List<ByteArray>,
-        hasInFlightFrame: Boolean
-    ): Boolean {
-        // Keep each JSON message intact. Dropping individual frames can make
-        // the first missing feed entry impossible to reconstruct on a peer.
-        val pending = queue.size + if (hasInFlightFrame) 1 else 0
-        if (!canQueueFrames(pending, frames.size)) {
-            if (frames.size > MAX_QUEUED_FRAMES_PER_LINK) {
-                Log.w(TAG, "BLE frame batch too large: ${frames.size}")
+    private fun messageQueueKey(msg: JSONObject): String {
+        return when (val type = msg.optString("t", "unknown")) {
+            "event" -> {
+                val hid = msg.optString("hid", "")
+                if (hid.isNotBlank()) "event:$hid" else {
+                    val raw = msg.optString("raw", "")
+                    "event:${raw.length}:${raw.hashCode()}"
+                }
             }
-            return false
+            "frontier" -> "frontier:${msg.optBoolean("reply", false)}"
+            "hello" -> "hello"
+            else -> "$type:${msg.toString().hashCode()}"
         }
-        frames.forEach { queue.add(it) }
-        return true
     }
+
+    private fun isControlMessage(msg: JSONObject): Boolean = msg.optString("t") != "event"
 
     private fun drainServer(link: ServerLink) {
         if (!isRunning || serverLinks[link.address] !== link) return
@@ -1134,9 +1270,9 @@ class BleSync(
                 }
             } ?: return
             activeServerLink = link
-            ch.value = attempt.frame
+            ch.value = attempt.frame.value
             val sendStarted = try {
-                server.notifyCharacteristicChanged(link.device, ch, false)
+                server.notifyCharacteristicChanged(link.device, ch, link.useIndications)
             } catch (_: Exception) {
                 false
             }
@@ -1220,6 +1356,7 @@ class BleSync(
                 inbound.remove(key, acc)
                 return
             }
+            acc.updatedAt = System.currentTimeMillis()
             acc.chunks[seq] = frame.copyOfRange(FRAME_HEADER_SIZE, frame.size)
             if (acc.chunks.size == total) {
                 val size = acc.chunks.values.sumOf { it.size }
@@ -1246,8 +1383,8 @@ class BleSync(
     }
 
     private fun pruneInbound() {
-        val deadline = System.currentTimeMillis() - INBOUND_TTL_MS
-        inbound.entries.removeIf { it.value.createdAt < deadline }
+        val now = System.currentTimeMillis()
+        inbound.entries.removeIf { isInboundTransferStale(it.value.updatedAt, now) }
         val pendingDeadline = System.currentTimeMillis() - PENDING_EVENT_TTL_MS
         pendingEvents.entries.removeIf { it.value.createdAt < pendingDeadline }
     }
@@ -1293,6 +1430,7 @@ class BleSync(
 
     companion object {
         private const val TAG = "BleSync"
+        private const val PROTOCOL_VERSION = 2
         private const val FRAME_VERSION = 1
         private const val FRAME_KIND_JSON = 1
         private const val FRAME_HEADER_SIZE = 8
@@ -1300,14 +1438,15 @@ class BleSync(
         private const val PREFERRED_MTU = 247
         private const val MAX_FRAME_PAYLOAD = 180
         private const val MAX_CHUNKS = 1024
-        private const val MAX_INBOUND_MESSAGES = 32
+        private const val MAX_INBOUND_MESSAGES = 64
+        private const val MAX_RAW_EVENT_BYTES = 131072
         private const val MAX_PENDING_EVENTS = 512
         private const val MAX_QUEUED_FRAMES_PER_LINK = 2048
-        private const val MAX_EVENTS_PER_PULSE = 64
-        private const val SYNC_INTERVAL_SECONDS = 3L
+        private const val MAX_EVENTS_PER_PULSE = 24
+        private const val SYNC_INTERVAL_SECONDS = 4L
         private const val SCAN_WINDOW_SECONDS = 5L
         private const val SCAN_RESTART_MS = 7000L
-        private const val INBOUND_TTL_MS = 30000L
+        private const val INBOUND_IDLE_TTL_MS = 120000L
         private const val PENDING_EVENT_TTL_MS = 300000L
         private const val GATT_OPERATION_TIMEOUT_SECONDS = 2L
         private const val FRAME_OPERATION_TIMEOUT_MS = 5000L
@@ -1325,6 +1464,67 @@ class BleSync(
         internal fun canQueueFrames(queued: Int, batch: Int): Boolean {
             return batch > 0 && batch <= MAX_QUEUED_FRAMES_PER_LINK &&
                 queued >= 0 && queued + batch <= MAX_QUEUED_FRAMES_PER_LINK
+        }
+
+        internal fun supportsIndications(properties: Int): Boolean {
+            return properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
+        }
+
+        internal fun shouldUseCompressedEvent(
+            remoteProtocolVersion: Int,
+            rawSize: Int,
+            compressedSize: Int
+        ): Boolean {
+            return remoteProtocolVersion >= PROTOCOL_VERSION && rawSize > 0 &&
+                compressedSize > 0 && compressedSize + 32 < rawSize
+        }
+
+        internal fun compressEvent(raw: ByteArray): ByteArray {
+            if (raw.isEmpty()) return raw
+            val deflater = Deflater(Deflater.BEST_SPEED)
+            return try {
+                deflater.setInput(raw)
+                deflater.finish()
+                val output = ByteArrayOutputStream(raw.size)
+                val buffer = ByteArray(1024)
+                while (!deflater.finished()) {
+                    val count = deflater.deflate(buffer)
+                    if (count <= 0) break
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            } finally {
+                deflater.end()
+            }
+        }
+
+        internal fun decompressEvent(compressed: ByteArray, expectedSize: Int): ByteArray? {
+            if (expectedSize !in 1..MAX_RAW_EVENT_BYTES || compressed.isEmpty()) return null
+            val inflater = Inflater()
+            return try {
+                inflater.setInput(compressed)
+                val output = ByteArrayOutputStream(min(expectedSize, 8192))
+                val buffer = ByteArray(1024)
+                while (!inflater.finished()) {
+                    val count = inflater.inflate(buffer)
+                    if (count <= 0) return null
+                    if (output.size() + count > MAX_RAW_EVENT_BYTES) return null
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray().takeIf { it.size == expectedSize }
+            } catch (_: Exception) {
+                null
+            } finally {
+                inflater.end()
+            }
+        }
+
+        internal fun isInboundTransferStale(lastProgressAt: Long, now: Long): Boolean {
+            return now >= lastProgressAt && now - lastProgressAt > INBOUND_IDLE_TTL_MS
+        }
+
+        internal fun feedPriority(feedId: String, ownFeedId: String): Int {
+            return if (feedId == ownFeedId) 0 else 1
         }
 
         internal fun isNextEvent(

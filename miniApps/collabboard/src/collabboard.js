@@ -267,6 +267,7 @@ function cb_bind_canvas() {
     cv.addEventListener('pointerup', cb_up);
     cv.addEventListener('pointerleave', cb_leave);
     cv.addEventListener('pointercancel', cb_cancel);
+    cv.addEventListener('lostpointercapture', cb_lost_capture);
     var col = document.getElementById('cb_color');
     if (col) {
         // picking a color while an object is selected recolors that object
@@ -462,6 +463,14 @@ function cb_leave(e) {
 
 function cb_cancel(e) {
     if (e && cb_pointer_id !== null && e.pointerId !== cb_pointer_id) return;
+    var hasStroke = cb_draft && Array.isArray(cb_draft.p) && cb_draft.p.length > 0;
+    var hasTransform = cb_drag && cb_drag.mode !== 'pan' && cb_drag.moved;
+    if (cb_pointer_id !== null && (hasStroke || hasTransform)) {
+        // Android WebView can cancel capture during a completed-looking touch.
+        // Keep the visible work by finishing the event instead of discarding it.
+        cb_up(e);
+        return;
+    }
     if (e && e.preventDefault) e.preventDefault();
     cb_release_pointer(e);
     cb_pointer_id = null;
@@ -470,6 +479,10 @@ function cb_cancel(e) {
     var cv = e && e.currentTarget;
     if (cv && cb_tool === 'select') cv.style.cursor = 'grab';
     cb_redraw();
+}
+
+function cb_lost_capture(e) {
+    if (cb_pointer_id !== null && e && e.pointerId === cb_pointer_id) cb_up(e);
 }
 
 function cb_release_pointer(e) {

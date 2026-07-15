@@ -77,7 +77,7 @@ With USB debugging enabled:
 
 For the real test, install the same APK on two phones and keep Tremola open on
 both. A finished action is sent immediately. Feed frontiers
-are also exchanged every 3 seconds so missed events can be recovered.
+are also exchanged every 4 seconds so missed events can be recovered.
 
 ## Browser Preview
 

@@ -78,9 +78,12 @@ global clear, and edits made by a different Tremola feed.
 - Only missing signed log entries are sent.
 - A finished local event is queued immediately.
 - The local board applies the action immediately before the signed echo returns.
-- Frontier recovery runs every 3 seconds.
+- Frontier recovery runs every 4 seconds.
 - A valid event that arrives too early waits for its missing feed entries.
 - Large messages are split into MTU-safe frames.
+- Duplicate transfers are merged before they fill the queue.
+- New peers compress events and use confirmed GATT indications.
+- Older peers keep using the original uncompressed BLE format.
 - GATT operations are sent one at a time.
 - Failed or stuck operations retry or reconnect.
 - Turning Bluetooth off and on restarts BLE sync.
@@ -100,7 +103,7 @@ writes signed log entries and exposes BLE status.
 ## Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- App version: `0.4.10`
+- App version: `0.4.11`
 - Minimum Android: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Max's stroke, text, move, color, and clear event formats are unchanged
