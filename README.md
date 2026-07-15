@@ -76,8 +76,9 @@ With USB debugging enabled:
 ```
 
 For the real test, install the same APK on two phones and keep Tremola open on
-both. A finished action is sent immediately. Feed frontiers
-are also exchanged every 4 seconds so missed events can be recovered.
+both. A finished action is sent immediately. Feed frontiers are also exchanged
+every 4 seconds so missed events can be recovered. New board actions have
+priority while older Tremola feed entries catch up in the background.
 
 ## Browser Preview
 

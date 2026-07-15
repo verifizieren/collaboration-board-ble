@@ -31,6 +31,7 @@ import android.util.Base64
 import android.util.Log
 import nz.scuttlebutt.tremola.ssb.TremolaState
 import nz.scuttlebutt.tremola.ssb.db.entities.LogEntry
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.ArrayDeque
@@ -59,6 +60,7 @@ internal class BleOutboundQueue(private val maxFrames: Int) {
     private val priorityFrames = ArrayDeque<BleOutboundFrame>()
     private val normalFrames = ArrayDeque<BleOutboundFrame>()
     private val messageKeys = HashSet<String>()
+    private val priorityReserve = min(MAX_PRIORITY_FRAME_RESERVE, maxFrames / 4)
 
     val size: Int get() = priorityFrames.size + normalFrames.size
 
@@ -74,10 +76,14 @@ internal class BleOutboundQueue(private val maxFrames: Int) {
         priority: Boolean,
         hasInFlightFrame: Boolean
     ): Boolean {
-        if (messageKeys.contains(messageKey)) return true
+        if (messageKeys.contains(messageKey)) {
+            if (priority) promote(messageKey)
+            return true
+        }
         if (values.isEmpty()) return false
         val pending = size + if (hasInFlightFrame) 1 else 0
-        if (pending < 0 || values.size > maxFrames || pending + values.size > maxFrames) return false
+        val frameLimit = if (priority) maxFrames else max(1, maxFrames - priorityReserve)
+        if (pending < 0 || values.size > frameLimit || pending + values.size > frameLimit) return false
 
         val wrapped = values.mapIndexed { index, value ->
             BleOutboundFrame(value, messageKey, index == values.lastIndex, priority)
@@ -89,6 +95,19 @@ internal class BleOutboundQueue(private val maxFrames: Int) {
         }
         messageKeys.add(messageKey)
         return true
+    }
+
+    private fun promote(messageKey: String) {
+        val promoted = ArrayList<BleOutboundFrame>()
+        val iterator = normalFrames.iterator()
+        while (iterator.hasNext()) {
+            val frame = iterator.next()
+            if (frame.messageKey == messageKey) {
+                iterator.remove()
+                promoted.add(frame.copy(priority = true))
+            }
+        }
+        promoted.forEach { priorityFrames.addLast(it) }
     }
 
     fun removeFirst(): BleOutboundFrame {
@@ -107,6 +126,10 @@ internal class BleOutboundQueue(private val maxFrames: Int) {
         priorityFrames.clear()
         normalFrames.clear()
         messageKeys.clear()
+    }
+
+    companion object {
+        private const val MAX_PRIORITY_FRAME_RESERVE = 256
     }
 }
 
@@ -192,6 +215,7 @@ class BleSync(
 
     private data class PendingEvent(
         val entry: LogEntry,
+        val sourcePeerAddress: String,
         val createdAt: Long = System.currentTimeMillis()
     )
 
@@ -296,9 +320,9 @@ class BleSync(
         }
     }
 
-    fun onLocalLogEntry(entry: LogEntry) {
+    fun onLocalLogEntry(entry: LogEntry, excludedPeerAddress: String? = null) {
         executeWorker {
-            sendEventToAll(entry)
+            sendEventToAll(entry, excludedPeerAddress, live = true)
             Log.d(TAG, "queued local event ${entry.lsq} from ${shortPeer(entry.lid)}")
         }
     }
@@ -368,7 +392,9 @@ class BleSync(
 
     private fun startScan() {
         val now = System.currentTimeMillis()
-        if (!isRunning || isScanning || now - lastScanStartedAt < SCAN_RESTART_MS) return
+        val hasPeer = hasUsablePeer()
+        val restartAfter = scanRestartMillis(hasPeer)
+        if (!isRunning || isScanning || now - lastScanStartedAt < restartAfter) return
         val bleScanner = scanner ?: bluetoothAdapter?.bluetoothLeScanner ?: return
         scanner = bleScanner
         val filters = listOf(
@@ -377,24 +403,34 @@ class BleSync(
                 .build()
         )
         val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setScanMode(
+                if (hasPeer) ScanSettings.SCAN_MODE_BALANCED
+                else ScanSettings.SCAN_MODE_LOW_LATENCY
+            )
             .build()
         try {
             bleScanner.startScan(filters, settings, scanCallback)
             isScanning = true
             lastScanStartedAt = now
-            scheduleWorker(SCAN_WINDOW_SECONDS * 1000L) {
-                try {
-                    bleScanner.stopScan(scanCallback)
-                } catch (_: Exception) {
-                }
-                isScanning = false
-            }
+            scheduleWorker(scanWindowMillis(hasPeer)) { stopScanning() }
         } catch (e: Exception) {
             Log.e(TAG, "scan failed ${e.stackTraceToString()}")
             isScanning = false
             reportStatus("BLE scan failed")
         }
+    }
+
+    private fun stopScanning() {
+        if (!isScanning) return
+        try {
+            scanner?.stopScan(scanCallback)
+        } catch (_: Exception) {
+        }
+        isScanning = false
+    }
+
+    private fun hasUsablePeer(): Boolean {
+        return clientLinks.values.any { it.ready } || serverLinks.values.any { it.subscribed }
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {
@@ -685,6 +721,7 @@ class BleSync(
                 )
             }
             if (link?.subscribed == true) {
+                stopScanning()
                 sendHello(link.address)
                 sendFrontier(link.address)
             }
@@ -744,6 +781,7 @@ class BleSync(
         } catch (_: Exception) {
         }
         reportStatus(status)
+        executeWorker { startScan() }
     }
 
     private fun dropServerLink(
@@ -774,6 +812,7 @@ class BleSync(
         }
         reportStatus(status)
         drainNextServer()
+        executeWorker { startScan() }
     }
 
     private fun handleClientWriteFailure(link: ClientLink, failures: Int, status: String) {
@@ -847,6 +886,7 @@ class BleSync(
             }
         }
         if (!becameReady) return
+        stopScanning()
         sendHello(link.address)
         sendFrontier(link.address)
         drainClient(link)
@@ -1012,32 +1052,46 @@ class BleSync(
         }
     }
 
-    private fun sendEventToAll(entry: LogEntry) {
+    private fun sendEventToAll(
+        entry: LogEntry,
+        excludedPeerAddress: String? = null,
+        live: Boolean = false
+    ) {
         val peers = HashSet<String>()
         peers.addAll(clientLinks.keys)
         peers.addAll(serverLinks.keys)
-        peers.forEach { sendEventToPeer(it, entry) }
+        peers.remove(excludedPeerAddress)
+        peers.forEach { sendEventToPeer(it, entry, live) }
     }
 
-    private fun sendEventToPeer(peerAddress: String, entry: LogEntry): Boolean {
+    private fun sendEventToPeer(peerAddress: String, entry: LogEntry, live: Boolean = false): Boolean {
         val msg = JSONObject()
         msg.put("t", "event")
         msg.put("hid", entry.hid)
+        if (live) msg.put("live", true)
         val remoteVersion = remoteProtocolVersions[peerAddress] ?: 1
         val compressed = if (remoteVersion >= PROTOCOL_VERSION) compressEvent(entry.raw) else ByteArray(0)
-        if (shouldUseCompressedEvent(
-                remoteVersion,
-                entry.raw.size,
-                compressed.size
-            )
-        ) {
+        val useCompression = shouldUseCompressedEvent(
+            remoteVersion,
+            entry.raw.size,
+            compressed.size
+        )
+        if (useCompression) {
             msg.put("enc", "deflate")
             msg.put("size", entry.raw.size)
             msg.put("raw", Base64.encodeToString(compressed, Base64.NO_WRAP))
         } else {
             msg.put("raw", Base64.encodeToString(entry.raw, Base64.NO_WRAP))
         }
-        return sendJsonToPeer(peerAddress, msg)
+        val accepted = sendJsonToPeer(peerAddress, msg)
+        if (live) {
+            Log.d(
+                TAG,
+                "live event ${entry.lsq} to $peerAddress accepted=$accepted " +
+                    "raw=${entry.raw.size} compressed=${if (useCompression) compressed.size else 0}"
+            )
+        }
+        return accepted
     }
 
     private fun decodeEventMessage(msg: JSONObject): ByteArray? {
@@ -1087,31 +1141,38 @@ class BleSync(
         val chainOk = isNextEvent(latest?.lsq, latest?.hid, entry.lsq, entry.pre)
         if (!chainOk) {
             if (shouldBufferEvent(latest?.lsq, entry.lsq)) {
-                rememberPendingEvent(entry)
+                val added = rememberPendingEvent(entry, peerAddress)
+                if (added && isCollaborationBoardEvent(entry)) {
+                    // The detached SSB signature is already valid. Show the
+                    // CRDT operation immediately while predecessors continue
+                    // to arrive; database insertion still waits for the chain.
+                    tremolaState.wai.sendEventToFrontend(entry)
+                    Log.i(TAG, "previewed signed board event ${entry.lsq} from ${shortPeer(entry.lid)}")
+                }
             }
             Log.d(TAG, "missing chain before ${entry.lid}/${entry.lsq}, latest=${latest?.lsq}")
             sendFrontier(peerAddress)
             return
         }
 
-        acceptVerifiedEvent(entry)
+        acceptVerifiedEvent(entry, peerAddress)
         drainPendingEvents(entry.lid)
     }
 
-    private fun rememberPendingEvent(entry: LogEntry) {
+    private fun rememberPendingEvent(entry: LogEntry, sourcePeerAddress: String): Boolean {
         val key = FeedSequence(entry.lid, entry.lsq)
-        if (pendingEvents.containsKey(key)) return
+        if (pendingEvents.containsKey(key)) return false
         if (pendingEvents.size >= MAX_PENDING_EVENTS) {
             pendingEvents.entries.minByOrNull { it.value.createdAt }?.let {
                 pendingEvents.remove(it.key, it.value)
             }
         }
-        pendingEvents.putIfAbsent(key, PendingEvent(entry))
+        return pendingEvents.putIfAbsent(key, PendingEvent(entry, sourcePeerAddress)) == null
     }
 
-    private fun acceptVerifiedEvent(entry: LogEntry) {
+    private fun acceptVerifiedEvent(entry: LogEntry, sourcePeerAddress: String) {
         if (tremolaState.logDAO.getEventByHashId(entry.hid).isNotEmpty()) return
-        tremolaState.wai.rx_event(entry)
+        tremolaState.wai.rx_event(entry, sourcePeerAddress)
         Log.i(TAG, "accepted event ${entry.lsq} from ${shortPeer(entry.lid)}")
     }
 
@@ -1126,7 +1187,22 @@ class BleSync(
                 Log.w(TAG, "discarding forked pending event ${entry.lid}/${entry.lsq}")
                 continue
             }
-            acceptVerifiedEvent(entry)
+            acceptVerifiedEvent(entry, pending.sourcePeerAddress)
+        }
+    }
+
+    private fun isCollaborationBoardEvent(entry: LogEntry): Boolean {
+        val content = entry.pub ?: return false
+        return try {
+            val array = JSONArray(content)
+            array.optString(0) == "CUS" && array.optString(1) == COLLAB_BOARD_APP_ID
+        } catch (_: Exception) {
+            try {
+                val obj = JSONObject(content)
+                obj.optString("type") == "CUS" && obj.optString("app") == COLLAB_BOARD_APP_ID
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 
@@ -1160,10 +1236,11 @@ class BleSync(
         val messageKey = messageQueueKey(msg)
         val frames = makeFrames(msg, link.mtu)
         val accepted = synchronized(link) {
-            link.queue.enqueue(messageKey, frames, isControlMessage(msg), link.writing)
+            link.queue.enqueue(messageKey, frames, isPriorityMessage(msg), link.writing)
         }
-        if (!accepted && frames.size > MAX_QUEUED_FRAMES_PER_LINK) {
-            Log.w(TAG, "BLE frame batch too large: ${frames.size}")
+        if (!accepted) {
+            val queued = synchronized(link) { link.queue.size + if (link.writing) 1 else 0 }
+            Log.w(TAG, "client queue rejected $messageKey frames=${frames.size} queued=$queued")
         }
         if (accepted) drainClient(link)
         return accepted
@@ -1226,10 +1303,11 @@ class BleSync(
         val messageKey = messageQueueKey(msg)
         val frames = makeFrames(msg, link.mtu)
         val accepted = synchronized(link) {
-            link.queue.enqueue(messageKey, frames, isControlMessage(msg), link.sending)
+            link.queue.enqueue(messageKey, frames, isPriorityMessage(msg), link.sending)
         }
-        if (!accepted && frames.size > MAX_QUEUED_FRAMES_PER_LINK) {
-            Log.w(TAG, "BLE frame batch too large: ${frames.size}")
+        if (!accepted) {
+            val queued = synchronized(link) { link.queue.size + if (link.sending) 1 else 0 }
+            Log.w(TAG, "server queue rejected $messageKey frames=${frames.size} queued=$queued")
         }
         if (accepted) drainServer(link)
         return accepted
@@ -1250,7 +1328,9 @@ class BleSync(
         }
     }
 
-    private fun isControlMessage(msg: JSONObject): Boolean = msg.optString("t") != "event"
+    private fun isPriorityMessage(msg: JSONObject): Boolean {
+        return msg.optString("t") != "event" || msg.optBoolean("live", false)
+    }
 
     private fun drainServer(link: ServerLink) {
         if (!isRunning || serverLinks[link.address] !== link) return
@@ -1430,6 +1510,7 @@ class BleSync(
 
     companion object {
         private const val TAG = "BleSync"
+        private const val COLLAB_BOARD_APP_ID = "collabboard"
         private const val PROTOCOL_VERSION = 2
         private const val FRAME_VERSION = 1
         private const val FRAME_KIND_JSON = 1
@@ -1446,6 +1527,8 @@ class BleSync(
         private const val SYNC_INTERVAL_SECONDS = 4L
         private const val SCAN_WINDOW_SECONDS = 5L
         private const val SCAN_RESTART_MS = 7000L
+        private const val CONNECTED_SCAN_WINDOW_MS = 2000L
+        private const val CONNECTED_SCAN_RESTART_MS = 30000L
         private const val INBOUND_IDLE_TTL_MS = 120000L
         private const val PENDING_EVENT_TTL_MS = 300000L
         private const val GATT_OPERATION_TIMEOUT_SECONDS = 2L
@@ -1549,6 +1632,14 @@ class BleSync(
             return failures >= MAX_FRAME_OPERATION_FAILURES
         }
 
+        internal fun scanWindowMillis(hasUsablePeer: Boolean): Long {
+            return if (hasUsablePeer) CONNECTED_SCAN_WINDOW_MS else SCAN_WINDOW_SECONDS * 1000L
+        }
+
+        internal fun scanRestartMillis(hasUsablePeer: Boolean): Long {
+            return if (hasUsablePeer) CONNECTED_SCAN_RESTART_MS else SCAN_RESTART_MS
+        }
+
         internal const val ROUTE_CLIENT = 1
         internal const val ROUTE_SERVER = 2
 
@@ -1558,10 +1649,10 @@ class BleSync(
             hasServer: Boolean,
             serverSubscribed: Boolean
         ): Int {
-            var routes = 0
-            if (hasClient && clientReady) routes = routes or ROUTE_CLIENT
-            if (hasServer && serverSubscribed) routes = routes or ROUTE_SERVER
-            if (routes != 0) return routes
+            // One logical peer needs one transport route. Sending every frame
+            // over both directions doubles traffic and creates return storms.
+            if (hasClient && clientReady) return ROUTE_CLIENT
+            if (hasServer && serverSubscribed) return ROUTE_SERVER
             if (hasClient) return ROUTE_CLIENT
             if (hasServer) return ROUTE_SERVER
             return 0

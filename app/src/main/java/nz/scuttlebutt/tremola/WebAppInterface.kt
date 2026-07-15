@@ -288,12 +288,14 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
         )
     }
 
-    fun rx_event(entry: LogEntry) {
+    fun rx_event(entry: LogEntry, bleSourceAddress: String? = null) {
         // when we come here we assume that the event is legit (chaining and signature)
         tremolaState.addLogEntry(entry)       // persist the log entry
         sendEventToFrontend(entry)            // notify the local app
         tremolaState.peers.newLogEntry(entry) // stream it to peers we are currently connected to
-        tremolaState.bleSync?.onLocalLogEntry(entry) // stream it to nearby BLE peers
+        // Relay to other nearby peers, but never echo a BLE event back to the
+        // phone that just delivered it.
+        tremolaState.bleSync?.onLocalLogEntry(entry, bleSourceAddress)
     }
 
     fun sendEventToFrontend(evnt: LogEntry) {

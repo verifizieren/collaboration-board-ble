@@ -68,6 +68,30 @@ class BleSyncTest {
     }
 
     @Test
+    fun aLiveEventAlreadyQueuedAsHistoryIsPromoted() {
+        val queue = BleOutboundQueue(8)
+        val eventFrames = listOf(byteArrayOf(1), byteArrayOf(2))
+
+        assertEquals(true, queue.enqueue("event:%history", eventFrames, false, false))
+        assertEquals(true, queue.enqueue("event:%live", listOf(byteArrayOf(9)), false, false))
+        assertEquals(true, queue.enqueue("event:%history", eventFrames, true, false))
+
+        assertEquals("event:%history", queue.removeFirst().messageKey)
+        assertEquals("event:%history", queue.removeFirst().messageKey)
+        assertEquals("event:%live", queue.removeFirst().messageKey)
+    }
+
+    @Test
+    fun historyCannotConsumeTheLiveEventReserve() {
+        val queue = BleOutboundQueue(8)
+
+        assertEquals(true, queue.enqueue("history:one", List(6) { byteArrayOf(1) }, false, false))
+        assertEquals(false, queue.enqueue("history:two", listOf(byteArrayOf(2)), false, false))
+        assertEquals(true, queue.enqueue("live:one", List(2) { byteArrayOf(3) }, true, false))
+        assertEquals(8, queue.size)
+    }
+
+    @Test
     fun compressedEventsRoundTripAndStayCompatibleWithProtocolOne() {
         val raw = ("{\"type\":\"CUS\",\"points\":[[10,20],[11,21],[12,22]]}".repeat(80))
             .encodeToByteArray()
@@ -116,9 +140,9 @@ class BleSyncTest {
     }
 
     @Test
-    fun everyReadyGattDirectionCarriesTheSameSyncMessage() {
+    fun oneReadyGattDirectionCarriesEachSyncMessage() {
         assertEquals(
-            BleSync.ROUTE_CLIENT or BleSync.ROUTE_SERVER,
+            BleSync.ROUTE_CLIENT,
             BleSync.outboundRouteMask(
                 hasClient = true,
                 clientReady = true,
@@ -162,6 +186,14 @@ class BleSyncTest {
                 serverSubscribed = false
             )
         )
+    }
+
+    @Test
+    fun connectedDiscoveryUsesShortInfrequentScanWindows() {
+        assertEquals(5000L, BleSync.scanWindowMillis(false))
+        assertEquals(7000L, BleSync.scanRestartMillis(false))
+        assertEquals(2000L, BleSync.scanWindowMillis(true))
+        assertEquals(30000L, BleSync.scanRestartMillis(true))
     }
 
     @Test

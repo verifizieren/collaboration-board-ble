@@ -1,5 +1,7 @@
 # Install On Android
 
+Current test build: **0.4.12** (`versionCode 17`).
+
 Download and install:
 
 [`tremola-collaboration-board-debug.apk`](tremola-collaboration-board-debug.apk)

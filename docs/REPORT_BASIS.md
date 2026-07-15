@@ -49,9 +49,10 @@ frontiers and recover anything that was missed.
 - They send only missing log entries.
 - Large entries are split into small BLE frames.
 - Frames are sent one at a time through Android BLE callbacks.
+- New board actions are sent before old feed history.
 - Failed or stuck transfers retry or reconnect.
-- The receiver checks the signature and feed chain.
-- An early event waits until its missing predecessor arrives.
+- The receiver checks the signature first and can show the board action at once.
+- Database storage waits until the full feed chain is complete.
 - Duplicate entries are ignored.
 - Offline edits arrive after the phones reconnect.
 
