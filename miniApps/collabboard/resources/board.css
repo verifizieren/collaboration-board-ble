@@ -87,21 +87,16 @@
   color: var(--cb-accent);
 }
 
-.cb_or {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 16px 0;
-  color: var(--cb-muted);
-  font-size: 12px;
+.cb_code_input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
-.cb_or::before,
-.cb_or::after {
-  height: 1px;
-  flex: 1 1 auto;
-  content: '';
-  background: var(--cb-line);
+.cb_setup_actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .cb_setup_error {

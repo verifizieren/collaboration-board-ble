@@ -33,7 +33,10 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
     @JavascriptInterface
     fun onFrontendRequest(s: String) {
         //handle the data captured from webview}
-        Log.d("FrontendRequest", s)
+        Log.d(
+            "FrontendRequest",
+            if (s.startsWith("collabboard:")) s.substringBefore(" ") else s
+        )
         if (handleBleRequest(s)) return
         if (handleCollaborationBoardRequest(s)) return
         if (handleCustomAppRequest(s)) return
@@ -237,8 +240,29 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
             s.startsWith("collabboard:configure ") -> {
                 val encoded = s.substringAfter("collabboard:configure ")
                 val config = decodeFrontendBase64(encoded)
+                (act as? MainActivity)?.startBleSyncIfPermitted()
                 val accepted = config != null && tremolaState.bleSync?.configureBoard(config) == true
                 eval("if (typeof cb_board_configured === 'function') cb_board_configured($accepted);")
+            }
+            s.startsWith("collabboard:pairing ") -> {
+                val encoded = s.substringAfter("collabboard:pairing ")
+                val code = decodeFrontendBase64(encoded)
+                (act as? MainActivity)?.startBleSyncIfPermitted()
+                val accepted = code != null && tremolaState.bleSync?.startBoardPairing(code) == true
+                eval(
+                    "if (typeof cb_pairing_started === 'function') " +
+                        "cb_pairing_started($accepted, 600);"
+                )
+            }
+            s.startsWith("collabboard:join ") -> {
+                val encoded = s.substringAfter("collabboard:join ")
+                val request = decodeFrontendBase64(encoded)
+                (act as? MainActivity)?.startBleSyncIfPermitted()
+                val accepted = request != null && tremolaState.bleSync?.beginBoardJoin(request) == true
+                eval(
+                    "if (typeof cb_board_join_started === 'function') " +
+                        "cb_board_join_started($accepted);"
+                )
             }
             s.startsWith("collabboard:write ") -> {
                 val encoded = s.substringAfter("collabboard:write ")

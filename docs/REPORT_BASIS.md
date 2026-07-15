@@ -12,7 +12,7 @@ phones should work without Internet and exchange changes over BLE.
 
 - The board is integrated as a Tremola mini-app.
 - It runs in the full Tremola Android APK.
-- A user creates a private board and shares an invite code.
+- A user creates a private board and shares a six-digit pairing code.
 - Each member chooses a display name.
 - The owner admits at most three other Tremola identities.
 - Every admitted member can edit every object.
@@ -87,8 +87,12 @@ merged with the same deterministic rules on every phone.
 - Operations use Ed25519 signatures.
 - The board is limited to four admitted identities.
 
-The invite code is a secret and must be shared privately. BLE radio metadata is
-not encrypted.
+The six-digit code is temporary and is not the board key. PBKDF2 derives a
+pairing key, and the random board key is transferred in an encrypted,
+owner-signed BLE message.
+
+The pairing code should be shared privately. BLE radio metadata is not
+encrypted. A six-digit code is convenient, but weaker than a long random code.
 
 ## Compatibility
 
@@ -120,7 +124,7 @@ and mobile data off.
 - BLE is designed for the app foreground.
 - A new member needs the owner for first admission.
 - Member slots are not revoked; create a new board to reset them.
-- The invite code does not hide BLE addresses or all handshake metadata.
+- The pairing code does not hide BLE addresses or all handshake metadata.
 
 ## Suggested Report Sections
 

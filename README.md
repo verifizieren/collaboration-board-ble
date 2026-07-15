@@ -44,14 +44,16 @@ See [`install/README.md`](install/README.md) for the install and test steps.
 2. Allow Bluetooth and location access when Android asks.
 3. Open **MiniApps > Collaboration Board**.
 4. Enter a name.
-5. Create a board or paste an invite code.
+5. Enter a six-digit code and create or join a board.
 6. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, or **Clear all**.
 
 The board owner must be nearby the first time a new member joins. After that,
 the member keeps a signed admission and can reconnect through any admitted
 member. A board has one owner and at most three other members.
 
-Keep the invite code private. It contains the board key.
+The owner chooses the six-digit code. It stays open for 10 minutes. The real
+256-bit board key is created separately and sent only through encrypted BLE
+pairing.
 
 ## 5-Second Sync
 

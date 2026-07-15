@@ -162,6 +162,10 @@ class BleSync(
     private val authenticatedBoardPeers = ConcurrentHashMap<String, String>()
     private val boardMembers = ConcurrentHashMap<String, String>()
     private val boardAdmissions = ConcurrentHashMap<String, String>()
+    private val ownerPairingChallenges = ConcurrentHashMap<PairingChallengeKey, OwnerPairingChallenge>()
+    private val joinPairingChallenges = ConcurrentHashMap<String, JoinPairingChallenge>()
+    private val pairingReservations = ConcurrentHashMap<String, PairingReservation>()
+    private val pairingFailuresByFeed = ConcurrentHashMap<String, Int>()
     private val pendingBoardDeliveries = ConcurrentHashMap<BoardDeliveryKey, PendingBoardDelivery>()
     private val connecting = ConcurrentHashMap.newKeySet<String>()
     private val nextMessageId = AtomicInteger(1)
@@ -172,6 +176,9 @@ class BleSync(
     private val boardPrefs = activity.getSharedPreferences(BOARD_PREFS, Context.MODE_PRIVATE)
     @Volatile private var boardConfig: BoardRoomConfig? =
         BoardProtocol.parseConfig(boardPrefs.getString(BOARD_CONFIG_KEY, "") ?: "")
+    @Volatile private var boardPairingSession: BoardPairingSession? = null
+    @Volatile private var pendingBoardJoin: PendingBoardJoin? = null
+    @Volatile private var pairingFailureCount = 0
 
     private var scanner: BluetoothLeScanner? = null
     private var advertiser: BluetoothLeAdvertiser? = null
@@ -232,6 +239,44 @@ class BleSync(
 
     private data class BoardDeliveryKey(val peerFeedId: String, val operationId: String)
 
+    private data class PairingChallengeKey(
+        val peerAddress: String,
+        val feedId: String,
+        val joinNonce: String
+    )
+
+    private data class BoardPairingSession(
+        val roomId: String,
+        val code: String,
+        val expiresAt: Long
+    )
+
+    private data class PendingBoardJoin(
+        val code: String,
+        val username: String,
+        val joinNonce: String,
+        val startedAt: Long
+    )
+
+    private data class OwnerPairingChallenge(
+        val challenge: BoardPairingChallenge,
+        val message: JSONObject,
+        val createdAt: Long,
+        @Volatile var acceptedProof: String? = null,
+        @Volatile var offer: JSONObject? = null
+    )
+
+    private data class JoinPairingChallenge(
+        val challenge: BoardPairingChallenge,
+        val request: JSONObject,
+        val createdAt: Long
+    )
+
+    private data class PairingReservation(
+        val username: String,
+        val expiresAt: Long
+    )
+
     private data class PendingBoardDelivery(
         val operation: BoardOperation,
         @Volatile var lastSentAt: Long = 0L,
@@ -246,10 +291,18 @@ class BleSync(
     init {
         loadBoardMembers()
         loadBoardAdmissions()
+        restoreBoardPairingSession()
     }
 
     fun configureBoard(configJson: String): Boolean {
         val requested = BoardProtocol.parseConfig(configJson) ?: return false
+        return activateBoard(requested)
+    }
+
+    private fun activateBoard(
+        requested: BoardRoomConfig,
+        ownAdmission: BoardAdmission? = null
+    ): Boolean {
         val ownFeed = tremolaState.idStore.identity.toRef()
         synchronized(boardConfigLock) {
             val changedRoom = boardConfig?.roomId != requested.roomId ||
@@ -260,9 +313,18 @@ class BleSync(
                 pendingBoardDeliveries.clear()
                 boardMembers.clear()
                 boardAdmissions.clear()
+                pairingReservations.clear()
+                clearBoardPairingSessionLocked()
             } else {
                 loadBoardMembers()
                 loadBoardAdmissions()
+            }
+            if (ownAdmission != null) {
+                val verified = BoardProtocol.verifyAdmission(requested, ownAdmission.wireJson)
+                    ?.takeIf { it.memberId == ownFeed }
+                    ?: return false
+                boardAdmissions[ownFeed] = verified.wireJson
+                boardMembers[ownFeed] = verified.username
             }
             val admittedName = if (ownFeed == requested.ownerId) null else {
                 verifiedBoardAdmission(ownFeed)?.username
@@ -282,6 +344,53 @@ class BleSync(
         return true
     }
 
+    fun startBoardPairing(code: String): Boolean {
+        val cleanCode = code.trim()
+        val config = boardConfig ?: return false
+        val ownFeed = tremolaState.idStore.identity.toRef()
+        if (ownFeed != config.ownerId || !BoardProtocol.isValidPairingCode(cleanCode)) return false
+        synchronized(boardConfigLock) {
+            boardPairingSession = BoardPairingSession(
+                config.roomId,
+                cleanCode,
+                System.currentTimeMillis() + BOARD_PAIRING_SESSION_MS
+            )
+            ownerPairingChallenges.clear()
+            pairingFailuresByFeed.clear()
+            pairingFailureCount = 0
+            persistBoardPairingSessionLocked()
+        }
+        reportStatus("Invite code ready for 10 minutes")
+        return true
+    }
+
+    fun beginBoardJoin(requestJson: String): Boolean {
+        val request = try {
+            JSONObject(requestJson)
+        } catch (_: Exception) {
+            return false
+        }
+        val code = request.optString("c", "").trim()
+        val username = BoardProtocol.cleanUsername(request.optString("u", ""))
+        if (boardConfig != null || !BoardProtocol.isValidPairingCode(code) || username.isBlank()) {
+            return false
+        }
+        synchronized(boardConfigLock) {
+            pendingBoardJoin = PendingBoardJoin(
+                code,
+                username,
+                BoardProtocol.newPairingNonce(),
+                System.currentTimeMillis()
+            )
+            joinPairingChallenges.clear()
+        }
+        executeWorker {
+            sendPairingProbeToAll()
+            reportStatus("Looking for board owner")
+        }
+        return true
+    }
+
     fun leaveBoard() {
         synchronized(boardConfigLock) {
             boardConfig = null
@@ -289,6 +398,10 @@ class BleSync(
             boardAdmissions.clear()
             authenticatedBoardPeers.clear()
             pendingBoardDeliveries.clear()
+            pendingBoardJoin = null
+            joinPairingChallenges.clear()
+            pairingReservations.clear()
+            clearBoardPairingSessionLocked()
             boardPrefs.edit()
                 .remove(BOARD_CONFIG_KEY)
                 .remove(BOARD_MEMBERS_KEY)
@@ -398,11 +511,12 @@ class BleSync(
         syncTask = worker.scheduleAtFixedRate({
             if (!isRunning || lifecycleGeneration.get() != generation) return@scheduleAtFixedRate
             pruneInbound()
+            prunePairingState()
             openGattServer()
             startAdvertising()
             startScan()
             if (boardConfig == null) {
-                sendFrontierToAll()
+                if (pendingBoardJoin == null) sendFrontierToAll() else sendPairingProbeToAll()
             } else {
                 sendBoardHelloToAll(onlyUnauthenticated = true)
                 val now = System.currentTimeMillis()
@@ -457,6 +571,9 @@ class BleSync(
         pendingEvents.clear()
         authenticatedBoardPeers.clear()
         pendingBoardDeliveries.clear()
+        ownerPairingChallenges.clear()
+        joinPairingChallenges.clear()
+        pairingReservations.clear()
         remoteFeedIds.clear()
         remoteProtocolVersions.clear()
         reportStatus("BLE stopped")
@@ -470,7 +587,7 @@ class BleSync(
         }
         executeWorker {
             if (boardConfig == null) {
-                sendFrontierToAll()
+                if (pendingBoardJoin == null) sendFrontierToAll() else sendPairingProbeToAll()
             } else {
                 sendBoardHelloToAll()
                 sendBoardFrontierToAll()
@@ -894,7 +1011,7 @@ class BleSync(
             if (link?.subscribed == true) {
                 stopScanning()
                 sendHello(link.address)
-                if (boardConfig == null) sendFrontier(link.address) else sendBoardHello(link.address)
+                sendInitialSync(link.address)
             }
             if (valid) reportStatus("BLE notifications ${if (enable) "on" else "off"}")
         }
@@ -1061,7 +1178,7 @@ class BleSync(
         if (!becameReady) return
         stopScanning()
         sendHello(link.address)
-        if (boardConfig == null) sendFrontier(link.address) else sendBoardHello(link.address)
+        sendInitialSync(link.address)
         drainClient(link)
         reportStatus("BLE client ready")
     }
@@ -1172,6 +1289,295 @@ class BleSync(
         msg.put("v", PROTOCOL_VERSION)
         msg.put("fid", tremolaState.idStore.identity.toRef())
         if (peerAddress == null) sendJsonToAll(msg) else sendJsonToPeer(peerAddress, msg)
+    }
+
+    private fun sendInitialSync(peerAddress: String) {
+        when {
+            boardConfig != null -> sendBoardHello(peerAddress)
+            pendingBoardJoin != null -> sendPairingProbe(peerAddress)
+            else -> sendFrontier(peerAddress)
+        }
+    }
+
+    private fun restoreBoardPairingSession() {
+        val config = boardConfig
+        val roomId = boardPrefs.getString(BOARD_PAIRING_ROOM_KEY, "") ?: ""
+        val code = boardPrefs.getString(BOARD_PAIRING_CODE_KEY, "") ?: ""
+        val expiresAt = boardPrefs.getLong(BOARD_PAIRING_EXPIRES_KEY, 0L)
+        val ownFeed = tremolaState.idStore.identity.toRef()
+        if (config != null && config.ownerId == ownFeed && roomId == config.roomId &&
+            BoardProtocol.isValidPairingCode(code) && expiresAt > System.currentTimeMillis()
+        ) {
+            boardPairingSession = BoardPairingSession(roomId, code, expiresAt)
+        } else {
+            clearBoardPairingSessionLocked()
+        }
+    }
+
+    private fun persistBoardPairingSessionLocked() {
+        val session = boardPairingSession ?: return
+        boardPrefs.edit()
+            .putString(BOARD_PAIRING_ROOM_KEY, session.roomId)
+            .putString(BOARD_PAIRING_CODE_KEY, session.code)
+            .putLong(BOARD_PAIRING_EXPIRES_KEY, session.expiresAt)
+            .apply()
+    }
+
+    private fun clearBoardPairingSessionLocked() {
+        boardPairingSession = null
+        ownerPairingChallenges.clear()
+        pairingFailuresByFeed.clear()
+        pairingFailureCount = 0
+        boardPrefs.edit()
+            .remove(BOARD_PAIRING_ROOM_KEY)
+            .remove(BOARD_PAIRING_CODE_KEY)
+            .remove(BOARD_PAIRING_EXPIRES_KEY)
+            .apply()
+    }
+
+    private fun activeBoardPairingSession(now: Long = System.currentTimeMillis()): BoardPairingSession? {
+        synchronized(boardConfigLock) {
+            val session = boardPairingSession ?: return null
+            val config = boardConfig
+            val ownFeed = tremolaState.idStore.identity.toRef()
+            if (config == null || config.roomId != session.roomId || config.ownerId != ownFeed ||
+                session.expiresAt <= now
+            ) {
+                clearBoardPairingSessionLocked()
+                return null
+            }
+            return session
+        }
+    }
+
+    private fun prunePairingState() {
+        val now = System.currentTimeMillis()
+        activeBoardPairingSession(now)
+        ownerPairingChallenges.entries.removeIf {
+            now - it.value.createdAt > BOARD_PAIRING_CHALLENGE_MS
+        }
+        joinPairingChallenges.entries.removeIf {
+            now - it.value.createdAt > BOARD_PAIRING_CHALLENGE_MS
+        }
+        pairingReservations.entries.removeIf { now >= it.value.expiresAt }
+        val pending = pendingBoardJoin
+        if (pending != null && now - pending.startedAt > BOARD_PAIRING_JOIN_TIMEOUT_MS) {
+            synchronized(boardConfigLock) {
+                if (pendingBoardJoin === pending) pendingBoardJoin = null
+                joinPairingChallenges.clear()
+            }
+            notifyBoardJoinFailed("Could not join. Check the code and keep the owner nearby")
+            reportStatus("Board join timed out")
+        }
+    }
+
+    private fun sendPairingProbeToAll() {
+        connectedAddresses().forEach { sendPairingProbe(it) }
+    }
+
+    private fun sendPairingProbe(peerAddress: String) {
+        val pending = pendingBoardJoin ?: return
+        if (boardConfig != null) return
+        val probe = BoardProtocol.createPairingProbe(
+            tremolaState.idStore.identity,
+            pending.username,
+            pending.joinNonce
+        ) ?: return
+        sendJsonToPeer(peerAddress, probe)
+    }
+
+    private fun handlePairingProbe(peerAddress: String, msg: JSONObject) {
+        val session = activeBoardPairingSession() ?: return
+        val config = boardConfig ?: return
+        val probe = BoardProtocol.verifyPairingProbe(msg) ?: return
+        val ownFeed = tremolaState.idStore.identity.toRef()
+        if (ownFeed != config.ownerId || probe.feedId == ownFeed) return
+        remoteFeedIds[peerAddress] = probe.feedId
+
+        if (!hasPairingCapacityFor(probe.feedId)) {
+            reportStatus("Board is full")
+            return
+        }
+        if ((pairingFailuresByFeed[probe.feedId] ?: 0) >= MAX_PAIRING_FAILURES_PER_FEED ||
+            pairingFailureCount >= MAX_PAIRING_FAILURES_TOTAL
+        ) {
+            return
+        }
+
+        val key = PairingChallengeKey(peerAddress, probe.feedId, probe.joinNonce)
+        val now = System.currentTimeMillis()
+        var record = ownerPairingChallenges[key]
+        if (record == null || now - record.createdAt > BOARD_PAIRING_CHALLENGE_MS) {
+            val remainingSeconds = ((session.expiresAt - now + 999L) / 1000L)
+                .toInt()
+                .coerceIn(1, BOARD_PAIRING_SESSION_SECONDS)
+            val created = BoardProtocol.createPairingChallenge(
+                tremolaState.idStore.identity,
+                probe,
+                remainingSeconds
+            ) ?: return
+            record = OwnerPairingChallenge(created.challenge, created.message, now)
+            ownerPairingChallenges[key] = record
+        }
+        sendJsonToPeer(peerAddress, record.message)
+    }
+
+    private fun handlePairingChallenge(peerAddress: String, msg: JSONObject) {
+        val pending = pendingBoardJoin ?: return
+        if (boardConfig != null ||
+            System.currentTimeMillis() - pending.startedAt > BOARD_PAIRING_JOIN_TIMEOUT_MS
+        ) return
+        val ownFeed = tremolaState.idStore.identity.toRef()
+        val challenge = BoardProtocol.verifyPairingChallenge(msg, ownFeed, pending.joinNonce)
+            ?: return
+        if (challenge.ownerId == ownFeed) return
+        val existing = joinPairingChallenges[peerAddress]
+        val request = if (existing != null && existing.challenge == challenge) {
+            existing.request
+        } else {
+            BoardProtocol.createPairingRequest(
+                tremolaState.idStore.identity,
+                pending.username,
+                pending.code,
+                challenge
+            ) ?: return
+        }
+        joinPairingChallenges[peerAddress] = JoinPairingChallenge(
+            challenge,
+            request,
+            System.currentTimeMillis()
+        )
+        sendJsonToPeer(peerAddress, request)
+        reportStatus("Checking invite code")
+    }
+
+    private fun handlePairingRequest(peerAddress: String, msg: JSONObject) {
+        val session = activeBoardPairingSession() ?: return
+        val config = boardConfig ?: return
+        val feedId = msg.optString("f", "")
+        val joinNonce = msg.optString("j", "")
+        val key = PairingChallengeKey(peerAddress, feedId, joinNonce)
+        val record = ownerPairingChallenges[key] ?: return
+        if (System.currentTimeMillis() - record.createdAt > BOARD_PAIRING_CHALLENGE_MS) {
+            ownerPairingChallenges.remove(key, record)
+            return
+        }
+        if ((pairingFailuresByFeed[feedId] ?: 0) >= MAX_PAIRING_FAILURES_PER_FEED ||
+            pairingFailureCount >= MAX_PAIRING_FAILURES_TOTAL
+        ) {
+            return
+        }
+        val proof = msg.optString("a", "")
+        if (proof.isNotBlank() && record.acceptedProof == proof && record.offer != null) {
+            sendJsonToPeer(peerAddress, record.offer!!)
+            return
+        }
+        val request = BoardProtocol.verifyPairingRequest(msg, session.code, record.challenge)
+        if (request == null) {
+            pairingFailuresByFeed[feedId] = (pairingFailuresByFeed[feedId] ?: 0) + 1
+            pairingFailureCount += 1
+            if (pairingFailureCount >= MAX_PAIRING_FAILURES_TOTAL) {
+                synchronized(boardConfigLock) { clearBoardPairingSessionLocked() }
+                reportStatus("Invite code locked")
+            }
+            return
+        }
+
+        if (verifiedBoardAdmission(request.feedId) == null) {
+            if (!hasPairingCapacityFor(request.feedId)) {
+                reportStatus("Board is full")
+                return
+            }
+            pairingReservations[request.feedId] = PairingReservation(
+                request.username,
+                System.currentTimeMillis() + BOARD_PAIRING_RESERVATION_MS
+            )
+        }
+        val offer = BoardProtocol.createPairingOffer(
+            config,
+            tremolaState.idStore.identity,
+            session.code,
+            record.challenge,
+            request
+        ) ?: return
+        record.acceptedProof = proof
+        record.offer = offer
+        sendJsonToPeer(peerAddress, offer)
+        reportStatus("Board invite sent")
+    }
+
+    private fun hasPairingCapacityFor(feedId: String): Boolean {
+        val now = System.currentTimeMillis()
+        pairingReservations.entries.removeIf { now >= it.value.expiresAt }
+        if (verifiedBoardAdmission(feedId) != null || pairingReservations.containsKey(feedId)) {
+            return true
+        }
+        val reserved = pairingReservations.keys.count { verifiedBoardAdmission(it) == null }
+        return authorizedBoardMemberCount() + reserved < MAX_BOARD_MEMBERS
+    }
+
+    private fun handlePairingOffer(peerAddress: String, msg: JSONObject) {
+        val pending = pendingBoardJoin ?: return
+        if (boardConfig != null) return
+        val record = joinPairingChallenges[peerAddress] ?: return
+        if (System.currentTimeMillis() - record.createdAt > BOARD_PAIRING_CHALLENGE_MS) return
+        val result = BoardProtocol.verifyPairingOffer(
+            msg,
+            pending.code,
+            record.challenge,
+            pending.username
+        ) ?: return
+
+        synchronized(boardConfigLock) {
+            if (pendingBoardJoin !== pending) return
+            pendingBoardJoin = null
+            joinPairingChallenges.clear()
+        }
+        if (!activateBoard(result.config)) {
+            notifyBoardJoinFailed("Could not open this board")
+            return
+        }
+        val configJson = JSONObject.quote(BoardProtocol.configJson(result.config))
+        try {
+            tremolaState.wai.eval(
+                "if (typeof cb_board_joined === 'function') cb_board_joined($configJson);"
+            )
+        } catch (_: Exception) {
+        }
+        reportStatus("Board joined")
+    }
+
+    private fun notifyBoardJoinFailed(message: String) {
+        val quoted = JSONObject.quote(message)
+        try {
+            tremolaState.wai.eval(
+                "if (typeof cb_board_join_failed === 'function') cb_board_join_failed($quoted);"
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun handleBoardReject(msg: JSONObject) {
+        val config = boardConfig ?: return
+        when (BoardProtocol.verifyReject(config, msg) ?: return) {
+            "full" -> {
+                val ownFeed = tremolaState.idStore.identity.toRef()
+                if (!isAuthorizedBoardMember(ownFeed)) {
+                    leaveBoard()
+                    val message = JSONObject.quote("Board is full")
+                    try {
+                        tremolaState.wai.eval(
+                            "if (typeof cb_board_access_rejected === 'function') " +
+                                "cb_board_access_rejected($message);"
+                        )
+                    } catch (_: Exception) {
+                    }
+                } else {
+                    reportStatus("Board is full")
+                }
+            }
+            "owner_required" -> reportStatus("Waiting for board owner")
+        }
     }
 
     private fun loadBoardMembers() {
@@ -1286,7 +1692,12 @@ class BleSync(
         val accepted = synchronized(boardConfigLock) {
             var admission = BoardProtocol.verifyAdmission(config, hello.admissionWire)
                 ?.takeIf { it.memberId == hello.feedId }
-            if (admission == null) admission = verifiedBoardAdmission(hello.feedId)
+            val storedAdmission = verifiedBoardAdmission(hello.feedId)
+            if (storedAdmission != null) {
+                admission = storedAdmission
+            } else if (admission != null && authorizedBoardMemberCount() >= MAX_BOARD_MEMBERS) {
+                admission = null
+            }
 
             if (hello.feedId != config.ownerId && admission == null && ownFeed == config.ownerId &&
                 authorizedBoardMemberCount() < MAX_BOARD_MEMBERS
@@ -1304,6 +1715,7 @@ class BleSync(
                 if (admission != null) {
                     boardAdmissions[hello.feedId] = admission.wireJson
                     boardMembers[hello.feedId] = admission.username
+                    pairingReservations.remove(hello.feedId)
                 } else {
                     boardMembers[hello.feedId] = hello.username
                 }
@@ -1318,11 +1730,13 @@ class BleSync(
         }
         if (!accepted) {
             val full = ownFeed == config.ownerId && authorizedBoardMemberCount() >= MAX_BOARD_MEMBERS
-            val reject = JSONObject()
-                .put("t", "br")
-                .put("r", config.roomId)
-                .put("reason", if (full) "full" else "owner_required")
-            sendJsonToPeer(peerAddress, reject)
+            if (ownFeed == config.ownerId) {
+                BoardProtocol.createReject(
+                    config,
+                    tremolaState.idStore.identity,
+                    if (full) "full" else "owner_required"
+                )?.let { sendJsonToPeer(peerAddress, it) }
+            }
             reportStatus(if (full) "Board is full" else "Waiting for board owner")
             return
         }
@@ -1384,6 +1798,12 @@ class BleSync(
         sendBoardAdmissionToAll(admission, peerAddress)
         if (admission.memberId == tremolaState.idStore.identity.toRef()) {
             sendBoardHelloToAll()
+            try {
+                tremolaState.wai.eval(
+                    "if (typeof cb_board_access_ready === 'function') cb_board_access_ready();"
+                )
+            } catch (_: Exception) {
+            }
             reportStatus("Board access ready")
         }
         reportBoardRoomStatus()
@@ -1708,7 +2128,7 @@ class BleSync(
                 if (fid.isNotBlank()) remoteFeedIds[peerAddress] = fid
                 remoteProtocolVersions[peerAddress] = max(1, msg.optInt("v", 1))
                 reportStatus("BLE peer ${shortPeer(fid)}")
-                if (boardConfig == null) sendFrontier(peerAddress) else sendBoardHello(peerAddress)
+                sendInitialSync(peerAddress)
             }
             "frontier" -> {
                 if (boardConfig != null) return
@@ -1722,20 +2142,17 @@ class BleSync(
                 if (boardConfig != null) return
                 decodeEventMessage(msg)?.let { ingestRawEvent(peerAddress, it) }
             }
+            "bp" -> handlePairingProbe(peerAddress, msg)
+            "bc" -> handlePairingChallenge(peerAddress, msg)
+            "bj" -> handlePairingRequest(peerAddress, msg)
+            "bi" -> handlePairingOffer(peerAddress, msg)
             "bh" -> handleBoardHello(peerAddress, msg)
             "bm" -> handleBoardAdmission(peerAddress, msg)
             "bf" -> handleBoardFrontier(peerAddress, msg)
             "bw" -> handleBoardWant(peerAddress, msg)
             "bo" -> handleBoardOperation(peerAddress, msg)
             "ba" -> handleBoardAck(peerAddress, msg)
-            "br" -> {
-                if (msg.optString("r") == boardConfig?.roomId) {
-                    when (msg.optString("reason")) {
-                        "full" -> reportStatus("Board is full")
-                        "owner_required" -> reportStatus("Waiting for board owner")
-                    }
-                }
-            }
+            "br" -> handleBoardReject(msg)
         }
     }
 
@@ -2020,6 +2437,10 @@ class BleSync(
             }
             "frontier" -> "frontier:${msg.optBoolean("reply", false)}"
             "hello" -> "hello"
+            "bp" -> "board:pair:probe:${msg.optString("f", "")}:${msg.optString("j", "")}"
+            "bc" -> "board:pair:challenge:${msg.optString("c", "")}"
+            "bj" -> "board:pair:request:${msg.optString("c", "")}"
+            "bi" -> "board:pair:invite:${msg.optString("c", "")}"
             "bh" -> "board:hello"
             "bm" -> "board:member:${msg.optJSONObject("a")?.optString("m", "") ?: ""}"
             "bf" -> "board:frontier"
@@ -2267,6 +2688,9 @@ class BleSync(
         private const val BOARD_MEMBERS_ROOM_KEY = "room_members_id"
         private const val BOARD_ADMISSIONS_KEY = "room_admissions"
         private const val BOARD_ADMISSIONS_ROOM_KEY = "room_admissions_id"
+        private const val BOARD_PAIRING_ROOM_KEY = "pairing_room"
+        private const val BOARD_PAIRING_CODE_KEY = "pairing_code"
+        private const val BOARD_PAIRING_EXPIRES_KEY = "pairing_expires"
         private const val MAX_BOARD_MEMBERS = 4
         private const val MAX_BOARD_RANGE = 64
         private const val MAX_BOARD_WANT_RANGES = 16
@@ -2274,6 +2698,13 @@ class BleSync(
         private const val MAX_BOARD_DELIVERY_ATTEMPTS = 12
         private const val BOARD_BATCH_INTERVAL_MS = 5000L
         private const val BOARD_OPERATION_RETRY_MS = BOARD_BATCH_INTERVAL_MS
+        private const val BOARD_PAIRING_SESSION_SECONDS = 600
+        private const val BOARD_PAIRING_SESSION_MS = BOARD_PAIRING_SESSION_SECONDS * 1000L
+        private const val BOARD_PAIRING_CHALLENGE_MS = 30000L
+        private const val BOARD_PAIRING_RESERVATION_MS = 60000L
+        private const val BOARD_PAIRING_JOIN_TIMEOUT_MS = 60000L
+        private const val MAX_PAIRING_FAILURES_PER_FEED = 3
+        private const val MAX_PAIRING_FAILURES_TOTAL = 10
 
         internal fun shouldRunBoardBatch(lastBatchAt: Long, now: Long): Boolean {
             if (lastBatchAt <= 0L || now < lastBatchAt) return true

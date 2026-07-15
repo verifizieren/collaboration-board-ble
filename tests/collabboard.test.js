@@ -767,7 +767,8 @@ assert.strictEqual(snapshot(androidBoard).length, 1);
 // Android uses the native clipboard so invite copy also works on old WebViews.
 const inviteBoard = loadBoard({ android: true });
 inviteBoard.tremola.collabboardRoom = {
-    v: 1, r: "invite-room", k: "invite-room-key", o: "@owner.ed25519", u: "Alice"
+    v: 1, r: "invite-room", k: "invite-room-key",
+    o: inviteBoard.myId, u: "Alice", p: "123456"
 };
 let copiedInvite = "";
 inviteBoard.Android.copyCollaborationBoardInvite = function (encoded) {
@@ -775,7 +776,75 @@ inviteBoard.Android.copyCollaborationBoardInvite = function (encoded) {
     return true;
 };
 inviteBoard.cb_copy_invite();
-assert.strictEqual(copiedInvite, inviteBoard.cb_invite_code());
+assert.strictEqual(copiedInvite, "");
+assert.strictEqual(inviteBoard.commands.length, 1);
+assert.strictEqual(inviteBoard.commands[0].startsWith("collabboard:pairing "), true);
+assert.strictEqual(Buffer.from(
+    inviteBoard.commands[0].slice("collabboard:pairing ".length), "base64"
+).toString("utf8"), "123456");
+inviteBoard.cb_pairing_started(true, 600);
+assert.strictEqual(copiedInvite, "123456");
+
+// Creating and joining use a self-chosen six-digit code. The real board key
+// is created separately and is only returned by the native pairing protocol.
+const createBoard = loadBoard({ android: true });
+const createName = { value: "Alice", focus: function () {} };
+const createCode = { value: "482913", focus: function () {} };
+createBoard.document.getElementById = function (id) {
+    if (id === "cb_username") return createName;
+    if (id === "cb_pairing_code") return createCode;
+    return null;
+};
+createBoard.cb_create_board();
+assert.strictEqual(createBoard.tremola.collabboardRoom.p, "482913");
+assert.strictEqual(createBoard.tremola.collabboardRoom.k.length >= 32, true);
+assert.strictEqual(createBoard.commands[0].startsWith("collabboard:configure "), true);
+createBoard.cb_board_configured(true);
+assert.strictEqual(createBoard.commands.includes("collabboard:read"), true);
+const pairingCommand = createBoard.commands.find(function (command) {
+    return command.startsWith("collabboard:pairing ");
+});
+assert.strictEqual(Buffer.from(
+    pairingCommand.slice("collabboard:pairing ".length), "base64"
+).toString("utf8"), "482913");
+
+const joinBoard = loadBoard({ android: true });
+const joinName = { value: "Bob", focus: function () {} };
+const joinCode = { value: "482913", focus: function () {} };
+joinBoard.document.getElementById = function (id) {
+    if (id === "cb_username") return joinName;
+    if (id === "cb_pairing_code") return joinCode;
+    return null;
+};
+joinBoard.cb_join_board();
+assert.strictEqual(joinBoard.commands.length, 1);
+assert.strictEqual(joinBoard.commands[0].startsWith("collabboard:join "), true);
+assert.deepStrictEqual(JSON.parse(Buffer.from(
+    joinBoard.commands[0].slice("collabboard:join ".length), "base64"
+).toString("utf8")), { u: "Bob", c: "482913" });
+assert.strictEqual(joinBoard.cb_current_room(), null);
+joinBoard.cb_board_join_started(true);
+joinBoard.cb_board_joined(JSON.stringify({
+    r: "joined-room", k: "a".repeat(43), o: "@owner.ed25519", u: "Bob"
+}));
+assert.strictEqual(joinBoard.tremola.collabboardRoom.r, "joined-room");
+assert.strictEqual(joinBoard.tremola.collabboardRoom.p, undefined);
+assert.strictEqual(joinBoard.commands.includes("collabboard:read"), true);
+assert.strictEqual(joinBoard.cb_native_config_pending, true);
+joinBoard.cb_board_access_ready();
+assert.strictEqual(joinBoard.cb_native_config_pending, false);
+joinBoard.cb_board_access_rejected("Board is full");
+assert.strictEqual(joinBoard.tremola.collabboardRoom, undefined);
+assert.strictEqual(joinBoard.tremola.collabboard, undefined);
+
+const invalidJoin = loadBoard({ android: true });
+invalidJoin.document.getElementById = function (id) {
+    if (id === "cb_username") return { value: "Bob", focus: function () {} };
+    if (id === "cb_pairing_code") return { value: "12345", focus: function () {} };
+    return null;
+};
+invalidJoin.cb_join_board();
+assert.strictEqual(invalidJoin.commands.length, 0);
 
 const waitingBoard = loadBoard({ android: true });
 waitingBoard.tremola.collabboardRoom = {
@@ -935,6 +1004,9 @@ assert.strictEqual(boardMarkup.includes("type='color'"), true);
 assert.strictEqual(boardMarkup.includes("cb_tool_select"), true);
 assert.strictEqual(boardMarkup.includes("cb_delete_btn"), true);
 assert.strictEqual(boardMarkup.includes("cb_room_setup"), true);
+assert.strictEqual(boardMarkup.includes("cb_pairing_code"), true);
+assert.strictEqual(boardMarkup.includes("maxlength='6'"), true);
+assert.strictEqual(boardMarkup.includes("cb_invite_input"), false);
 assert.strictEqual(boardMarkup.includes("cb_selection_info"), true);
 assert.strictEqual(boardMarkup.includes("width='900' height='1200'"), true);
 

@@ -88,6 +88,8 @@ var CB_BOARD_HEIGHT = 1200;
 var CB_COORD_LIMIT = 2400;
 var CB_MAX_MEMBERS = 4;
 var cb_native_config_pending = false;
+var cb_pending_pairing_code = '';
+var cb_pending_copy_code = '';
 
 function cb_is_android() {
     return typeof Android !== 'undefined' && typeof backend === 'function';
@@ -118,20 +120,6 @@ function cb_utf8_b64(value) {
     return btoa(unescape(encodeURIComponent(value)));
 }
 
-function cb_b64_utf8(value) {
-    return decodeURIComponent(escape(atob(value)));
-}
-
-function cb_url_b64(value) {
-    return cb_utf8_b64(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function cb_url_unb64(value) {
-    var base64 = String(value || '').trim().replace(/-/g, '+').replace(/_/g, '/');
-    while (base64.length % 4) base64 += '=';
-    return cb_b64_utf8(base64);
-}
-
 function cb_random_token(byteCount) {
     var bytes = new Uint8Array(byteCount);
     if (window.crypto && window.crypto.getRandomValues) {
@@ -148,10 +136,12 @@ function cb_clean_username(value) {
     return String(value || '').trim().replace(/\s+/g, ' ').slice(0, 24);
 }
 
-function cb_invite_code() {
-    var room = cb_current_room();
-    if (!room || !room.k) return '';
-    return cb_url_b64(JSON.stringify({ v: 1, r: room.r, k: room.k, o: room.o }));
+function cb_clean_pairing_code(value) {
+    return String(value || '').replace(/\D/g, '').slice(0, 6);
+}
+
+function cb_valid_pairing_code(value) {
+    return /^\d{6}$/.test(String(value || ''));
 }
 
 function cb_set_setup_error(message) {
@@ -168,38 +158,51 @@ function cb_show_setup(show) {
 
 function cb_create_board() {
     var usernameInput = document.getElementById('cb_username');
+    var codeInput = document.getElementById('cb_pairing_code');
     var username = cb_clean_username(usernameInput && usernameInput.value);
+    var code = cb_clean_pairing_code(codeInput && codeInput.value);
     if (!username) {
         cb_set_setup_error('Enter a name');
         if (usernameInput) usernameInput.focus();
         return;
     }
+    if (!cb_valid_pairing_code(code)) {
+        cb_set_setup_error('Enter a 6-digit code');
+        if (codeInput) codeInput.focus();
+        return;
+    }
+    cb_pending_pairing_code = code;
     cb_activate_room({
         v: 1,
         r: cb_random_token(12),
         k: cb_random_token(32),
         o: typeof myId === 'string' ? myId : '@local.ed25519',
-        u: username
+        u: username,
+        p: code
     });
 }
 
 function cb_join_board() {
     var usernameInput = document.getElementById('cb_username');
-    var inviteInput = document.getElementById('cb_invite_input');
+    var codeInput = document.getElementById('cb_pairing_code');
     var username = cb_clean_username(usernameInput && usernameInput.value);
+    var code = cb_clean_pairing_code(codeInput && codeInput.value);
     if (!username) {
         cb_set_setup_error('Enter a name');
         return;
     }
-    try {
-        var invite = JSON.parse(cb_url_unb64(inviteInput && inviteInput.value));
-        if (invite.v !== 1 || typeof invite.r !== 'string' || invite.r.length < 8 ||
-            typeof invite.k !== 'string' || invite.k.length < 32 ||
-            typeof invite.o !== 'string') throw new Error('bad invite');
-        cb_activate_room({ v: 1, r: invite.r, k: invite.k, o: invite.o, u: username });
-    } catch (e) {
-        cb_set_setup_error('Invite code is not valid');
+    if (!cb_valid_pairing_code(code)) {
+        cb_set_setup_error('Enter a 6-digit code');
+        if (codeInput) codeInput.focus();
+        return;
     }
+    if (!cb_is_android()) {
+        cb_set_setup_error('Join is available in the Android app');
+        return;
+    }
+    cb_native_config_pending = true;
+    cb_set_setup_error('Looking for board owner...');
+    backend('collabboard:join ' + cb_utf8_b64(JSON.stringify({ u: username, c: code })));
 }
 
 function cb_activate_room(room) {
@@ -232,7 +235,81 @@ function cb_board_configured(accepted) {
     }
     cb_set_setup_error('');
     cb_show_setup(false);
-    if (cb_is_android()) backend('collabboard:read');
+    if (cb_is_android()) {
+        backend('collabboard:read');
+        if (cb_pending_pairing_code) {
+            var code = cb_pending_pairing_code;
+            cb_pending_pairing_code = '';
+            backend('collabboard:pairing ' + cb_utf8_b64(code));
+        }
+    }
+}
+
+function cb_board_join_started(accepted) {
+    if (accepted) return;
+    cb_native_config_pending = false;
+    cb_set_setup_error('Could not start joining');
+}
+
+function cb_board_joined(configJson) {
+    try {
+        var config = typeof configJson === 'string' ? JSON.parse(configJson) : configJson;
+        if (!config || typeof config.r !== 'string' || config.r.length < 8 ||
+            typeof config.k !== 'string' || config.k.length < 32 ||
+            typeof config.o !== 'string' || !cb_clean_username(config.u)) {
+            throw new Error('bad board');
+        }
+        config.v = 1;
+        cb_native_config_pending = cb_is_android();
+        tremola.collabboardRoom = config;
+        tremola.collabboard = {
+            roomId: config.r,
+            objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
+            schema: CB_STATE_VERSION
+        };
+        persist();
+        cb_set_setup_error('');
+        cb_show_setup(false);
+        cb_update_room_bar();
+        cb_fit_canvas();
+        cb_redraw();
+        if (cb_is_android()) backend('collabboard:read');
+    } catch (e) {
+        cb_board_join_failed('Could not open this board');
+    }
+}
+
+function cb_board_join_failed(message) {
+    cb_native_config_pending = false;
+    cb_show_setup(true);
+    cb_set_setup_error(message || 'Could not join this board');
+}
+
+function cb_board_access_rejected(message) {
+    delete tremola.collabboardRoom;
+    delete tremola.collabboard;
+    cb_members = Object.create(null);
+    cb_native_config_pending = false;
+    persist();
+    cb_show_setup(true);
+    cb_set_setup_error(message || 'Board access was not accepted');
+}
+
+function cb_board_access_ready() {
+    cb_native_config_pending = false;
+    cb_ble_status('Board ready', 1, 0);
+}
+
+function cb_pairing_started(accepted, seconds) {
+    var copyCode = cb_pending_copy_code;
+    cb_pending_copy_code = '';
+    if (!accepted) {
+        cb_ble_status('Invite failed', 0, 0);
+        return;
+    }
+    if (copyCode) cb_copy_text(copyCode);
+    cb_ble_status('Code ready for ' + Math.max(1, Math.round((Number(seconds) || 600) / 60)) +
+        ' minutes', 0, 0);
 }
 
 function cb_board_write_failed() {
@@ -240,8 +317,18 @@ function cb_board_write_failed() {
 }
 
 function cb_copy_invite() {
-    var code = cb_invite_code();
-    if (!code) return;
+    var room = cb_current_room();
+    var code = room && cb_valid_pairing_code(room.p) ? room.p : '';
+    if (!code || typeof myId !== 'string' || room.o !== myId) return;
+    cb_pending_copy_code = code;
+    if (cb_is_android()) {
+        backend('collabboard:pairing ' + cb_utf8_b64(code));
+        return;
+    }
+    cb_copy_text(code);
+}
+
+function cb_copy_text(code) {
     var finish = function () { cb_ble_status('Invite copied', 0, 0); };
     if (cb_is_android() && typeof Android.copyCollaborationBoardInvite === 'function') {
         if (Android.copyCollaborationBoardInvite(cb_utf8_b64(code))) finish();
@@ -268,6 +355,8 @@ function cb_leave_board() {
     delete tremola.collabboardRoom;
     delete tremola.collabboard;
     cb_members = Object.create(null);
+    cb_pending_pairing_code = '';
+    cb_pending_copy_code = '';
     persist();
     cb_show_setup(true);
     cb_set_setup_error('');
@@ -276,7 +365,12 @@ function cb_leave_board() {
 function cb_update_room_bar() {
     var room = cb_current_room();
     var label = document.getElementById('cb_room_label');
+    var invite = document.getElementById('cb_invite_btn');
     if (label) label.textContent = room ? room.u : '';
+    if (invite) {
+        invite.style.display = room && typeof myId === 'string' && room.o === myId &&
+            cb_valid_pairing_code(room.p) ? null : 'none';
+    }
 }
 
 function cb_room_status(count, maximum, members) {
@@ -435,6 +529,8 @@ function cb_status_label(status, peers, queued) {
     if (/unavailable|unsupported|not available/.test(lower)) return 'Bluetooth unavailable';
     if (/stopped/.test(lower)) return 'Sync off';
     if (/failed|error/.test(lower)) return 'Sync problem';
+    if (/code ready/.test(lower)) return 'Code ready';
+    if (/looking for board|checking invite/.test(lower)) return 'Joining';
     if (queued > 0) return 'Syncing';
     if (peers > 0) return peers === 1 ? '1 nearby' : peers + ' nearby';
     if (/starting|active|ready|connected|advertising|service/.test(lower)) return 'Looking nearby';

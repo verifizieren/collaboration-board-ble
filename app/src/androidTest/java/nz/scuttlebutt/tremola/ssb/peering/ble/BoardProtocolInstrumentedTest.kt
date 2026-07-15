@@ -46,6 +46,16 @@ class BoardProtocolInstrumentedTest {
             BoardProtocol.createAdmission(memberConfig, member, member.toRef(), "Mallory")
         )
 
+        val reject = BoardProtocol.createReject(ownerConfig, owner, "full")!!
+        assertEquals("full", BoardProtocol.verifyReject(memberConfig, reject))
+        assertNull(BoardProtocol.createReject(memberConfig, member, "full"))
+        assertNull(
+            BoardProtocol.verifyReject(
+                memberConfig,
+                JSONObject(reject.toString()).put("reason", "owner_required")
+            )
+        )
+
         val hello = BoardProtocol.createHello(
             memberConfig,
             member,
@@ -111,5 +121,64 @@ class BoardProtocolInstrumentedTest {
 
         assertNull(BoardProtocol.createOperation(config, owner, 1, event))
         assertTrue(BoardProtocol.cleanUsername("  Alice   Smith  ") == "Alice Smith")
+    }
+
+    @Test
+    fun sixDigitPairingTransfersTheBoardKeyAndAdmission() {
+        val owner = SSBid()
+        val member = SSBid()
+        val roomKey = ByteArray(32) { index -> (index * 11 + 5).toByte() }
+        val ownerConfig = BoardRoomConfig(
+            roomId = "pairing-test-room",
+            roomKey = roomKey,
+            roomKeyText = Base64.encodeToString(
+                roomKey,
+                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+            ),
+            ownerId = owner.toRef(),
+            username = "Alice"
+        )
+
+        val joinNonce = BoardProtocol.newPairingNonce()
+        val probeWire = BoardProtocol.createPairingProbe(member, "Bob", joinNonce)!!
+        val probe = BoardProtocol.verifyPairingProbe(probeWire)!!
+        val challengeWire = BoardProtocol.createPairingChallenge(owner, probe, 600)!!
+        val challenge = BoardProtocol.verifyPairingChallenge(
+            challengeWire.message,
+            member.toRef(),
+            joinNonce
+        )!!
+        val requestWire = BoardProtocol.createPairingRequest(
+            member,
+            "Bob",
+            "123456",
+            challenge
+        )!!
+        val request = BoardProtocol.verifyPairingRequest(
+            requestWire,
+            "123456",
+            challenge
+        )!!
+        assertNull(BoardProtocol.verifyPairingRequest(requestWire, "654321", challenge))
+
+        val offer = BoardProtocol.createPairingOffer(
+            ownerConfig,
+            owner,
+            "123456",
+            challenge,
+            request
+        )!!
+        val result = BoardProtocol.verifyPairingOffer(
+            offer,
+            "123456",
+            challenge,
+            "Bob"
+        )!!
+        assertTrue(result.config.roomKey.contentEquals(roomKey))
+        assertEquals(owner.toRef(), result.config.ownerId)
+        assertNull(BoardProtocol.verifyPairingOffer(offer, "654321", challenge, "Bob"))
+
+        val tampered = JSONObject(offer.toString()).put("f", owner.toRef())
+        assertNull(BoardProtocol.verifyPairingOffer(tampered, "123456", challenge, "Bob"))
     }
 }

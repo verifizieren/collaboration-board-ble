@@ -68,6 +68,16 @@ class BoardProtocolTest {
         assertNull(BoardProtocol.decompressPayload(BoardProtocol.compressPayload(oversized)))
     }
 
+    @Test
+    fun pairingCodesAreExactlySixAsciiDigits() {
+        assertTrue(BoardProtocol.isValidPairingCode("123456"))
+        assertTrue(BoardProtocol.isValidPairingCode("000000"))
+        assertEquals(false, BoardProtocol.isValidPairingCode("12345"))
+        assertEquals(false, BoardProtocol.isValidPairingCode("1234567"))
+        assertEquals(false, BoardProtocol.isValidPairingCode("12 456"))
+        assertEquals(false, BoardProtocol.isValidPairingCode("abcdef"))
+    }
+
     private fun operation(author: String, sequence: Int): BoardOperation {
         return BoardOperation(
             operationId = "$author-$sequence",

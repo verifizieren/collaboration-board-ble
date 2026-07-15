@@ -1,6 +1,6 @@
 # Install On Android
 
-Current batch test build: **0.5.0-5s** (`versionCode 18`).
+Current batch test build: **0.6.0-5s** (`versionCode 19`).
 
 Install the same variant on every test phone:
 
@@ -26,22 +26,24 @@ account or central login.
 ## Create A Board
 
 1. Enter your name.
-2. Tap **Create board**.
-3. Tap **Invite**.
-4. Send the copied code privately to the other members.
+2. Choose any six-digit code.
+3. Tap **Create board**.
+4. Tap **Invite** and send the copied code privately.
 5. Keep the owner's phone nearby while each new member joins for the first time.
+
+The code stays open for 10 minutes. Tap **Invite** again to reopen it.
 
 ## Join A Board
 
 1. Enter your name.
-2. Paste the invite code.
+2. Enter the six-digit code.
 3. Tap **Join board**.
-4. Wait for **Looking nearby**, **1 nearby**, or **Syncing**.
+4. Keep the owner nearby and wait for the board to open.
 
 The board allows one owner and three other identities. After first admission,
 a member can reconnect through another admitted member. Closing the app keeps
-the board. **Leave** removes the local room setup, so keep the invite code if
-you may need it again.
+the board. **Leave** removes the local room setup. An admitted phone normally
+does not need the code again unless its app data is deleted.
 
 ## USB Install
 

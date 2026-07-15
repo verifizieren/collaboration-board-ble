@@ -41,7 +41,7 @@ Tremola screen. Different phone sizes therefore use the same shared positions.
 - Tremola creates an Ed25519 feed identity on first start.
 - Every board operation is signed with that identity.
 - Board payloads are compressed before encryption when this saves space.
-- AES-256-GCM encrypts board content with the key in the invite code.
+- AES-256-GCM encrypts board content with a random 256-bit board key.
 - Operations are stored in Room before BLE transmission.
 - Each local operation is also added to the local Tremola custom-app log.
 - Closing and reopening the app replays the saved board operations.
@@ -49,15 +49,20 @@ Tremola screen. Different phone sizes therefore use the same shared positions.
 ## Invite-Only Boards
 
 - A random board ID and 256-bit board key are created on the owner's phone.
-- The invite code contains the board ID, key, and owner feed ID.
+- The owner chooses a six-digit pairing code.
+- The code is active for 10 minutes and never becomes the board key.
+- Signed BLE pairing proves the code and transfers the board setup with
+  AES-GCM.
+- PBKDF2 slows offline guessing of the short code.
 - The owner signs the first admission for each member.
 - One owner and three admitted members are allowed.
 - An admitted member keeps the signed admission after restarting the app.
 - A new member needs the owner nearby for the first admission.
 - Usernames are display names; the cryptographic feed ID is the real identity.
 
-The board content is private from nearby devices that do not know the invite
-key. BLE addresses and some handshake metadata are not hidden.
+The board content is private from nearby devices that do not complete pairing.
+The short code should still be shared privately. BLE addresses and some
+handshake metadata are not hidden.
 
 ## BLE Protocol
 
@@ -66,6 +71,7 @@ was missed. Small events such as Clear were more likely to arrive.
 
 The board protocol now uses:
 
+- `bp/bc/bj/bi` - short-code pairing and encrypted board setup
 - `bh` - authenticated board hello
 - `bm` - owner-signed member admission
 - `bf` - contiguous sequence frontier for each author
@@ -115,7 +121,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.5.0-5s` (`versionCode 18`)
+- Version: `0.6.0-5s` (`versionCode 19`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.
@@ -136,7 +142,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 - finite-board scaling on different display sizes
 - saved board-state migration from the previous UI format
 - frontiers, missing ranges, queues, retries, and frame limits
-- real Android Ed25519, AES-GCM, compression, and tamper rejection
+- real Android pairing, Ed25519, AES-GCM, compression, and tamper rejection
 - Android lint, APK build, signature, version, and bundled files
 
 The emulator cannot test real BLE radio exchange. Two physical phones are still
