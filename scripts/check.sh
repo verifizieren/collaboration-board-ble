@@ -87,15 +87,16 @@ fi
 
 echo "[5/6] Preparing the install APK"
 APK="app/build/outputs/apk/debug/app-debug.apk"
-INSTALL_APK="install/whiteboard5sek.apk"
+INSTALL_APK="install/tremola-collaboration-board-debug.apk"
 test -f "$APK"
 test -f "install/whiteboardlive.apk"
+test -f "install/whiteboard5sek.apk"
 mkdir -p install
 cp "$APK" "$INSTALL_APK"
-cp "$APK" "install/tremola-collaboration-board-debug.apk"
+cp "$APK" "install/whiteboardlive.apk"
 (
   cd install
-  shasum -a 256 whiteboardlive.apk whiteboard5sek.apk > SHA256SUMS
+  shasum -a 256 tremola-collaboration-board-debug.apk whiteboardlive.apk whiteboard5sek.apk > SHA256SUMS
 )
 
 TMP_DIR="$(mktemp -d)"

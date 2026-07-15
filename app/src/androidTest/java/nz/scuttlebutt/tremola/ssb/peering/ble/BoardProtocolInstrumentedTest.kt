@@ -28,7 +28,8 @@ class BoardProtocolInstrumentedTest {
             roomKey = key,
             roomKeyText = keyText,
             ownerId = owner.toRef(),
-            username = "Alice"
+            username = "Alice",
+            boardName = "DPI Project"
         )
         val memberConfig = ownerConfig.copy(username = "Bob")
 
@@ -136,7 +137,8 @@ class BoardProtocolInstrumentedTest {
                 Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
             ),
             ownerId = owner.toRef(),
-            username = "Alice"
+            username = "Alice",
+            boardName = "DPI Project"
         )
 
         val joinNonce = BoardProtocol.newPairingNonce()
@@ -176,6 +178,7 @@ class BoardProtocolInstrumentedTest {
         )!!
         assertTrue(result.config.roomKey.contentEquals(roomKey))
         assertEquals(owner.toRef(), result.config.ownerId)
+        assertEquals("DPI Project", result.config.boardName)
         assertNull(BoardProtocol.verifyPairingOffer(offer, "654321", challenge, "Bob"))
 
         val tampered = JSONObject(offer.toString()).put("f", owner.toRef())

@@ -18,7 +18,8 @@ phones should work without Internet and exchange changes over BLE.
 - Every admitted member can edit every object.
 - Draw, text, move, resize, color, delete, and clear are supported.
 - The fixed board scales to different phone screens.
-- Board state survives an app restart.
+- Boards have names and can be reopened from a local list.
+- Board state and membership survive closing the board or app.
 - Offline and late members recover missing operations.
 
 ## Method
@@ -49,9 +50,8 @@ finished board action
 ```
 
 The app sends one event after an action. It does not send every finger position.
-In the 5-second experiment, finished actions are stored locally and released
-during the next periodic frontier exchange. Only missing operations are sent;
-the full board image is never transmitted.
+The live build queues completed actions immediately. Periodic frontier exchange
+recovers missing operations. The full board image is never transmitted.
 
 ## Why The Old Sync Failed
 

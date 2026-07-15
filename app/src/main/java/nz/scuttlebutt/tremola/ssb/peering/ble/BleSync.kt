@@ -289,8 +289,7 @@ class BleSync(
     )
 
     init {
-        loadBoardMembers()
-        loadBoardAdmissions()
+        loadBoardProfile()
         restoreBoardPairingSession()
     }
 
@@ -299,14 +298,12 @@ class BleSync(
         return activateBoard(requested)
     }
 
-    private fun activateBoard(
-        requested: BoardRoomConfig,
-        ownAdmission: BoardAdmission? = null
-    ): Boolean {
+    private fun activateBoard(requested: BoardRoomConfig): Boolean {
         val ownFeed = tremolaState.idStore.identity.toRef()
         synchronized(boardConfigLock) {
             val changedRoom = boardConfig?.roomId != requested.roomId ||
                 boardConfig?.roomKey?.contentEquals(requested.roomKey) != true
+            if (changedRoom) persistBoardProfile()
             boardConfig = requested
             if (changedRoom) {
                 authenticatedBoardPeers.clear()
@@ -315,17 +312,8 @@ class BleSync(
                 boardAdmissions.clear()
                 pairingReservations.clear()
                 clearBoardPairingSessionLocked()
-            } else {
-                loadBoardMembers()
-                loadBoardAdmissions()
             }
-            if (ownAdmission != null) {
-                val verified = BoardProtocol.verifyAdmission(requested, ownAdmission.wireJson)
-                    ?.takeIf { it.memberId == ownFeed }
-                    ?: return false
-                boardAdmissions[ownFeed] = verified.wireJson
-                boardMembers[ownFeed] = verified.username
-            }
+            loadBoardProfile()
             val admittedName = if (ownFeed == requested.ownerId) null else {
                 verifiedBoardAdmission(ownFeed)?.username
             }
@@ -391,8 +379,9 @@ class BleSync(
         return true
     }
 
-    fun leaveBoard() {
+    fun closeBoard() {
         synchronized(boardConfigLock) {
+            persistBoardProfile()
             boardConfig = null
             boardMembers.clear()
             boardAdmissions.clear()
@@ -411,6 +400,10 @@ class BleSync(
                 .apply()
         }
         reportStatus("Board closed")
+    }
+
+    fun leaveBoard() {
+        closeBoard()
     }
 
     fun writeBoardEvent(payloadJson: String): Boolean {
@@ -443,8 +436,7 @@ class BleSync(
         tremolaState.appendLocalEvent {
             tremolaState.msgTypes.mkCustomApp(COLLAB_BOARD_APP_ID, decoded.operation.wireJson)
         }
-        // The 5-second variant keeps the operation in Room until the next
-        // frontier pulse. The UI has already applied it locally.
+        executeWorker { queueBoardOperationForAll(decoded.operation) }
         return true
     }
 
@@ -519,9 +511,9 @@ class BleSync(
                 if (pendingBoardJoin == null) sendFrontierToAll() else sendPairingProbeToAll()
             } else {
                 sendBoardHelloToAll(onlyUnauthenticated = true)
+                retryBoardDeliveries()
                 val now = System.currentTimeMillis()
-                if (shouldRunBoardBatch(lastBoardFrontierAt, now)) {
-                    retryBoardDeliveries()
+                if (now - lastBoardFrontierAt >= BOARD_FRONTIER_INTERVAL_MS) {
                     sendBoardFrontierToAll()
                     lastBoardFrontierAt = now
                 }
@@ -606,6 +598,7 @@ class BleSync(
                     val decoded = BoardProtocol.decodeOperation(config, wire)
                     if (decoded != null && decoded.operation.authorId == entry.lid) {
                         storeBoardOperation(decoded)
+                        queueBoardOperationForAll(decoded.operation, excludedPeerAddress)
                     }
                 }
                 return@executeWorker
@@ -1580,54 +1573,93 @@ class BleSync(
         }
     }
 
-    private fun loadBoardMembers() {
+    private fun loadBoardProfile() {
         val config = boardConfig ?: return
-        val storedRoom = boardPrefs.getString(BOARD_MEMBERS_ROOM_KEY, "")
-        if (storedRoom != config.roomId) return
-        try {
-            val saved = JSONObject(boardPrefs.getString(BOARD_MEMBERS_KEY, "{}") ?: "{}")
-            saved.keys().forEach { feedId ->
-                val username = BoardProtocol.cleanUsername(saved.optString(feedId, ""))
-                if (username.isNotBlank()) boardMembers[feedId] = username
-            }
+        val profile = try {
+            val raw = boardPrefs.getString(boardProfileKey(config.roomId), "") ?: ""
+            if (raw.isBlank()) null else JSONObject(raw)
         } catch (_: Exception) {
+            null
         }
+        val storedConfig = profile?.optJSONObject("config")?.toString()
+            ?.let { BoardProtocol.parseConfig(it) }
+            ?.takeIf {
+                it.roomId == config.roomId && it.ownerId == config.ownerId &&
+                    it.roomKey.contentEquals(config.roomKey)
+            }
+        if (storedConfig != null) {
+            loadBoardMembersFrom(profile.optJSONObject("members"))
+            loadBoardAdmissionsFrom(profile.optJSONObject("admissions"), config)
+            return
+        }
+        loadLegacyBoardProfile(config)
+    }
+
+    private fun loadLegacyBoardProfile(config: BoardRoomConfig) {
+        if (boardPrefs.getString(BOARD_MEMBERS_ROOM_KEY, "") == config.roomId) {
+            try {
+                loadBoardMembersFrom(
+                    JSONObject(boardPrefs.getString(BOARD_MEMBERS_KEY, "{}") ?: "{}")
+                )
+            } catch (_: Exception) {
+            }
+        }
+        if (boardPrefs.getString(BOARD_ADMISSIONS_ROOM_KEY, "") == config.roomId) {
+            try {
+                loadBoardAdmissionsFrom(
+                    JSONObject(boardPrefs.getString(BOARD_ADMISSIONS_KEY, "{}") ?: "{}"),
+                    config
+                )
+            } catch (_: Exception) {
+            }
+        }
+        persistBoardProfile()
+    }
+
+    private fun loadBoardMembersFrom(saved: JSONObject?) {
+        saved ?: return
+        saved.keys().forEach { feedId ->
+            val username = BoardProtocol.cleanUsername(saved.optString(feedId, ""))
+            if (username.isNotBlank()) boardMembers[feedId] = username
+        }
+    }
+
+    private fun loadBoardAdmissionsFrom(saved: JSONObject?, config: BoardRoomConfig) {
+        saved ?: return
+        saved.keys().forEach { feedId ->
+            val admission = BoardProtocol.verifyAdmission(config, saved.optString(feedId, ""))
+            if (admission != null && admission.memberId == feedId) {
+                boardAdmissions[feedId] = admission.wireJson
+                boardMembers[feedId] = admission.username
+            }
+        }
+    }
+
+    private fun persistBoardProfile() {
+        val config = boardConfig ?: return
+        val members = JSONObject()
+        boardMembers.toSortedMap().forEach { (feedId, username) -> members.put(feedId, username) }
+        val admissions = JSONObject()
+        boardAdmissions.toSortedMap().forEach { (feedId, wire) -> admissions.put(feedId, wire) }
+        val profile = JSONObject()
+            .put("config", JSONObject(BoardProtocol.configJson(config)))
+            .put("members", members)
+            .put("admissions", admissions)
+        boardPrefs.edit()
+            .putString(boardProfileKey(config.roomId), profile.toString())
+            .apply()
     }
 
     private fun persistBoardMembers() {
-        val config = boardConfig ?: return
-        val saved = JSONObject()
-        boardMembers.toSortedMap().forEach { (feedId, username) -> saved.put(feedId, username) }
-        boardPrefs.edit()
-            .putString(BOARD_MEMBERS_ROOM_KEY, config.roomId)
-            .putString(BOARD_MEMBERS_KEY, saved.toString())
-            .apply()
-    }
-
-    private fun loadBoardAdmissions() {
-        val config = boardConfig ?: return
-        if (boardPrefs.getString(BOARD_ADMISSIONS_ROOM_KEY, "") != config.roomId) return
-        try {
-            val saved = JSONObject(boardPrefs.getString(BOARD_ADMISSIONS_KEY, "{}") ?: "{}")
-            saved.keys().forEach { feedId ->
-                val admission = BoardProtocol.verifyAdmission(config, saved.optString(feedId, ""))
-                if (admission != null && admission.memberId == feedId) {
-                    boardAdmissions[feedId] = admission.wireJson
-                    boardMembers[feedId] = admission.username
-                }
-            }
-        } catch (_: Exception) {
-        }
+        persistBoardProfile()
     }
 
     private fun persistBoardAdmissions() {
-        val config = boardConfig ?: return
-        val saved = JSONObject()
-        boardAdmissions.toSortedMap().forEach { (feedId, wire) -> saved.put(feedId, wire) }
-        boardPrefs.edit()
-            .putString(BOARD_ADMISSIONS_ROOM_KEY, config.roomId)
-            .putString(BOARD_ADMISSIONS_KEY, saved.toString())
-            .apply()
+        persistBoardProfile()
+    }
+
+    private fun boardProfileKey(roomId: String): String {
+        return BOARD_PROFILE_PREFIX + roomId
     }
 
     private fun verifiedBoardAdmission(feedId: String): BoardAdmission? {
@@ -1954,8 +1986,7 @@ class BleSync(
         sendBoardAck(peerAddress, decoded.operation.operationId)
         if (inserted) {
             deliverBoardOperation(decoded)
-            // Relay on the next batch frontier instead of immediately. The
-            // stored operation can still be requested by any admitted peer.
+            queueBoardOperationForAll(decoded.operation, peerAddress)
             val frontier = localBoardFrontier(config.roomId)[decoded.operation.authorId] ?: 0
             if (decoded.operation.authorSequence > frontier + 1) sendBoardFrontier(peerAddress)
         }
@@ -1997,6 +2028,16 @@ class BleSync(
         try {
             tremolaState.wai.eval(js)
         } catch (_: Exception) {
+        }
+    }
+
+    private fun queueBoardOperationForAll(
+        operation: BoardOperation,
+        excludedPeerAddress: String? = null
+    ) {
+        val excludedFeed = excludedPeerAddress?.let { authenticatedBoardPeers[it] }
+        logicalBoardPeerAddresses().forEach { (peerFeed, address) ->
+            if (peerFeed != excludedFeed) queueBoardOperationForPeer(address, operation)
         }
     }
 
@@ -2688,6 +2729,7 @@ class BleSync(
         private const val BOARD_MEMBERS_ROOM_KEY = "room_members_id"
         private const val BOARD_ADMISSIONS_KEY = "room_admissions"
         private const val BOARD_ADMISSIONS_ROOM_KEY = "room_admissions_id"
+        private const val BOARD_PROFILE_PREFIX = "room_profile_"
         private const val BOARD_PAIRING_ROOM_KEY = "pairing_room"
         private const val BOARD_PAIRING_CODE_KEY = "pairing_code"
         private const val BOARD_PAIRING_EXPIRES_KEY = "pairing_expires"
@@ -2696,8 +2738,8 @@ class BleSync(
         private const val MAX_BOARD_WANT_RANGES = 16
         private const val MAX_BOARD_OPERATIONS_PER_PULSE = 24
         private const val MAX_BOARD_DELIVERY_ATTEMPTS = 12
-        private const val BOARD_BATCH_INTERVAL_MS = 5000L
-        private const val BOARD_OPERATION_RETRY_MS = BOARD_BATCH_INTERVAL_MS
+        private const val BOARD_OPERATION_RETRY_MS = 2000L
+        private const val BOARD_FRONTIER_INTERVAL_MS = 5000L
         private const val BOARD_PAIRING_SESSION_SECONDS = 600
         private const val BOARD_PAIRING_SESSION_MS = BOARD_PAIRING_SESSION_SECONDS * 1000L
         private const val BOARD_PAIRING_CHALLENGE_MS = 30000L
@@ -2705,11 +2747,6 @@ class BleSync(
         private const val BOARD_PAIRING_JOIN_TIMEOUT_MS = 60000L
         private const val MAX_PAIRING_FAILURES_PER_FEED = 3
         private const val MAX_PAIRING_FAILURES_TOTAL = 10
-
-        internal fun shouldRunBoardBatch(lastBatchAt: Long, now: Long): Boolean {
-            if (lastBatchAt <= 0L || now < lastBatchAt) return true
-            return now - lastBatchAt >= BOARD_BATCH_INTERVAL_MS
-        }
 
         internal fun framePayloadSize(mtu: Int): Int {
             // A GATT value may use MTU - 3 bytes. The frame header is part of

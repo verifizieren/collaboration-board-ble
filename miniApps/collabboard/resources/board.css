@@ -29,14 +29,16 @@
 }
 
 .cb_room_setup {
-  width: min(100%, 390px);
-  margin: 18px auto 0;
-  padding: 0 14px;
+  width: min(100%, 420px);
+  max-height: 100%;
+  margin: 8px auto 0;
+  padding: 0 14px 16px;
   box-sizing: border-box;
+  overflow-y: auto;
 }
 
 .cb_room_setup h2 {
-  margin: 0 0 20px;
+  margin: 0 0 12px;
   font-size: 21px;
   line-height: 28px;
   letter-spacing: 0;
@@ -87,16 +89,84 @@
   color: var(--cb-accent);
 }
 
+.cb_saved_boards {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.cb_saved_board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 10px;
+  border: 1px solid var(--cb-line);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.cb_saved_board_name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cb_saved_open {
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--cb-line);
+  border-radius: 6px;
+  background: var(--cb-soft);
+  color: var(--cb-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cb_saved_empty {
+  margin: 0 0 12px;
+  color: var(--cb-muted);
+  font-size: 13px;
+}
+
+.cb_setup_tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin: 2px 0 10px;
+  padding: 3px;
+  border-radius: 6px;
+  background: var(--cb-soft);
+}
+
+.cb_setup_tab {
+  height: 36px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #4c5359;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cb_setup_tab.cb_active {
+  background: #ffffff;
+  color: var(--cb-accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.cb_setup_panel {
+  padding-bottom: 1px;
+}
+
 .cb_code_input {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
-}
-
-.cb_setup_actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 4px;
 }
 
 .cb_setup_error {
@@ -301,7 +371,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .cb_tool:focus-visible,
@@ -311,6 +381,12 @@
 .cb_primary:focus-visible,
 .cb_secondary:focus-visible,
 .cb_room_action:focus-visible {
+  outline: 2px solid var(--cb-accent);
+  outline-offset: 1px;
+}
+
+.cb_setup_tab:focus-visible,
+.cb_saved_open:focus-visible {
   outline: 2px solid var(--cb-accent);
   outline-offset: 1px;
 }

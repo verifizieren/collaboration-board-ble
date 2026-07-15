@@ -8,7 +8,8 @@ A shared whiteboard mini-app inside Tremola for Android.
 - Move, resize, recolor, and delete objects.
 - Clear the full board.
 - Use one fixed board that scales to the phone screen.
-- Keep the board after closing the app.
+- Name boards and reopen them from a saved-board list.
+- Keep board data and membership after closing the board or app.
 - Work offline and catch up later.
 - Sync nearby phones over Bluetooth Low Energy.
 - Use invite-only boards with up to four members.
@@ -18,14 +19,16 @@ Every admitted member can edit every object.
 
 ## Android APKs
 
-This experiment branch contains two builds:
+The install folder contains three APK files:
 
-- [`install/whiteboardlive.apk`](install/whiteboardlive.apk) sends a finished
-  action immediately.
+- [`install/tremola-collaboration-board-debug.apk`](install/tremola-collaboration-board-debug.apk)
+  is the current live-sync build.
+- [`install/whiteboardlive.apk`](install/whiteboardlive.apk) is the same current
+  live-sync build.
 - [`install/whiteboard5sek.apk`](install/whiteboard5sek.apk) saves locally and
-  exchanges new operations in 5-second batches.
+  exchanges new operations in 5-second batches. It is kept as an experiment.
 
-Both APKs contain the full Tremola app, the mini-app, local storage, and native
+All APKs contain the full Tremola app, the mini-app, local storage, and native
 BLE sync. They use the same Android package, so install only one variant at a
 time and use the same variant on every test phone.
 
@@ -44,8 +47,10 @@ See [`install/README.md`](install/README.md) for the install and test steps.
 2. Allow Bluetooth and location access when Android asks.
 3. Open **MiniApps > Collaboration Board**.
 4. Enter a name.
-5. Enter a six-digit code and create or join a board.
-6. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, or **Clear all**.
+5. Enter a board name and six-digit code, then create the board.
+6. Other members use **Join** and enter the same code.
+7. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, or **Clear all**.
+8. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
 
 The board owner must be nearby the first time a new member joins. After that,
 the member keeps a signed admission and can reconnect through any admitted
@@ -55,16 +60,16 @@ The owner chooses the six-digit code. It stays open for 10 minutes. The real
 256-bit board key is created separately and sent only through encrypted BLE
 pairing.
 
-## 5-Second Sync
+## Sync
 
-A finished action is applied and saved immediately on its phone. The BLE layer
-collects new operations until the next 5-second frontier exchange. It sends
-only missing operations, not a full canvas snapshot. The receiver acknowledges
-each complete operation and requests missing ranges again.
+A finished action is applied and stored immediately. The live build sends it
+immediately and retries missing acknowledgements. Every five seconds, peers
+also compare frontiers and request anything missing. The full canvas image is
+never transmitted.
 
-- operation batch and retry: about every 5 seconds while connected
 - no pointer movement is sent while a finger is still moving
 - only operations for the active board use the board sync queue
+- the 5-second APK uses the same recovery protocol but batches new actions
 
 ## Check And Build
 

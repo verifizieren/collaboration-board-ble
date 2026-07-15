@@ -273,6 +273,7 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
                 }
             }
             s == "collabboard:read" -> tremolaState.bleSync?.replayBoardOperations()
+            s == "collabboard:close" -> tremolaState.bleSync?.closeBoard()
             s == "collabboard:leave" -> tremolaState.bleSync?.leaveBoard()
             else -> Log.d("CollaborationBoard", "unknown $s")
         }

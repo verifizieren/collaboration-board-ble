@@ -23,7 +23,8 @@ internal data class BoardRoomConfig(
     val roomKey: ByteArray,
     val roomKeyText: String,
     val ownerId: String,
-    val username: String
+    val username: String,
+    val boardName: String = "Board"
 )
 
 internal data class BoardHello(
@@ -92,11 +93,19 @@ internal object BoardProtocol {
             val keyText = obj.optString("k", "")
             val ownerId = obj.optString("o", "")
             val username = cleanUsername(obj.optString("u", ""))
+            val boardName = cleanBoardName(obj.optString("b", ""))
             val roomKey = decodeUrlBase64(keyText) ?: return null
             if (!isValidRoomId(roomId) || roomKey.size != ROOM_KEY_BYTES ||
                 !isValidFeedId(ownerId) || username.isBlank()
             ) return null
-            BoardRoomConfig(roomId, roomKey, keyText, ownerId, username)
+            BoardRoomConfig(
+                roomId,
+                roomKey,
+                keyText,
+                ownerId,
+                username,
+                boardName.ifBlank { "Board" }
+            )
         } catch (_: Exception) {
             null
         }
@@ -108,6 +117,7 @@ internal object BoardProtocol {
             .put("k", config.roomKeyText)
             .put("o", config.ownerId)
             .put("u", config.username)
+            .put("b", config.boardName)
             .toString()
     }
 
@@ -661,6 +671,10 @@ internal object BoardProtocol {
         return value.trim().replace(Regex("\\s+"), " ").take(MAX_USERNAME_LENGTH)
     }
 
+    fun cleanBoardName(value: String): String {
+        return value.trim().replace(Regex("\\s+"), " ").take(MAX_BOARD_NAME_LENGTH)
+    }
+
     private fun isValidRoomId(value: String): Boolean {
         return value.length in 8..64 && value.all {
             it.isLetterOrDigit() || it == '-' || it == '_'
@@ -878,6 +892,7 @@ internal object BoardProtocol {
     private const val MAX_PAIRING_TTL_SECONDS = 600
     private const val MAX_PAIRING_OFFER_BYTES = 4096
     private const val MAX_USERNAME_LENGTH = 24
+    private const val MAX_BOARD_NAME_LENGTH = 40
     // This also guarantees that an encrypted operation still fits inside the
     // 1,024-frame fallback when an older phone remains at the 23-byte MTU.
     private const val MAX_EVENT_BYTES = 8192

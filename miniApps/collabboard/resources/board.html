@@ -1,16 +1,33 @@
 <div id='div:collabboard-main' style='display: none;'>
   <section id='cb_room_setup' class='cb_room_setup' style='display: none;'>
-    <h2>Open a board</h2>
+    <h2>Boards</h2>
+    <div id='cb_saved_boards' class='cb_saved_boards'></div>
+    <p id='cb_saved_empty' class='cb_saved_empty'>No saved boards</p>
     <label for='cb_username'>Your name</label>
     <input id='cb_username' class='cb_room_input' type='text' maxlength='24'
            autocomplete='nickname' placeholder='Name'>
-    <label for='cb_pairing_code'>6-digit code</label>
-    <input id='cb_pairing_code' class='cb_room_input cb_code_input' type='text'
-           inputmode='numeric' pattern='[0-9]*' maxlength='6' autocomplete='one-time-code'
-           placeholder='123456' oninput='this.value=cb_clean_pairing_code(this.value)'>
-    <div class='cb_setup_actions'>
+    <div class='cb_setup_tabs' role='tablist' aria-label='Board action'>
+      <button id='cb_setup_create_tab' class='cb_setup_tab cb_active' type='button'
+              role='tab' aria-selected='true' onclick='cb_set_setup_mode("create")'>Create</button>
+      <button id='cb_setup_join_tab' class='cb_setup_tab' type='button'
+              role='tab' aria-selected='false' onclick='cb_set_setup_mode("join")'>Join</button>
+    </div>
+    <div id='cb_create_panel' class='cb_setup_panel' role='tabpanel'>
+      <label for='cb_board_name'>Board name</label>
+      <input id='cb_board_name' class='cb_room_input' type='text' maxlength='40'
+             placeholder='Project board'>
+      <label for='cb_create_code'>6-digit code</label>
+      <input id='cb_create_code' class='cb_room_input cb_code_input' type='text'
+             inputmode='numeric' pattern='[0-9]*' maxlength='6' autocomplete='one-time-code'
+             placeholder='123456' oninput='this.value=cb_clean_pairing_code(this.value)'>
       <button class='cb_primary' type='button' onclick='cb_create_board()'>Create board</button>
-      <button class='cb_secondary' type='button' onclick='cb_join_board()'>Join board</button>
+    </div>
+    <div id='cb_join_panel' class='cb_setup_panel' role='tabpanel' style='display: none;'>
+      <label for='cb_join_code'>6-digit code</label>
+      <input id='cb_join_code' class='cb_room_input cb_code_input' type='text'
+             inputmode='numeric' pattern='[0-9]*' maxlength='6' autocomplete='one-time-code'
+             placeholder='123456' oninput='this.value=cb_clean_pairing_code(this.value)'>
+      <button class='cb_primary' type='button' onclick='cb_join_board()'>Join board</button>
     </div>
     <p id='cb_setup_error' class='cb_setup_error' aria-live='polite'></p>
   </section>
@@ -23,7 +40,7 @@
       </div>
       <button id='cb_invite_btn' class='cb_room_action' type='button'
               onclick='cb_copy_invite()'>Invite</button>
-      <button class='cb_room_action' type='button' onclick='cb_leave_board()'>Leave</button>
+      <button class='cb_room_action' type='button' onclick='cb_close_board()'>Boards</button>
       <input id='cb_invite_copy' class='cb_hidden_copy' aria-hidden='true' tabindex='-1'>
     </div>
     <div id='cb_toolbar'>

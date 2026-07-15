@@ -76,6 +76,8 @@ class BoardProtocolTest {
         assertEquals(false, BoardProtocol.isValidPairingCode("1234567"))
         assertEquals(false, BoardProtocol.isValidPairingCode("12 456"))
         assertEquals(false, BoardProtocol.isValidPairingCode("abcdef"))
+        assertEquals("DPI Project", BoardProtocol.cleanBoardName("  DPI   Project  "))
+        assertEquals(40, BoardProtocol.cleanBoardName("x".repeat(60)).length)
     }
 
     private fun operation(author: String, sequence: Int): BoardOperation {

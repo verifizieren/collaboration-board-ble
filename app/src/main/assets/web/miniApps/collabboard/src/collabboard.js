@@ -87,9 +87,12 @@ var CB_BOARD_WIDTH = 900;
 var CB_BOARD_HEIGHT = 1200;
 var CB_COORD_LIMIT = 2400;
 var CB_MAX_MEMBERS = 4;
+var CB_TEXT_SIZE = 36;
+var CB_TEXT_LINE_HEIGHT = 42;
 var cb_native_config_pending = false;
 var cb_pending_pairing_code = '';
 var cb_pending_copy_code = '';
+var cb_setup_mode = 'create';
 
 function cb_is_android() {
     return typeof Android !== 'undefined' && typeof backend === 'function';
@@ -144,6 +147,109 @@ function cb_valid_pairing_code(value) {
     return /^\d{6}$/.test(String(value || ''));
 }
 
+function cb_random_pairing_code() {
+    var value;
+    if (window.crypto && window.crypto.getRandomValues) {
+        var values = new Uint32Array(1);
+        window.crypto.getRandomValues(values);
+        value = values[0] % 1000000;
+    } else {
+        value = Math.floor(Math.random() * 1000000);
+    }
+    return ('000000' + value).slice(-6);
+}
+
+function cb_clean_board_name(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+}
+
+function cb_board_name(room) {
+    return cb_clean_board_name(room && room.b) || 'Board';
+}
+
+function cb_board_catalog() {
+    if (!tremola.collabboardBoards || typeof tremola.collabboardBoards !== 'object' ||
+        Array.isArray(tremola.collabboardBoards)) {
+        tremola.collabboardBoards = {};
+    }
+    return tremola.collabboardBoards;
+}
+
+function cb_remember_room(room, touch) {
+    if (!room || typeof room.r !== 'string' || room.r.length < 8 ||
+        typeof room.k !== 'string' || room.k.length < 32 || typeof room.o !== 'string') return;
+    room.b = cb_board_name(room);
+    var catalog = cb_board_catalog();
+    var old = catalog[room.r];
+    var entry = {
+        room: room,
+        updated: touch || !old ? Date.now() : Number(old.updated) || Date.now()
+    };
+    // Android keeps operations in Room. The browser preview has no native
+    // database, so retain its current state with the catalog entry instead.
+    if (!cb_is_android() && tremola.collabboard && tremola.collabboard.roomId === room.r) {
+        entry.state = tremola.collabboard;
+    } else if (!cb_is_android() && old && old.state) {
+        entry.state = old.state;
+    }
+    catalog[room.r] = entry;
+}
+
+function cb_forget_catalog_room(roomId) {
+    var catalog = cb_board_catalog();
+    if (Object.prototype.hasOwnProperty.call(catalog, roomId)) delete catalog[roomId];
+}
+
+function cb_set_setup_mode(mode) {
+    cb_setup_mode = mode === 'join' ? 'join' : 'create';
+    var createTab = document.getElementById('cb_setup_create_tab');
+    var joinTab = document.getElementById('cb_setup_join_tab');
+    var createPanel = document.getElementById('cb_create_panel');
+    var joinPanel = document.getElementById('cb_join_panel');
+    if (createTab) {
+        createTab.classList.toggle('cb_active', cb_setup_mode === 'create');
+        createTab.setAttribute('aria-selected', cb_setup_mode === 'create' ? 'true' : 'false');
+    }
+    if (joinTab) {
+        joinTab.classList.toggle('cb_active', cb_setup_mode === 'join');
+        joinTab.setAttribute('aria-selected', cb_setup_mode === 'join' ? 'true' : 'false');
+    }
+    if (createPanel) createPanel.style.display = cb_setup_mode === 'create' ? null : 'none';
+    if (joinPanel) joinPanel.style.display = cb_setup_mode === 'join' ? null : 'none';
+    cb_set_setup_error('');
+}
+
+function cb_render_board_list() {
+    var container = document.getElementById('cb_saved_boards');
+    var empty = document.getElementById('cb_saved_empty');
+    var catalog = cb_board_catalog();
+    var entries = Object.keys(catalog).map(function (roomId) {
+        return catalog[roomId];
+    }).filter(function (entry) {
+        return entry && entry.room && entry.room.r;
+    }).sort(function (a, b) {
+        return (Number(b.updated) || 0) - (Number(a.updated) || 0);
+    });
+    if (empty) empty.style.display = entries.length ? 'none' : null;
+    if (!container || typeof document.createElement !== 'function') return;
+    container.textContent = '';
+    entries.forEach(function (entry) {
+        var row = document.createElement('div');
+        row.className = 'cb_saved_board';
+        var name = document.createElement('span');
+        name.className = 'cb_saved_board_name';
+        name.textContent = cb_board_name(entry.room);
+        var open = document.createElement('button');
+        open.className = 'cb_saved_open';
+        open.type = 'button';
+        open.textContent = 'Open';
+        open.onclick = function () { cb_open_saved_board(entry.room.r); };
+        row.appendChild(name);
+        row.appendChild(open);
+        container.appendChild(row);
+    });
+}
+
 function cb_set_setup_error(message) {
     var el = document.getElementById('cb_setup_error');
     if (el) el.textContent = message || '';
@@ -154,16 +260,24 @@ function cb_show_setup(show) {
     var workspace = document.getElementById('cb_workspace');
     if (setup) setup.style.display = show ? null : 'none';
     if (workspace) workspace.style.display = show ? 'none' : null;
+    if (show) cb_render_board_list();
 }
 
 function cb_create_board() {
     var usernameInput = document.getElementById('cb_username');
-    var codeInput = document.getElementById('cb_pairing_code');
+    var nameInput = document.getElementById('cb_board_name');
+    var codeInput = document.getElementById('cb_create_code');
     var username = cb_clean_username(usernameInput && usernameInput.value);
+    var boardName = cb_clean_board_name(nameInput && nameInput.value);
     var code = cb_clean_pairing_code(codeInput && codeInput.value);
     if (!username) {
         cb_set_setup_error('Enter a name');
         if (usernameInput) usernameInput.focus();
+        return;
+    }
+    if (!boardName) {
+        cb_set_setup_error('Enter a board name');
+        if (nameInput) nameInput.focus();
         return;
     }
     if (!cb_valid_pairing_code(code)) {
@@ -172,19 +286,21 @@ function cb_create_board() {
         return;
     }
     cb_pending_pairing_code = code;
+    tremola.collabboardLastUser = username;
     cb_activate_room({
         v: 1,
         r: cb_random_token(12),
         k: cb_random_token(32),
         o: typeof myId === 'string' ? myId : '@local.ed25519',
         u: username,
+        b: boardName,
         p: code
     });
 }
 
 function cb_join_board() {
     var usernameInput = document.getElementById('cb_username');
-    var codeInput = document.getElementById('cb_pairing_code');
+    var codeInput = document.getElementById('cb_join_code');
     var username = cb_clean_username(usernameInput && usernameInput.value);
     var code = cb_clean_pairing_code(codeInput && codeInput.value);
     if (!username) {
@@ -200,18 +316,31 @@ function cb_join_board() {
         cb_set_setup_error('Join is available in the Android app');
         return;
     }
+    tremola.collabboardLastUser = username;
+    persist();
     cb_native_config_pending = true;
     cb_set_setup_error('Looking for board owner...');
     backend('collabboard:join ' + cb_utf8_b64(JSON.stringify({ u: username, c: code })));
 }
 
-function cb_activate_room(room) {
+function cb_open_saved_board(roomId) {
+    var entry = cb_board_catalog()[roomId];
+    if (!entry || !entry.room) {
+        cb_set_setup_error('Board is not available');
+        return;
+    }
+    cb_activate_room(entry.room, !cb_is_android() ? entry.state : null);
+}
+
+function cb_activate_room(room, savedState) {
+    room.b = cb_board_name(room);
     tremola.collabboardRoom = room;
-    tremola.collabboard = {
-        roomId: room.r,
-        objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
-        schema: CB_STATE_VERSION
-    };
+    tremola.collabboard = savedState && savedState.roomId === room.r ? savedState : {
+            roomId: room.r,
+            objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
+            schema: CB_STATE_VERSION
+        };
+    cb_remember_room(room, true);
     persist();
     cb_native_config_pending = cb_is_android();
     cb_set_setup_error(cb_native_config_pending ? 'Opening board...' : '');
@@ -242,6 +371,8 @@ function cb_board_configured(accepted) {
             cb_pending_pairing_code = '';
             backend('collabboard:pairing ' + cb_utf8_b64(code));
         }
+    } else {
+        cb_ble_status('Browser preview', 0, 0);
     }
 }
 
@@ -260,6 +391,7 @@ function cb_board_joined(configJson) {
             throw new Error('bad board');
         }
         config.v = 1;
+        config.b = cb_board_name(config);
         cb_native_config_pending = cb_is_android();
         tremola.collabboardRoom = config;
         tremola.collabboard = {
@@ -267,6 +399,7 @@ function cb_board_joined(configJson) {
             objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
             schema: CB_STATE_VERSION
         };
+        cb_remember_room(config, true);
         persist();
         cb_set_setup_error('');
         cb_show_setup(false);
@@ -286,6 +419,8 @@ function cb_board_join_failed(message) {
 }
 
 function cb_board_access_rejected(message) {
+    var room = tremola.collabboardRoom;
+    if (room && room.r) cb_forget_catalog_room(room.r);
     delete tremola.collabboardRoom;
     delete tremola.collabboard;
     cb_members = Object.create(null);
@@ -319,7 +454,13 @@ function cb_board_write_failed() {
 function cb_copy_invite() {
     var room = cb_current_room();
     var code = room && cb_valid_pairing_code(room.p) ? room.p : '';
-    if (!code || typeof myId !== 'string' || room.o !== myId) return;
+    if (!room || typeof myId !== 'string' || room.o !== myId) return;
+    if (!code) {
+        code = cb_random_pairing_code();
+        room.p = code;
+        cb_remember_room(room, true);
+        persist();
+    }
     cb_pending_copy_code = code;
     if (cb_is_android()) {
         backend('collabboard:pairing ' + cb_utf8_b64(code));
@@ -350,8 +491,10 @@ function cb_copy_text(code) {
     fallback();
 }
 
-function cb_leave_board() {
-    if (cb_is_android()) backend('collabboard:leave');
+function cb_close_board() {
+    var room = tremola.collabboardRoom;
+    if (room) cb_remember_room(room, true);
+    if (cb_is_android()) backend('collabboard:close');
     delete tremola.collabboardRoom;
     delete tremola.collabboard;
     cb_members = Object.create(null);
@@ -362,14 +505,17 @@ function cb_leave_board() {
     cb_set_setup_error('');
 }
 
+function cb_leave_board() {
+    cb_close_board();
+}
+
 function cb_update_room_bar() {
     var room = cb_current_room();
     var label = document.getElementById('cb_room_label');
     var invite = document.getElementById('cb_invite_btn');
-    if (label) label.textContent = room ? room.u : '';
+    if (label) label.textContent = room ? cb_board_name(room) : '';
     if (invite) {
-        invite.style.display = room && typeof myId === 'string' && room.o === myId &&
-            cb_valid_pairing_code(room.p) ? null : 'none';
+        invite.style.display = room && typeof myId === 'string' && room.o === myId ? null : 'none';
     }
 }
 
@@ -468,13 +614,19 @@ function cb_open() {
     c.innerHTML = "<font size=+1><strong>Collaboration Board</strong></font>";
 
     cb_bind_canvas();
-    var room = cb_current_room();
-    if (cb_is_android() && !room) {
+    var lastUser = cb_clean_username(tremola.collabboardLastUser);
+    var usernameInput = document.getElementById('cb_username');
+    if (usernameInput && !usernameInput.value && lastUser) usernameInput.value = lastUser;
+    var room = tremola && tremola.collabboardRoom && tremola.collabboardRoom.r ?
+        tremola.collabboardRoom : null;
+    if (!room) {
         cb_show_setup(true);
         cb_ble_status('Board setup', 0, 0);
         return;
     }
     cb_show_setup(false);
+    room.b = cb_board_name(room);
+    cb_remember_room(room, false);
     cb_state();
     if (cb_state_migrated) {
         cb_state_migrated = false;
@@ -651,13 +803,11 @@ function cb_fit_canvas() {
     var cv = document.getElementById('cb_canvas');
     var main = document.getElementById('div:collabboard-main');
     if (!cv || !main) return;
-    var core = document.getElementById('core');
-    var top = cv.getBoundingClientRect().top;
-    var bottom = core ? core.getBoundingClientRect().bottom : window.innerHeight;
-    var maxHeight = bottom - top - 8;
     var maxWidth = main.clientWidth - 10;
-    if (maxHeight <= 0 || maxWidth <= 0) return;
-    var scale = Math.min(maxWidth / CB_BOARD_WIDTH, maxHeight / CB_BOARD_HEIGHT);
+    if (maxWidth <= 0) return;
+    // Android changes the available height when its keyboard opens. Width is
+    // stable, so text entry no longer collapses the board to a tiny preview.
+    var scale = maxWidth / CB_BOARD_WIDTH;
     scale = Math.max(0.05, scale);
     var canvasWidth = Math.max(1, Math.floor(CB_BOARD_WIDTH * scale));
     var canvasHeight = Math.max(1, Math.floor(CB_BOARD_HEIGHT * scale));
@@ -947,6 +1097,7 @@ function cb_apply(raw, header) {
         }
     }
     cb_prune_state(st);
+    cb_remember_room(tremola.collabboardRoom, true);
     persist();
     cb_redraw();
     setTimeout(cb_fit_canvas, 0);
@@ -1048,7 +1199,7 @@ function cb_draw_stroke(ctx, o, xf, col) {
 function cb_draw_text(ctx, o, xf, col) {
     xf = xf || { dx: 0, dy: 0, sc: 1 };
     ctx.fillStyle = col || o.c || '#000000';
-    ctx.font = Math.round(16 * xf.sc) + 'px sans-serif';
+    ctx.font = Math.round(CB_TEXT_SIZE * xf.sc) + 'px sans-serif';
     ctx.textBaseline = 'middle';
     ctx.fillText(cb_dec(o.s).slice(0, 160), o.x + xf.dx, o.y + xf.dy);
 }
@@ -1104,10 +1255,15 @@ function cb_bbox(ctx, st, o) {
 function cb_bbox_for_xf(ctx, o, xf) {
     if (o.k === 't') {
         ctx.save();
-        ctx.font = Math.round(16 * xf.sc) + 'px sans-serif';
+        ctx.font = Math.round(CB_TEXT_SIZE * xf.sc) + 'px sans-serif';
         var w = ctx.measureText(cb_dec(o.s).slice(0, 160)).width;
         ctx.restore();
-        return { x: o.x + xf.dx, y: o.y + xf.dy - 9 * xf.sc, w: w, h: 18 * xf.sc };
+        return {
+            x: o.x + xf.dx,
+            y: o.y + xf.dy - (CB_TEXT_LINE_HEIGHT / 2) * xf.sc,
+            w: w,
+            h: CB_TEXT_LINE_HEIGHT * xf.sc
+        };
     }
     var org = cb_origin(o);
     var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;

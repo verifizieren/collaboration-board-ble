@@ -1,14 +1,15 @@
 # Install On Android
 
-Current batch test build: **0.6.0-5s** (`versionCode 19`).
+Current live test build: **0.7.0** (`versionCode 20`).
 
 Install the same variant on every test phone:
 
-- [`whiteboard5sek.apk`](whiteboard5sek.apk) - 5-second batch experiment
-- [`whiteboardlive.apk`](whiteboardlive.apk) - immediate-send reference
+- [`tremola-collaboration-board-debug.apk`](tremola-collaboration-board-debug.apk) - current live build
+- [`whiteboardlive.apk`](whiteboardlive.apk) - same current live build
+- [`whiteboard5sek.apk`](whiteboard5sek.apk) - older 5-second experiment
 
 The APKs contain the full Tremola app, Collaboration Board, local storage, and
-native BLE sync. They need Android 7.0 or newer. Both use the same package and
+native BLE sync. They need Android 7.0 or newer. All use the same package and
 cannot be installed side by side.
 
 ## Direct Install
@@ -26,10 +27,11 @@ account or central login.
 ## Create A Board
 
 1. Enter your name.
-2. Choose any six-digit code.
-3. Tap **Create board**.
-4. Tap **Invite** and send the copied code privately.
-5. Keep the owner's phone nearby while each new member joins for the first time.
+2. Enter a board name.
+3. Choose any six-digit code.
+4. Tap **Create board**.
+5. Tap **Invite** and send the copied code privately.
+6. Keep the owner's phone nearby while each new member joins for the first time.
 
 The code stays open for 10 minutes. Tap **Invite** again to reopen it.
 
@@ -40,10 +42,12 @@ The code stays open for 10 minutes. Tap **Invite** again to reopen it.
 3. Tap **Join board**.
 4. Keep the owner nearby and wait for the board to open.
 
-The board allows one owner and three other identities. After first admission,
-a member can reconnect through another admitted member. Closing the app keeps
-the board. **Leave** removes the local room setup. An admitted phone normally
-does not need the code again unless its app data is deleted.
+The board allows one owner and three other identities. After joining once, tap
+**Boards** to close the board without deleting it. Tap **Open** in the board
+list to return without entering the code again.
+
+Each phone stores its own copy. The board survives when everyone closes it. It
+is lost on a phone only if the app is uninstalled or its app data is cleared.
 
 ## USB Install
 
@@ -56,9 +60,7 @@ Enable USB debugging, connect the phone, and run from the repo folder:
 
 ## Two-Phone BLE Test
 
-Use the same APK on both phones. For the batch experiment, use
-`whiteboard5sek.apk` and allow up to 10 seconds for an update and its BLE
-transfer.
+Use `tremola-collaboration-board-debug.apk` on both phones.
 
 1. Turn off Wi-Fi and mobile data on both phones.
 2. Turn on Bluetooth. On Android 7-11, also turn on Location.
@@ -72,7 +74,8 @@ transfer.
 10. Use **Clear all** and check both phones.
 11. Turn Bluetooth off on B. Edit on both phones. Turn Bluetooth on again.
 12. Wait for both boards to converge.
-13. Close and reopen Tremola. Confirm the board is still present.
+13. Tap **Boards**, reopen the named board, and confirm its content is present.
+14. Close and reopen Tremola and check the board again.
 
 Repeat with a third and fourth identity if available. A fifth identity must be
 rejected as **Board is full**.

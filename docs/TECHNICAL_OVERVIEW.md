@@ -34,7 +34,8 @@ The board sends one operation after a user finishes an action:
 - `c` - clear the board
 
 The board is fixed at 900 x 1200 logical units. CSS scales it to the available
-Tremola screen. Different phone sizes therefore use the same shared positions.
+Tremola width. It does not shrink when Android opens the keyboard. Different
+phone sizes therefore use the same shared positions.
 
 ## Storage And Identity
 
@@ -44,7 +45,8 @@ Tremola screen. Different phone sizes therefore use the same shared positions.
 - AES-256-GCM encrypts board content with a random 256-bit board key.
 - Operations are stored in Room before BLE transmission.
 - Each local operation is also added to the local Tremola custom-app log.
-- Closing and reopening the app replays the saved board operations.
+- Named board metadata and signed admissions are stored per board.
+- Closing and reopening a board replays its saved Room operations.
 
 ## Invite-Only Boards
 
@@ -85,11 +87,10 @@ frame starts only after `onCharacteristicWrite` or `onNotificationSent`.
 Indications are used when available. A complete operation still needs a `ba`
 acknowledgement, so a dropped notification causes a retry.
 
-This experiment stores local and relayed operations without sending them
-immediately. About every 5 seconds, peers exchange frontiers and transfer the
-missing operations as a batch. Failed operations retry on a later batch. WANT
-ranges recover missed and offline operations. Stored operations can also be
-relayed by another admitted member.
+The live build queues a completed operation immediately and retries it until an
+acknowledgement arrives. About every five seconds, peers also exchange
+frontiers. WANT ranges recover missed and offline operations. Stored operations
+can also be relayed by another admitted member.
 
 Event payloads are compressed before encryption. This makes long strokes much
 smaller than the old Base64 Tremola JSON path. Board traffic is separate from
@@ -121,7 +122,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.6.0-5s` (`versionCode 19`)
+- Version: `0.7.0` (`versionCode 20`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.
@@ -140,6 +141,8 @@ type, the later Lamport event wins. A clear hides older board objects.
 - reverse-order replay and duplicate handling
 - draw, text, move, resize, color, delete, and clear
 - finite-board scaling on different display sizes
+- stable text and canvas size while the Android keyboard opens
+- named board catalogue, close, and reopen behavior
 - saved board-state migration from the previous UI format
 - frontiers, missing ranges, queues, retries, and frame limits
 - real Android pairing, Ed25519, AES-GCM, compression, and tamper rejection
