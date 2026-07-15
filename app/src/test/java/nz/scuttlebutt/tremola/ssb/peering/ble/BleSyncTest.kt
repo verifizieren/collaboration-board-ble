@@ -92,6 +92,16 @@ class BleSyncTest {
     }
 
     @Test
+    fun boardOperationsLeaveQueueSpaceForAcksAndFrontiers() {
+        assertEquals(false, BleSync.isPriorityMessageType("bo", false))
+        assertEquals(true, BleSync.isPriorityMessageType("ba", false))
+        assertEquals(true, BleSync.isPriorityMessageType("bf", false))
+        assertEquals(true, BleSync.isPriorityMessageType("bw", false))
+        assertEquals(false, BleSync.isPriorityMessageType("event", false))
+        assertEquals(true, BleSync.isPriorityMessageType("event", true))
+    }
+
+    @Test
     fun compressedEventsRoundTripAndStayCompatibleWithProtocolOne() {
         val raw = ("{\"type\":\"CUS\",\"points\":[[10,20],[11,21],[12,22]]}".repeat(80))
             .encodeToByteArray()

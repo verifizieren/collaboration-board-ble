@@ -1,143 +1,142 @@
 # Report Basis
 
-This is a simple technical basis for the group report. It is not the final
+This is a short technical basis for the group report. It is not the final
 report.
 
-## Project Goal
+## Goal
 
-Build a collaborative whiteboard inside Tremola. Nearby Android phones should
-work without Internet and exchange changes over Bluetooth Low Energy.
+Build a collaborative whiteboard inside Tremola. Up to four nearby Android
+phones should work without Internet and exchange changes over BLE.
 
-## Implemented Solution
+## Result
 
-- Collaboration Board is a Tremola mini-app.
-- It runs inside the full Tremola Android APK.
-- Everyone can edit every board object.
-- It supports drawing, text, moving, resizing, panning, recoloring, deleting, and clearing.
-- It uses the Android color picker.
-- It stores finished actions as signed append-only log events.
-- It sends missing log entries directly between nearby phones over BLE.
-- It rebuilds the board by replaying events.
-- It works in a browser simulator and on Android.
+- The board is integrated as a Tremola mini-app.
+- It runs in the full Tremola Android APK.
+- A user creates a private board and shares an invite code.
+- Each member chooses a display name.
+- The owner admits at most three other Tremola identities.
+- Every admitted member can edit every object.
+- Draw, text, move, resize, color, delete, and clear are supported.
+- The fixed board scales to different phone screens.
+- Board state survives an app restart.
+- Offline and late members recover missing operations.
 
-There are no board usernames, profiles, or owner locks.
+## Method
 
-## Why Signed Events
+The work followed these steps:
 
-Tremola gives every phone a cryptographic feed identity. Each board action can
-therefore be signed, saved, replayed, and verified with Tremola's existing log.
+1. Inspect the Uni Basel Tremola app and its mini-app bridge.
+2. Inspect tinySSB's fixed packets and WANT/CHNK recovery.
+3. Reproduce the failed mobile sync path with long fragmented events.
+4. Separate whiteboard replication from general Tremola history.
+5. Add persistent signed operations, encryption, ACK, retry, and WANT ranges.
+6. Add deterministic merge rules for every board action.
+7. Test JavaScript behavior, Android crypto, database migration, and APK build.
+8. Prepare a two-phone BLE acceptance test.
 
-This also supports offline work. An action stays in the local log until another
-phone is available.
+## Data Flow
 
-## Why Finished Actions Are Sent
+```text
+finished board action
+  -> validate and sign
+  -> compress when useful
+  -> encrypt with board key
+  -> save in Room
+  -> split into MTU-safe BLE frames
+  -> receive and verify full operation
+  -> send operation ACK
+  -> save and replay in the mini-app
+```
 
-A finger can move many times per second. Sending every pointer position would
-create unnecessary BLE traffic. The app sends:
+The app sends one event after an action. It does not send every finger position.
 
-- one event after a stroke
-- one event after a move or resize
-- one event for text, color, delete, or clear
+## Why The Old Sync Failed
 
-Local events are queued immediately. Every 4 seconds, phones also exchange feed
-frontiers and recover anything that was missed.
+Long strokes became large Base64 JSON messages with many BLE fragments. If one
+fragment was missed, the full event could not be rebuilt. Clear often worked
+because it was small and independent.
 
-## BLE Design
+The new path waits for each Android GATT callback and also requires a complete
+operation ACK. Missing author sequences are requested again by frontier and
+WANT messages.
 
-- Both phones scan and advertise the same GATT service.
-- They exchange the latest known sequence for each feed.
-- They send only missing log entries.
-- Large entries are split into small BLE frames.
-- Frames are sent one at a time through Android BLE callbacks.
-- New board actions are sent before old feed history.
-- Failed or stuck transfers retry or reconnect.
-- The receiver checks the signature first and can show the board action at once.
-- Database storage waits until the full feed chain is complete.
-- Duplicate entries are ignored.
-- Offline edits arrive after the phones reconnect.
+## Merge Model
 
-BLE is used while Tremola is open. No server or cloud is required for nearby
-whiteboard sync.
+The board is an operation log, not one shared file.
 
-## Conflict Handling
+- additions have unique event IDs
+- each author has an increasing sequence
+- duplicates are ignored
+- missing operations are requested again
+- transformations can arrive before their object
+- concurrent updates use Lamport order and event ID
+- all phones rebuild the same visible state
 
-The board is event based. It does not modify one shared file directly.
+No phone is always correct or always the master. The signed operations are
+merged with the same deterministic rules on every phone.
 
-- Events may arrive in a different order.
-- Duplicate events are ignored.
-- Move, resize, color, and delete events converge in any arrival order.
-- Each phone advances its logical timestamp past events it has seen.
-- Event ID breaks timestamp ties.
-- Clear affects the complete shared board.
+## Security
 
-This is a small CRDT-like operation log. It gives deterministic replay for the
-implemented actions, but it is not a general CRDT library.
+- Tremola feed IDs identify members.
+- The owner signs member admissions.
+- The board key authenticates the handshake.
+- Board content uses AES-256-GCM encryption.
+- Operations use Ed25519 signatures.
+- The board is limited to four admitted identities.
 
-## Android Integration
+The invite code is a secret and must be shared privately. BLE radio metadata is
+not encrypted.
 
-- The APK is based on Uni Basel Tremola.
-- HTML, CSS, and JavaScript are bundled as Android assets.
-- Android loads them through a local HTTPS WebView origin.
-- A JavaScript bridge writes mini-app actions to Tremola's signed log.
-- Native Kotlin code handles BLE.
-- Android 7.0 and newer are supported.
+## Compatibility
 
-The tinySSB Android Kanban app is useful prior work because it also combines an
-offline collaborative app with BLE. Our project keeps the Uni Basel Tremola host
-and uses the same general log-sync idea.
+- Android 7.0 and newer are supported by the APK.
+- Android 12+ uses the newer Bluetooth runtime permissions.
+- Older Android versions use location permission for BLE scanning.
+- The same APK should be installed on all test phones.
+- The mini-app runs inside Tremola's WebView; Kotlin handles native BLE.
 
 ## Test Evidence
 
-Automated checks cover:
+Automated tests cover:
 
-- Max's original shared event format
-- replay in different event orders
-- duplicate handling
-- drawing, text, move, resize, recolor, delete, and clear
-- editing an object created by another Tremola feed
-- arbitrary valid colors from the Android color picker
-- clock differences between phones
-- cleanup of the removed profile/owner experiment
-- BLE frame size, queues, event order, retry delay, and reconnect limits
-- Android unit tests, lint, APK build, signature, and bundled files
+- draw, text, move, resize, color, delete, and clear
+- different event orders and duplicate replay
+- edits made by another member
+- logical clocks and clock differences
+- finite-board coordinate scaling
+- queue limits, GATT retry, frontier, and missing ranges
+- encryption, signatures, compression, and tamper rejection on Android
+- database migration, lint, APK build, signature, and bundled assets
 
-The remaining final test is two physical Android phones using native BLE.
+The last required result is a documented test with two real phones and Wi-Fi
+and mobile data off.
 
 ## Limits
 
-- The committed APK is a debug build, not a Play Store release.
-- BLE still needs the final two-phone test.
-- BLE sync is intended for the foreground while Tremola is open.
-- Whiteboard events are public to nearby compatible Tremola peers.
-- Concurrent changes use deterministic last-write-wins, so only one change wins.
+- The provided APK is debug-signed.
+- BLE is designed for the app foreground.
+- A new member needs the owner for first admission.
+- Member slots are not revoked; create a new board to reset them.
+- The invite code does not hide BLE addresses or all handshake metadata.
 
-## Suggested Report Structure
+## Suggested Report Sections
 
 1. Motivation and requirements
-2. Tremola, SSB logs, and prior tinySSB Kanban work
+2. Tremola and tinySSB background
 3. Whiteboard data model
-4. Shared editing workflow
-5. Android WebView integration
-6. BLE frontier and frame protocol
-7. Conflict and offline behavior
+4. Invite and identity model
+5. BLE transport and recovery
+6. Merge and offline behavior
+7. Android integration
 8. Tests and results
 9. Limits and future work
 10. Conclusion
 
-## Useful Future Work
-
-- run and document the two-phone BLE test
-- add optional board invitations or private board encryption
-- add an optional history or undo feature
-- add a foreground service only if background BLE is required
-- prepare a release-signed APK for wider distribution
-
 ## Sources
 
 - [Uni Basel Tremola](https://github.com/cn-uofbasel/tremola)
-- [tinySSB Android app and Kanban](https://github.com/tinySSB/android-app)
-- [tinySSB MiniApp specification](https://github.com/tinySSB/mini-app-spec)
-- [tinySSB specification](https://github.com/tinySSB/tiny-ssb-spec)
+- [ssbc tinySSB](https://github.com/ssbc/tinyssb)
+- [tinySSB Android app](https://github.com/tinySSB/android-app)
 - [Android BLE permissions](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions)
 - [Android BLE overview](https://developer.android.com/develop/connectivity/bluetooth/ble/ble-overview)
 - [Android WebView local content](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content)

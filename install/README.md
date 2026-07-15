@@ -1,13 +1,13 @@
 # Install On Android
 
-Current test build: **0.4.12** (`versionCode 17`).
+Current test build: **0.5.0** (`versionCode 18`).
 
 Download and install:
 
 [`tremola-collaboration-board-debug.apk`](tremola-collaboration-board-debug.apk)
 
-The APK contains Tremola, Collaboration Board, and BLE sync. It needs Android
-7.0 or newer.
+This APK contains the full Tremola app, Collaboration Board, local storage, and
+native BLE sync. It needs Android 7.0 or newer.
 
 ## Direct Install
 
@@ -18,58 +18,79 @@ The APK contains Tremola, Collaboration Board, and BLE sync. It needs Android
 5. Allow Bluetooth and location access.
 6. Open **MiniApps > Collaboration Board**.
 
-Tremola creates its identity automatically. No server login is needed.
+Tremola creates a cryptographic identity automatically. There is no server
+account or central login.
 
-## Shared Board
+## Create A Board
 
-- Everyone can edit every object.
-- Use **Edit** to select, move, resize, recolor, or delete any object.
-- Use the Android color picker for drawing, text, or recoloring an object.
-- No board name or profile is needed.
+1. Enter your name.
+2. Tap **Create board**.
+3. Tap **Invite**.
+4. Send the copied code privately to the other members.
+5. Keep the owner's phone nearby while each new member joins for the first time.
+
+## Join A Board
+
+1. Enter your name.
+2. Paste the invite code.
+3. Tap **Join board**.
+4. Wait for **Looking nearby**, **1 nearby**, or **Syncing**.
+
+The board allows one owner and three other identities. After first admission,
+a member can reconnect through another admitted member. Closing the app keeps
+the board. **Leave** removes the local room setup, so keep the invite code if
+you may need it again.
 
 ## USB Install
 
-Enable USB debugging, connect the phone, and run this from the repo folder:
+Enable USB debugging, connect the phone, and run from the repo folder:
 
 ```bash
 ./scripts/android.sh devices
-./scripts/android.sh install
-```
-
-If more than one phone is connected:
-
-```bash
 ./scripts/android.sh install PHONE_SERIAL
 ```
 
-## Test BLE With Two Phones
+## Two-Phone BLE Test
 
-Use this APK on both phones. The separate tinySSB Kanban app is a reference and
-does not use the same BLE format.
+Use the same APK on both phones.
 
-1. Install the same APK on both phones.
-2. Enable Bluetooth on both phones.
-3. Keep Tremola open on both phones.
-4. Open Collaboration Board on both phones.
-5. Wait until the board shows a nearby peer.
-6. Draw on phone A and check phone B.
-7. Add text on phone B and check phone A.
-8. Move, resize, recolor, and delete phone A's object on phone B.
-9. Disconnect the phones, edit both, reconnect, and check recovery.
-10. Test **Clear all**. It removes the complete shared board.
+1. Turn off Wi-Fi and mobile data on both phones.
+2. Turn on Bluetooth. On Android 7-11, also turn on Location.
+3. Keep Tremola open and both screens unlocked.
+4. Create a new board on phone A.
+5. Join from phone B while phone A is nearby.
+6. Wait until each phone shows one nearby peer.
+7. Draw a long stroke on A and check B.
+8. Add text on B and check A.
+9. Move, resize, recolor, and delete the other member's object.
+10. Use **Clear all** and check both phones.
+11. Turn Bluetooth off on B. Edit on both phones. Turn Bluetooth on again.
+12. Wait for both boards to converge.
+13. Close and reopen Tremola. Confirm the board is still present.
 
-If no peer appears:
+Repeat with a third and fourth identity if available. A fifth identity must be
+rejected as **Board is full**.
 
-- Keep Tremola open and both screens unlocked.
-- On Android 7-11, also turn on the phone's Location setting.
-- Turn Bluetooth off and on once. If both phones show **advertising unsupported**,
-  use a phone pair with BLE advertising support.
+## Different Android Versions
 
-Show live BLE logs with:
+- Android 7-11: grant location and keep the Location setting on.
+- Android 12+: grant Nearby devices permissions.
+- Use the same APK version on every phone.
+- Some phones cannot advertise BLE. The app reports this. At least one phone in
+  a pair must advertise so the other phone can discover it.
+- App launch and protocol tests pass on Android 7, 15, and 16 emulators.
+- Real BLE still needs two physical phones.
+
+## Logs
+
+Connect a phone by USB and run:
 
 ```bash
 ./scripts/android.sh logs PHONE_SERIAL
 ```
+
+Useful successful log lines include `board op`, `attempt=`, `accepted`, and a
+queue that returns to zero.
 
 ## Install Problems
 
@@ -77,4 +98,12 @@ If Android reports an incompatible update, another Tremola APK was signed with
 a different key. Back up important Tremola data, uninstall the old build, and
 install this APK again.
 
-The expected SHA-256 hash is stored in `SHA256SUMS`.
+If no peer appears:
+
+- keep the app in the foreground
+- confirm all requested permissions
+- turn Bluetooth off and on once
+- move the phones close together
+- create a fresh board if four member slots were already used
+
+The expected APK hash is stored in `SHA256SUMS`.

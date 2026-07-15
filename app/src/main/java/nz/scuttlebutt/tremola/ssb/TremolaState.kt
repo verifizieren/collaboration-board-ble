@@ -5,6 +5,7 @@ import nz.scuttlebutt.tremola.MainActivity
 import nz.scuttlebutt.tremola.WebAppInterface
 import nz.scuttlebutt.tremola.ssb.core.IdStore
 import nz.scuttlebutt.tremola.ssb.db.TremolaDatabase
+import nz.scuttlebutt.tremola.ssb.db.daos.BoardOperationDAO
 import nz.scuttlebutt.tremola.ssb.db.daos.ContactDAO
 import nz.scuttlebutt.tremola.ssb.db.daos.LogEntryDAO
 import nz.scuttlebutt.tremola.ssb.db.daos.PubDAO
@@ -33,6 +34,7 @@ class TremolaState(val context: Context) {
     val logDAO: LogEntryDAO = db.logDAO()
     val pubDAO: PubDAO = db.pubDAO()
     val contactDAO: ContactDAO = db.contactDAO()
+    val boardOperationDAO: BoardOperationDAO = db.boardOperationDAO()
 
     // The identity, i.e. the crypto keys
     val idStore = IdStore(context)

@@ -11,8 +11,10 @@ const source = fs.readFileSync(
     "utf8"
 );
 
-function loadBoard() {
+function loadBoard(options) {
+    options = options || {};
     const writes = [];
+    const commands = [];
     const context = {
         console: { log: function () {} },
         document: { getElementById: function () { return null; } },
@@ -28,11 +30,16 @@ function loadBoard() {
         btoa: function (value) { return Buffer.from(value, "binary").toString("base64"); },
         atob: function (value) { return Buffer.from(value, "base64").toString("binary"); }
     };
+    if (options.android) {
+        context.Android = {};
+        context.backend = function (command) { commands.push(command); };
+    }
     context.window = context;
     context.window.top = context;
     vm.createContext(context);
     vm.runInContext(source, context, { filename: "collabboard.js" });
     context.writes = writes;
+    context.commands = commands;
     return context;
 }
 
@@ -395,8 +402,8 @@ assert.deepStrictEqual(
     ["#dc2626", "#0891b2"]
 );
 
-// Panning changes only the camera. Drawing and editing still use shared world
-// coordinates, so another device replays the exact same object and transform.
+// Empty-space drags do not move the finite board. Drawing and editing use the
+// same fixed coordinates on every device.
 const worldSender = loadBoard();
 const worldReceiver = loadBoard();
 const worldUi = pointerHarness(worldSender, "#2563eb");
@@ -404,7 +411,7 @@ worldSender.cb_set_tool("select");
 worldSender.cb_down(pointerEvent(worldUi.canvas, 51, 100, 100));
 worldSender.cb_move(pointerEvent(worldUi.canvas, 51, 70, 80));
 worldSender.cb_up(pointerEvent(worldUi.canvas, 51, 70, 80));
-assert.deepStrictEqual(JSON.parse(JSON.stringify(worldSender.cb_cam)), { x: 30, y: 20 });
+assert.deepStrictEqual(JSON.parse(JSON.stringify(worldSender.cb_cam)), { x: 0, y: 0 });
 assert.strictEqual(worldSender.writes.length, 0);
 
 worldSender.cb_set_tool("pen");
@@ -412,7 +419,7 @@ worldSender.cb_down(pointerEvent(worldUi.canvas, 52, 10, 20));
 worldSender.cb_move(pointerEvent(worldUi.canvas, 52, 30, 40));
 worldSender.cb_up(pointerEvent(worldUi.canvas, 52, 30, 40));
 assert.deepStrictEqual(JSON.parse(JSON.stringify(worldSender.writes[0].p)), [
-    [40, 40], [60, 60]
+    [10, 20], [30, 40]
 ]);
 apply(worldReceiver, worldSender.writes[0], "@alice.ed25519");
 
@@ -428,14 +435,11 @@ assert.deepStrictEqual(
 apply(worldReceiver, worldSender.writes[1], "@alice.ed25519");
 assert.deepStrictEqual(snapshot(worldReceiver)[0].transform, { dx: 30, dy: 25, sc: 1 });
 
-// Camera bounds reject garbage coordinates at either edge of the world plane.
+// The removed camera remains fixed even when old state contains bad values.
 worldSender.cb_cam.x = 99999999;
 worldSender.cb_cam.y = -99999999;
 worldSender.cb_clamp_camera(worldUi.canvas);
-assert.deepStrictEqual(JSON.parse(JSON.stringify(worldSender.cb_cam)), {
-    x: worldSender.CB_COORD_LIMIT - worldUi.canvas.width,
-    y: -worldSender.CB_COORD_LIMIT
-});
+assert.deepStrictEqual(JSON.parse(JSON.stringify(worldSender.cb_cam)), { x: 0, y: 0 });
 
 // If pointer capture is unavailable/lost, leaving the canvas still completes a
 // valid stroke; secondary touches never start a second simultaneous stroke.
@@ -520,6 +524,24 @@ const tieForward = replay([stroke, tieMoveA, tieMoveZ]);
 const tieReverse = replay([tieMoveZ, tieMoveA, stroke]);
 assert.deepStrictEqual(snapshot(tieForward), snapshot(tieReverse));
 assert.deepStrictEqual(snapshot(tieForward)[0].transform, { dx: 25, dy: 15, sc: 1.2 });
+
+// Lamport order wins even when phone wall clocks disagree. Arrival order does
+// not change the result, and a later local event advances past remote order.
+const skewedObject = {
+    k: "s", id: "skew-object", ts: 900000, l: 10, c: "#2563eb", w: 2,
+    p: [[10, 10], [20, 20]]
+};
+const skewedClear = { k: "c", id: "skew-clear", ts: 1, l: 11 };
+assert.deepStrictEqual(snapshot(replay([skewedObject, skewedClear])), []);
+assert.deepStrictEqual(snapshot(replay([skewedClear, skewedObject])), []);
+
+const lamportSender = loadBoard();
+apply(lamportSender, {
+    k: "s", id: "remote-order", ts: 2, l: 75, c: "#2563eb", w: 2,
+    p: [[1, 1], [2, 2]]
+}, "@alice.ed25519");
+lamportSender.cb_clear();
+assert.strictEqual(lamportSender.writes[0].l, 76);
 
 // Persisted board state produces the same result after a WebView/app restart.
 const beforeRestart = replay([stroke, olderMove, recolor, text]);
@@ -662,12 +684,32 @@ fitBoard.cb_redraw = function () { fitRedraws += 1; };
 fitBoard.cb_fit_canvas();
 assert.deepStrictEqual(
     { width: fitCanvas.width, height: fitCanvas.height },
-    { width: 790, height: 103 }
+    { width: 900, height: 1200 }
 );
-assert.strictEqual(fitCanvas.style.width, "790px");
+assert.strictEqual(fitCanvas.style.width, "77px");
 assert.strictEqual(fitCanvas.style.height, "103px");
-assert.ok(182 + fitCanvas.height <= 293 - 8);
+assert.ok(182 + parseInt(fitCanvas.style.height, 10) <= 293 - 8);
 assert.strictEqual(fitRedraws, 1);
+
+// Two differently sized phones map the same relative touch to the same shared
+// finite-board coordinate.
+const scaleBoard = loadBoard();
+const smallCanvas = {
+    width: 900, height: 1200,
+    getBoundingClientRect: function () { return { left: 0, top: 0, width: 300, height: 400 }; }
+};
+const largeCanvas = {
+    width: 900, height: 1200,
+    getBoundingClientRect: function () { return { left: 0, top: 0, width: 450, height: 600 }; }
+};
+assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(scaleBoard.cb_screen_pos(smallCanvas, { clientX: 150, clientY: 200 }))),
+    [450, 600]
+);
+assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(scaleBoard.cb_screen_pos(largeCanvas, { clientX: 225, clientY: 300 }))),
+    [450, 600]
+);
 
 // State growth is bounded for long-running boards and repeated BLE replay.
 const boundedBoard = loadBoard();
@@ -692,7 +734,7 @@ assert.strictEqual(boundedState.seen.length, boundedBoard.CB_MAX_SEEN);
 assert.strictEqual(boundedState.objects[0].id, "object-5");
 assert.strictEqual(boundedState.seen[0], "seen-5");
 
-// The shared board keeps Max's original event format and behavior.
+// Every local operation receives board, author-name, and Lamport metadata.
 const compatibility = loadBoard();
 compatibility.cb_write_board_event({
     k: "s", id: "max-open-1", ts: 10, c: "#2563eb", w: 2,
@@ -700,8 +742,58 @@ compatibility.cb_write_board_event({
 }, false);
 assert.deepStrictEqual(compatibility.writes[0], {
     k: "s", id: "max-open-1", ts: 10, c: "#2563eb", w: 2,
-    p: [[1, 1], [3, 3]]
+    p: [[1, 1], [3, 3]], r: "browser-preview", u: "Preview", l: 1
 });
+
+// Android sends the same compact event through the native board bridge.
+const androidBoard = loadBoard({ android: true });
+androidBoard.tremola.collabboardRoom = {
+    v: 1, r: "android-room", k: "room-key", o: "@owner.ed25519", u: "Dehlen"
+};
+androidBoard.cb_native_config_pending = false;
+androidBoard.cb_write_board_event({
+    k: "t", id: "android-text", ts: 20, c: "#2563eb", x: 10, y: 20, s: "SGk="
+}, true);
+assert.strictEqual(androidBoard.commands.length, 1);
+assert.strictEqual(androidBoard.commands[0].startsWith("collabboard:write "), true);
+const androidPayload = JSON.parse(Buffer.from(
+    androidBoard.commands[0].slice("collabboard:write ".length), "base64"
+).toString("utf8"));
+assert.strictEqual(androidPayload.r, "android-room");
+assert.strictEqual(androidPayload.u, "Dehlen");
+assert.strictEqual(androidPayload.l, 1);
+assert.strictEqual(snapshot(androidBoard).length, 1);
+
+// Android uses the native clipboard so invite copy also works on old WebViews.
+const inviteBoard = loadBoard({ android: true });
+inviteBoard.tremola.collabboardRoom = {
+    v: 1, r: "invite-room", k: "invite-room-key", o: "@owner.ed25519", u: "Alice"
+};
+let copiedInvite = "";
+inviteBoard.Android.copyCollaborationBoardInvite = function (encoded) {
+    copiedInvite = Buffer.from(encoded, "base64").toString("utf8");
+    return true;
+};
+inviteBoard.cb_copy_invite();
+assert.strictEqual(copiedInvite, inviteBoard.cb_invite_code());
+
+const waitingBoard = loadBoard({ android: true });
+waitingBoard.tremola.collabboardRoom = {
+    v: 1, r: "waiting-room", k: "room-key", o: "@owner.ed25519", u: "Guest"
+};
+waitingBoard.cb_native_config_pending = false;
+waitingBoard.Android.writeCollaborationBoardEvent = function () { return false; };
+waitingBoard.cb_write_board_event({
+    k: "c", id: "blocked-clear", ts: 21
+}, true);
+assert.strictEqual(waitingBoard.commands.length, 0);
+assert.strictEqual(waitingBoard.cb_state().seen.length, 0);
+
+// Operations from another room are ignored before they can pollute state.
+const isolatedBoard = loadBoard();
+apply(isolatedBoard, Object.assign({}, stroke, { id: "wrong-room", r: "another-room" }),
+    "@alice.ed25519");
+assert.strictEqual(isolatedBoard.cb_state().seen.length, 0);
 
 const alice = "@alice.ed25519";
 const bob = "@bob.ed25519";
@@ -774,6 +866,24 @@ assert.strictEqual(pickerBoard.writes[0].k, "k");
 assert.strictEqual(pickerBoard.writes[0].c, "#12abef");
 assert.strictEqual(snapshot(pickerBoard)[0].color, "#12abef");
 
+// Selecting an object reveals the authenticated board username and feed id.
+const authorBoard = loadBoard();
+const authorInfo = { hidden: true, textContent: "", title: "" };
+const authorDelete = { disabled: true };
+authorBoard.document.getElementById = function (id) {
+    if (id === "cb_selection_info") return authorInfo;
+    if (id === "cb_delete_btn") return authorDelete;
+    return null;
+};
+authorBoard.cb_apply(stroke, { fid: alice, tst: stroke.ts, username: "Alice" });
+authorBoard.cb_sel = stroke.id;
+authorBoard.cb_tool = "select";
+authorBoard.cb_update_selection_controls();
+assert.strictEqual(authorInfo.hidden, false);
+assert.strictEqual(authorInfo.textContent, "By Alice");
+assert.strictEqual(authorInfo.title, alice);
+assert.strictEqual(authorDelete.disabled, false);
+
 // Events from the removed owner/profile experiment no longer enter the board.
 const legacy = loadBoard();
 apply(legacy, {
@@ -807,7 +917,7 @@ migration.tremola.collabboard = {
     mode: "owned"
 };
 const migrated = migration.cb_state();
-assert.strictEqual(migrated.schema, 3);
+assert.strictEqual(migrated.schema, 4);
 assert.deepStrictEqual(migrated.objects.map(function (item) { return item.id; }), [stroke.id]);
 assert.deepStrictEqual(migrated.clears, []);
 assert.deepStrictEqual(migrated.mods, []);
@@ -824,6 +934,9 @@ assert.strictEqual(boardMarkup.includes("cb_profile"), false);
 assert.strictEqual(boardMarkup.includes("type='color'"), true);
 assert.strictEqual(boardMarkup.includes("cb_tool_select"), true);
 assert.strictEqual(boardMarkup.includes("cb_delete_btn"), true);
+assert.strictEqual(boardMarkup.includes("cb_room_setup"), true);
+assert.strictEqual(boardMarkup.includes("cb_selection_info"), true);
+assert.strictEqual(boardMarkup.includes("width='900' height='1200'"), true);
 
 [
     "manifest.json",

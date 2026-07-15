@@ -35,6 +35,7 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
         //handle the data captured from webview}
         Log.d("FrontendRequest", s)
         if (handleBleRequest(s)) return
+        if (handleCollaborationBoardRequest(s)) return
         if (handleCustomAppRequest(s)) return
         val args = s.split(" ")
         when (args[0]) {
@@ -230,6 +231,56 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
         return false
     }
 
+    private fun handleCollaborationBoardRequest(s: String): Boolean {
+        if (!s.startsWith("collabboard:")) return false
+        when {
+            s.startsWith("collabboard:configure ") -> {
+                val encoded = s.substringAfter("collabboard:configure ")
+                val config = decodeFrontendBase64(encoded)
+                val accepted = config != null && tremolaState.bleSync?.configureBoard(config) == true
+                eval("if (typeof cb_board_configured === 'function') cb_board_configured($accepted);")
+            }
+            s.startsWith("collabboard:write ") -> {
+                val encoded = s.substringAfter("collabboard:write ")
+                val payload = decodeFrontendBase64(encoded)
+                val accepted = payload != null && tremolaState.bleSync?.writeBoardEvent(payload) == true
+                if (!accepted) {
+                    eval("if (typeof cb_board_write_failed === 'function') cb_board_write_failed();")
+                }
+            }
+            s == "collabboard:read" -> tremolaState.bleSync?.replayBoardOperations()
+            s == "collabboard:leave" -> tremolaState.bleSync?.leaveBoard()
+            else -> Log.d("CollaborationBoard", "unknown $s")
+        }
+        return true
+    }
+
+    @JavascriptInterface
+    fun writeCollaborationBoardEvent(encoded: String): Boolean {
+        val payload = decodeFrontendBase64(encoded) ?: return false
+        return tremolaState.bleSync?.writeBoardEvent(payload) == true
+    }
+
+    @JavascriptInterface
+    fun copyCollaborationBoardInvite(encoded: String): Boolean {
+        val invite = decodeFrontendBase64(encoded) ?: return false
+        if (invite.isBlank() || invite.length > 2048) return false
+        act.runOnUiThread {
+            val clipboard = act.getSystemService(ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(ClipData.newPlainText("Collaboration Board invite", invite))
+            Toast.makeText(act, "Invite copied", Toast.LENGTH_SHORT).show()
+        }
+        return true
+    }
+
+    private fun decodeFrontendBase64(value: String): String? {
+        return try {
+            Base64.decode(value, Base64.NO_WRAP).decodeToString()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun isCustomAppEntry(publicContent: String?, appId: String): Boolean {
         if (publicContent == null) return false
         try {
@@ -299,6 +350,7 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
     }
 
     fun sendEventToFrontend(evnt: LogEntry) {
+        if (tremolaState.bleSync?.consumeBoardLogEntryForFrontend(evnt) == true) return
         // Log.d("MSG added", evnt.ref.toString())
         var hdr = JSONObject()
         hdr.put("ref", evnt.hid)

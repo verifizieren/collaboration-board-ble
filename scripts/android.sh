@@ -44,7 +44,10 @@ pick_device() {
 grant_ble_permissions() {
   local serial="$1" sdk permission
   sdk="$("$ADB" -s "$serial" shell getprop ro.build.version.sdk | tr -d '\r')"
-  for permission in android.permission.ACCESS_FINE_LOCATION; do
+  for permission in \
+    android.permission.ACCESS_COARSE_LOCATION \
+    android.permission.ACCESS_FINE_LOCATION
+  do
     "$ADB" -s "$serial" shell pm grant "$PACKAGE" "$permission" >/dev/null 2>&1 || true
   done
   if [ "$sdk" -ge 31 ] 2>/dev/null; then

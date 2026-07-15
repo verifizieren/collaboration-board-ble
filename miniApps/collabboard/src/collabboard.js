@@ -1,6 +1,6 @@
 /* collabboard.js
  *
- * Collaboration Board miniApp for Tremola and tremola4chrome.
+ * Collaboration Board miniApp for Tremola.
  *
  * A shared canvas. Pen strokes and text labels are written to the append-only
  * log via writeLogEntry() and replayed on every peer via the
@@ -17,9 +17,8 @@
  *   recolor:{ k:'k', id, t:<targetId>, c:<color> } — last write wins
  *   delete: { k:'d', id, t:<targetId> } — removes one object
  *
- * Max's stroke, text, move, color, and clear formats stay unchanged; delete is
- * one small extension. Every peer may edit every object. Retired profile/owner
- * events from experimental builds are ignored.
+ * Every peer may edit every object. Retired profile/owner events from
+ * experimental builds are ignored.
  *
  * The virtual backend delivers an author's own write twice, so every event
  * carries a unique id and we drop ids we have already applied (cb_state.seen).
@@ -54,19 +53,19 @@ cb_root.miniApps["collabboard"] = {
 
 console.log("Collaboration Board loaded");
 
-// 'select' is the default mode: drag empty space to pan the camera, tap an
-// object to select it, drag it to move, drag the corner handle to resize.
+// 'select' is the default mode: tap an object to select it, drag it to move,
+// and drag the corner handle to resize.
 // Pen and Text stay active until their button is tapped again. This makes
 // repeated drawing and text placement predictable on a phone.
 var cb_tool = 'select';
 var cb_draft = null;
-// Camera: world coordinate shown at the canvas top-left. Objects live in an
-// unbounded world plane; panning just moves the camera.
+// Kept for old saved/test state. The finite board always fixes it at zero.
 var cb_cam = { x: 0, y: 0 };
 var cb_drag = null;
 var cb_sel = null; // id of the selected object (select tool)
 var cb_pointer_id = null;
 var cb_state_migrated = false;
+var cb_members = Object.create(null);
 var CB_MAX_MODS = 2000;
 var CB_SEL_PAD = 6;
 var CB_HANDLE = 12; // visible side length of the resize handle square
@@ -83,18 +82,250 @@ var CB_MAX_OBJECTS = 1500;
 var CB_MAX_CLEARS = 8;
 var CB_MAX_DELETES = 2000;
 var CB_MAX_SEEN = 4000;
-var CB_STATE_VERSION = 3;
-// generous bound for the "infinite" world plane; only guards against garbage
-var CB_COORD_LIMIT = 1000000;
+var CB_STATE_VERSION = 4;
+var CB_BOARD_WIDTH = 900;
+var CB_BOARD_HEIGHT = 1200;
+var CB_COORD_LIMIT = 2400;
+var CB_MAX_MEMBERS = 4;
+var cb_native_config_pending = false;
+
+function cb_is_android() {
+    return typeof Android !== 'undefined' && typeof backend === 'function';
+}
+
+function cb_current_room() {
+    if (tremola && tremola.collabboardRoom && tremola.collabboardRoom.r) {
+        return tremola.collabboardRoom;
+    }
+    if (!cb_is_android()) {
+        return {
+            v: 1,
+            r: 'browser-preview',
+            k: '',
+            o: typeof myId === 'string' ? myId : '@browser.ed25519',
+            u: 'Preview'
+        };
+    }
+    return null;
+}
+
+function cb_current_room_id() {
+    var room = cb_current_room();
+    return room ? room.r : null;
+}
+
+function cb_utf8_b64(value) {
+    return btoa(unescape(encodeURIComponent(value)));
+}
+
+function cb_b64_utf8(value) {
+    return decodeURIComponent(escape(atob(value)));
+}
+
+function cb_url_b64(value) {
+    return cb_utf8_b64(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function cb_url_unb64(value) {
+    var base64 = String(value || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) base64 += '=';
+    return cb_b64_utf8(base64);
+}
+
+function cb_random_token(byteCount) {
+    var bytes = new Uint8Array(byteCount);
+    if (window.crypto && window.crypto.getRandomValues) {
+        window.crypto.getRandomValues(bytes);
+    } else {
+        for (var i = 0; i < byteCount; i++) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    var binary = '';
+    for (var j = 0; j < bytes.length; j++) binary += String.fromCharCode(bytes[j]);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function cb_clean_username(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').slice(0, 24);
+}
+
+function cb_invite_code() {
+    var room = cb_current_room();
+    if (!room || !room.k) return '';
+    return cb_url_b64(JSON.stringify({ v: 1, r: room.r, k: room.k, o: room.o }));
+}
+
+function cb_set_setup_error(message) {
+    var el = document.getElementById('cb_setup_error');
+    if (el) el.textContent = message || '';
+}
+
+function cb_show_setup(show) {
+    var setup = document.getElementById('cb_room_setup');
+    var workspace = document.getElementById('cb_workspace');
+    if (setup) setup.style.display = show ? null : 'none';
+    if (workspace) workspace.style.display = show ? 'none' : null;
+}
+
+function cb_create_board() {
+    var usernameInput = document.getElementById('cb_username');
+    var username = cb_clean_username(usernameInput && usernameInput.value);
+    if (!username) {
+        cb_set_setup_error('Enter a name');
+        if (usernameInput) usernameInput.focus();
+        return;
+    }
+    cb_activate_room({
+        v: 1,
+        r: cb_random_token(12),
+        k: cb_random_token(32),
+        o: typeof myId === 'string' ? myId : '@local.ed25519',
+        u: username
+    });
+}
+
+function cb_join_board() {
+    var usernameInput = document.getElementById('cb_username');
+    var inviteInput = document.getElementById('cb_invite_input');
+    var username = cb_clean_username(usernameInput && usernameInput.value);
+    if (!username) {
+        cb_set_setup_error('Enter a name');
+        return;
+    }
+    try {
+        var invite = JSON.parse(cb_url_unb64(inviteInput && inviteInput.value));
+        if (invite.v !== 1 || typeof invite.r !== 'string' || invite.r.length < 8 ||
+            typeof invite.k !== 'string' || invite.k.length < 32 ||
+            typeof invite.o !== 'string') throw new Error('bad invite');
+        cb_activate_room({ v: 1, r: invite.r, k: invite.k, o: invite.o, u: username });
+    } catch (e) {
+        cb_set_setup_error('Invite code is not valid');
+    }
+}
+
+function cb_activate_room(room) {
+    tremola.collabboardRoom = room;
+    tremola.collabboard = {
+        roomId: room.r,
+        objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
+        schema: CB_STATE_VERSION
+    };
+    persist();
+    cb_native_config_pending = cb_is_android();
+    cb_set_setup_error(cb_native_config_pending ? 'Opening board...' : '');
+    cb_show_setup(cb_native_config_pending);
+    if (cb_is_android()) {
+        backend('collabboard:configure ' + cb_utf8_b64(JSON.stringify(room)));
+    } else {
+        cb_board_configured(true);
+    }
+    cb_update_room_bar();
+    cb_fit_canvas();
+    cb_redraw();
+}
+
+function cb_board_configured(accepted) {
+    cb_native_config_pending = false;
+    if (!accepted) {
+        cb_show_setup(true);
+        cb_set_setup_error('Could not open this board');
+        return;
+    }
+    cb_set_setup_error('');
+    cb_show_setup(false);
+    if (cb_is_android()) backend('collabboard:read');
+}
+
+function cb_board_write_failed() {
+    cb_ble_status('Board write failed', 0, 0);
+}
+
+function cb_copy_invite() {
+    var code = cb_invite_code();
+    if (!code) return;
+    var finish = function () { cb_ble_status('Invite copied', 0, 0); };
+    if (cb_is_android() && typeof Android.copyCollaborationBoardInvite === 'function') {
+        if (Android.copyCollaborationBoardInvite(cb_utf8_b64(code))) finish();
+        return;
+    }
+    var fallback = function () {
+        var input = document.getElementById('cb_invite_copy');
+        if (!input) return;
+        input.value = code;
+        input.style.display = 'block';
+        input.select();
+        try { document.execCommand('copy'); finish(); } catch (e) {}
+        input.style.display = 'none';
+    };
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(finish, fallback);
+        return;
+    }
+    fallback();
+}
+
+function cb_leave_board() {
+    if (cb_is_android()) backend('collabboard:leave');
+    delete tremola.collabboardRoom;
+    delete tremola.collabboard;
+    cb_members = Object.create(null);
+    persist();
+    cb_show_setup(true);
+    cb_set_setup_error('');
+}
+
+function cb_update_room_bar() {
+    var room = cb_current_room();
+    var label = document.getElementById('cb_room_label');
+    if (label) label.textContent = room ? room.u : '';
+}
+
+function cb_room_status(count, maximum, members) {
+    var label = document.getElementById('cb_member_count');
+    if (label) label.textContent = Math.min(Number(count) || 1, maximum || CB_MAX_MEMBERS) + '/' +
+        (maximum || CB_MAX_MEMBERS);
+    if (Array.isArray(members)) {
+        cb_members = Object.create(null);
+        members.forEach(function (member) {
+            if (!member || typeof member.f !== 'string') return;
+            var name = cb_clean_username(member.u);
+            if (name) cb_members[member.f] = name;
+        });
+        var room = cb_current_room();
+        if (room && typeof myId === 'string' && cb_members[myId] &&
+            room.u !== cb_members[myId]) {
+            room.u = cb_members[myId];
+            persist();
+            cb_update_room_bar();
+        }
+        cb_update_selection_controls();
+    }
+}
+
+function cb_receive_board_operation(payload, feedId, username) {
+    var room = cb_current_room();
+    if (!room) return;
+    cb_apply(payload, { fid: feedId, tst: Date.now(), username: username });
+}
 
 // --- persisted state -------------------------------------------------------
 
 function cb_state() {
+    var roomId = cb_current_room_id() || 'closed';
     if (typeof tremola.collabboard == "undefined") {
         tremola.collabboard = {
-            objects: [], clears: [], deletes: [], seen: [], mods: [], schema: CB_STATE_VERSION
+            roomId: roomId,
+            objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
+            schema: CB_STATE_VERSION
         };
     }
+    if (tremola.collabboard.roomId && tremola.collabboard.roomId !== roomId) {
+        tremola.collabboard = {
+            roomId: roomId,
+            objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
+            schema: CB_STATE_VERSION
+        };
+    }
+    if (!tremola.collabboard.roomId) tremola.collabboard.roomId = roomId;
     if (!Array.isArray(tremola.collabboard.objects)) tremola.collabboard.objects = [];
     if (!Array.isArray(tremola.collabboard.clears)) tremola.collabboard.clears = [];
     if (!Array.isArray(tremola.collabboard.deletes)) tremola.collabboard.deletes = [];
@@ -103,6 +334,10 @@ function cb_state() {
     if (typeof tremola.collabboard.clock !== 'number' ||
         !isFinite(tremola.collabboard.clock) || tremola.collabboard.clock < 0) {
         tremola.collabboard.clock = 0;
+    }
+    if (typeof tremola.collabboard.order !== 'number' ||
+        !isFinite(tremola.collabboard.order) || tremola.collabboard.order < 0) {
+        tremola.collabboard.order = 0;
     }
     if (tremola.collabboard.schema !== CB_STATE_VERSION) {
         tremola.collabboard.objects = tremola.collabboard.objects.filter(cb_is_shared_state_event);
@@ -139,12 +374,20 @@ function cb_open() {
     c.innerHTML = "<font size=+1><strong>Collaboration Board</strong></font>";
 
     cb_bind_canvas();
+    var room = cb_current_room();
+    if (cb_is_android() && !room) {
+        cb_show_setup(true);
+        cb_ble_status('Board setup', 0, 0);
+        return;
+    }
+    cb_show_setup(false);
     cb_state();
     if (cb_state_migrated) {
         cb_state_migrated = false;
         persist();
     }
     cb_set_tool('select');
+    cb_update_room_bar();
     cb_fit_canvas();
     if (typeof Android === 'undefined') {
         cb_ble_status('Browser preview', 0, 0);
@@ -154,7 +397,10 @@ function cb_open() {
         cb_ble_status('BLE starting', 0, 0);
     }
     cb_redraw();
-    if (!cb_history_requested && typeof readLogEntries === "function") {
+    if (cb_is_android()) {
+        cb_native_config_pending = true;
+        backend('collabboard:configure ' + cb_utf8_b64(JSON.stringify(room)));
+    } else if (!cb_history_requested && typeof readLogEntries === "function") {
         cb_history_requested = true;
         readLogEntries(CB_HISTORY_LIMIT);
     }
@@ -254,6 +500,24 @@ function cb_delete_selected() {
 function cb_update_selection_controls() {
     var button = document.getElementById('cb_delete_btn');
     if (button) button.disabled = !cb_sel || cb_tool !== 'select';
+    var info = document.getElementById('cb_selection_info');
+    if (!info) return;
+    var selected = null;
+    if (cb_sel && cb_tool === 'select') {
+        cb_visible_objects(cb_state()).forEach(function (object) {
+            if (object.id === cb_sel) selected = object;
+        });
+    }
+    if (!selected) {
+        info.hidden = true;
+        info.textContent = '';
+        info.title = '';
+        return;
+    }
+    var name = selected._name || cb_members[selected._fid] || cb_short_author(selected._fid);
+    info.textContent = 'By ' + name;
+    info.title = selected._fid || '';
+    info.hidden = false;
 }
 
 // --- pointer input ---------------------------------------------------------
@@ -297,14 +561,14 @@ function cb_fit_canvas() {
     var maxHeight = bottom - top - 8;
     var maxWidth = main.clientWidth - 10;
     if (maxHeight <= 0 || maxWidth <= 0) return;
-    // Never grow past Tremola's available content area. This also keeps the
-    // board usable in a short split-screen/WebView or while the keyboard is up.
-    var canvasWidth = Math.max(1, Math.floor(maxWidth));
-    var canvasHeight = Math.max(1, Math.floor(maxHeight));
-    var changed = cv.width !== canvasWidth || cv.height !== canvasHeight;
+    var scale = Math.min(maxWidth / CB_BOARD_WIDTH, maxHeight / CB_BOARD_HEIGHT);
+    scale = Math.max(0.05, scale);
+    var canvasWidth = Math.max(1, Math.floor(CB_BOARD_WIDTH * scale));
+    var canvasHeight = Math.max(1, Math.floor(CB_BOARD_HEIGHT * scale));
+    var changed = cv.width !== CB_BOARD_WIDTH || cv.height !== CB_BOARD_HEIGHT;
     if (changed) {
-        cv.width = canvasWidth;
-        cv.height = canvasHeight;
+        cv.width = CB_BOARD_WIDTH;
+        cv.height = CB_BOARD_HEIGHT;
     }
     cv.style.width = canvasWidth + 'px';
     cv.style.height = canvasHeight + 'px';
@@ -320,10 +584,13 @@ function cb_screen_pos(cv, e) {
     return [Math.round((e.clientX - r.left) * sx), Math.round((e.clientY - r.top) * sy)];
 }
 
-// position in world coordinates
+// position in the shared finite board coordinates
 function cb_pos(cv, e) {
     var p = cb_screen_pos(cv, e);
-    return [p[0] + cb_cam.x, p[1] + cb_cam.y];
+    return [
+        Math.max(0, Math.min(CB_BOARD_WIDTH, p[0])),
+        Math.max(0, Math.min(CB_BOARD_HEIGHT, p[1]))
+    ];
 }
 
 function cb_down(e) {
@@ -360,11 +627,11 @@ function cb_down(e) {
                         xf: { dx: xf.dx, dy: xf.dy, sc: xf.sc } };
         } else {
             cb_sel = null;
-            cb_drag = { mode: 'pan', last: cb_screen_pos(cv, e) };
-            cv.style.cursor = 'grabbing';
+            cb_drag = null;
+            cb_pointer_id = null;
         }
         cb_update_selection_controls();
-        if (cv.setPointerCapture) cv.setPointerCapture(e.pointerId);
+        if (cb_drag && cv.setPointerCapture) cv.setPointerCapture(e.pointerId);
         cb_redraw();
         setTimeout(cb_fit_canvas, 0);
         return;
@@ -377,21 +644,13 @@ function cb_move(e) {
     if (e.isPrimary === false || cb_pointer_id === null || e.pointerId !== cb_pointer_id) return;
     if (e.preventDefault) e.preventDefault();
     var cv = e.currentTarget;
-    if (cb_drag && cb_drag.mode === 'pan') {
-        var s = cb_screen_pos(cv, e);
-        cb_cam.x -= s[0] - cb_drag.last[0];
-        cb_cam.y -= s[1] - cb_drag.last[1];
-        cb_clamp_camera(cv);
-        cb_drag.last = s;
-        cb_redraw();
-        return;
-    }
     if (cb_drag && cb_drag.mode === 'move') {
         var q = cb_pos(cv, e);
         var mdx = q[0] - cb_drag.start[0];
         var mdy = q[1] - cb_drag.start[1];
         cb_drag.xf.dx = cb_drag.base.dx + mdx;
         cb_drag.xf.dy = cb_drag.base.dy + mdy;
+        cb_clamp_drag_transform();
         if (mdx * mdx + mdy * mdy >= CB_DRAG_THRESHOLD * CB_DRAG_THRESHOLD) {
             cb_drag.moved = true;
         }
@@ -405,6 +664,7 @@ function cb_move(e) {
         var d1 = Math.hypot(q2[0] - a[0], q2[1] - a[1]);
         if (d0 > 1) {
             cb_drag.xf.sc = Math.min(20, Math.max(0.05, cb_drag.base.sc * d1 / d0));
+            cb_clamp_drag_transform();
             if (Math.abs(d1 - d0) >= CB_DRAG_THRESHOLD) cb_drag.moved = true;
             cb_redraw();
         }
@@ -417,7 +677,6 @@ function cb_move(e) {
     // live feedback: draw only the newest segment
     var ctx = cv.getContext('2d');
     ctx.save();
-    ctx.translate(-cb_cam.x, -cb_cam.y);
     cb_draw_stroke(ctx, { c: cb_draft.c, w: cb_draft.w, p: cb_draft.p.slice(-2) });
     ctx.restore();
 }
@@ -512,14 +771,36 @@ function cb_place_text(p) {
 // --- apply incoming events -------------------------------------------------
 
 function cb_write_board_event(event, applyLocal) {
-    writeLogEntry(JSON.stringify(event));
+    var roomId = cb_current_room_id();
+    if (!roomId || cb_native_config_pending) return;
+    var room = cb_current_room();
+    event.r = roomId;
+    if (room && room.u) event.u = cb_clean_username(room.u);
+    if (typeof event.l !== 'number' || !isFinite(event.l) || event.l <= 0) {
+        event.l = cb_next_order();
+    }
+    if (cb_is_android()) {
+        var encoded = cb_utf8_b64(JSON.stringify(event));
+        if (typeof Android.writeCollaborationBoardEvent === 'function') {
+            if (!Android.writeCollaborationBoardEvent(encoded)) {
+                cb_board_write_failed();
+                return;
+            }
+        } else {
+            backend('collabboard:write ' + encoded);
+        }
+    } else {
+        writeLogEntry(JSON.stringify(event));
+    }
     if (applyLocal) cb_apply(event, cb_local_header(event.ts));
 }
 
 function cb_local_header(ts) {
+    var room = cb_current_room();
     return {
         fid: typeof myId === 'string' ? myId : '@local.ed25519',
-        tst: typeof ts === 'number' ? ts : Date.now()
+        tst: typeof ts === 'number' ? ts : Date.now(),
+        username: room ? room.u : ''
     };
 }
 
@@ -532,12 +813,20 @@ function cb_normalize_event(raw, header) {
 
     var event = {};
     Object.keys(obj).forEach(function (key) {
-        if (key !== '_fid' && key !== '_board') event[key] = obj[key];
+        if (key !== '_fid' && key !== '_board' && key !== '_name') event[key] = obj[key];
     });
+    var roomId = cb_current_room_id();
+    if (!event.r && roomId) event.r = roomId;
+    if (roomId && event.r !== roomId) return null;
     var fid = header && typeof header.fid === 'string' ? header.fid : null;
     if (event.k === 'o' || event.k === 'p') return null;
     event._board = 'open';
     if (fid) event._fid = fid;
+    var trustedName = header && typeof header.username === 'string' ?
+        cb_clean_username(header.username) : '';
+    var payloadName = cb_clean_username(event.u);
+    var name = trustedName || payloadName || (fid && cb_members[fid]) || '';
+    if (name) event._name = name;
     return event;
 }
 
@@ -546,6 +835,7 @@ function cb_apply(raw, header) {
     if (!cb_is_valid_event(obj)) return;
     var st = cb_state();
     st.clock = Math.max(st.clock, cb_event_ts(obj));
+    st.order = Math.max(st.order, cb_event_order(obj));
     if (st.seen.indexOf(obj.id) >= 0) return; // already applied (incl. self-echo)
     st.seen.push(obj.id);
 
@@ -576,7 +866,6 @@ function cb_redraw() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.save();
-    ctx.translate(-cb_cam.x, -cb_cam.y);
     var st = cb_state();
     var visible = cb_visible_objects(st);
     visible.forEach(function (o) {
@@ -711,9 +1000,12 @@ function cb_apply_xf(p, org, xf) {
             org[1] + (p[1] - org[1]) * xf.sc + xf.dy];
 }
 
-// transformed bounding box in world coordinates
+// transformed bounding box in shared board coordinates
 function cb_bbox(ctx, st, o) {
-    var xf = cb_xf(st, o);
+    return cb_bbox_for_xf(ctx, o, cb_xf(st, o));
+}
+
+function cb_bbox_for_xf(ctx, o, xf) {
     if (o.k === 't') {
         ctx.save();
         ctx.font = Math.round(16 * xf.sc) + 'px sans-serif';
@@ -732,6 +1024,34 @@ function cb_bbox(ctx, st, o) {
     });
     var pad = ((o.w || 2) * xf.sc) / 2;
     return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + 2 * pad, h: y1 - y0 + 2 * pad };
+}
+
+function cb_clamp_drag_transform() {
+    if (!cb_drag || !cb_drag.target || !cb_drag.xf) return;
+    var cv = document.getElementById('cb_canvas');
+    if (!cv) return;
+    var st = cb_state();
+    var object = null;
+    cb_visible_objects(st).forEach(function (candidate) {
+        if (candidate.id === cb_drag.target) object = candidate;
+    });
+    if (!object) return;
+    var ctx = cv.getContext('2d');
+    if (cb_drag.mode === 'resize') {
+        var unit = cb_bbox_for_xf(ctx, object, { dx: 0, dy: 0, sc: 1 });
+        var maxScale = Math.min(
+            unit.w > 0 ? CB_BOARD_WIDTH / unit.w : 20,
+            unit.h > 0 ? CB_BOARD_HEIGHT / unit.h : 20,
+            20
+        );
+        cb_drag.xf.sc = Math.max(0.05, Math.min(cb_drag.xf.sc, maxScale));
+    }
+    var box = cb_bbox_for_xf(ctx, object, cb_drag.xf);
+    if (box.x < 0) cb_drag.xf.dx -= box.x;
+    if (box.y < 0) cb_drag.xf.dy -= box.y;
+    box = cb_bbox_for_xf(ctx, object, cb_drag.xf);
+    if (box.x + box.w > CB_BOARD_WIDTH) cb_drag.xf.dx += CB_BOARD_WIDTH - box.x - box.w;
+    if (box.y + box.h > CB_BOARD_HEIGHT) cb_drag.xf.dy += CB_BOARD_HEIGHT - box.y - box.h;
 }
 
 // the selected object, if the world point p is on its resize handle
@@ -799,6 +1119,19 @@ function cb_next_ts() {
     return st.clock;
 }
 
+// Lamport ordering is independent of the wall clocks on different phones.
+// Legacy events did not have `l`, so their timestamp is used during migration.
+function cb_next_order() {
+    var st = cb_state();
+    var next = st.order || 0;
+    st.objects.forEach(function (event) { next = Math.max(next, cb_event_order(event)); });
+    st.clears.forEach(function (event) { next = Math.max(next, cb_event_order(event)); });
+    st.deletes.forEach(function (event) { next = Math.max(next, cb_event_order(event)); });
+    st.mods.forEach(function (event) { next = Math.max(next, cb_event_order(event)); });
+    st.order = next + 1;
+    return st.order;
+}
+
 // Base64 encode/decode (UTF-8 safe) so text payloads stay space-free.
 function cb_enc(s) {
     return btoa(unescape(encodeURIComponent(s)));
@@ -821,10 +1154,8 @@ function cb_keep_point(points, p) {
 }
 
 function cb_clamp_camera(cv) {
-    var maxX = Math.max(0, CB_COORD_LIMIT - cv.width);
-    var maxY = Math.max(0, CB_COORD_LIMIT - cv.height);
-    cb_cam.x = Math.round(Math.max(-CB_COORD_LIMIT, Math.min(maxX, cb_cam.x)));
-    cb_cam.y = Math.round(Math.max(-CB_COORD_LIMIT, Math.min(maxY, cb_cam.y)));
+    cb_cam.x = 0;
+    cb_cam.y = 0;
 }
 
 function cb_sync_color_picker(st, o) {
@@ -850,9 +1181,14 @@ function cb_simplify_points(points, maxPoints) {
 function cb_is_valid_event(obj) {
     if (!obj || typeof obj.id !== 'string' || obj.id.length > 96) return false;
     if (typeof obj._board !== 'undefined' && obj._board !== 'open') return false;
+    if (typeof obj.l !== 'undefined' &&
+        (typeof obj.l !== 'number' || !isFinite(obj.l) || obj.l <= 0)) return false;
+    if (typeof obj.u !== 'undefined' &&
+        (typeof obj.u !== 'string' || !cb_clean_username(obj.u) || obj.u.length > 24)) return false;
     if (obj.k === 'c') return true;
     if (obj.k === 't') {
-        return cb_is_finite_coord(obj.x) && cb_is_finite_coord(obj.y) &&
+        return cb_is_board_coord(obj.x, CB_BOARD_WIDTH) &&
+            cb_is_board_coord(obj.y, CB_BOARD_HEIGHT) &&
             typeof obj.s === 'string' && obj.s.length <= 1024 &&
             cb_is_valid_color(obj.c);
     }
@@ -922,11 +1258,16 @@ function cb_prune_state(st) {
 
 function cb_is_valid_point(p) {
     return Array.isArray(p) && p.length === 2 &&
-        cb_is_finite_coord(p[0]) && cb_is_finite_coord(p[1]);
+        cb_is_board_coord(p[0], CB_BOARD_WIDTH) &&
+        cb_is_board_coord(p[1], CB_BOARD_HEIGHT);
 }
 
 function cb_is_finite_coord(n) {
     return typeof n === 'number' && isFinite(n) && Math.abs(n) <= CB_COORD_LIMIT;
+}
+
+function cb_is_board_coord(n, maximum) {
+    return typeof n === 'number' && isFinite(n) && n >= 0 && n <= maximum;
 }
 
 function cb_is_valid_color(c) {
@@ -942,14 +1283,19 @@ function cb_latest_clear(st) {
 }
 
 function cb_compare_events(a, b) {
-    var ats = cb_event_ts(a);
-    var bts = cb_event_ts(b);
+    var ats = cb_event_order(a);
+    var bts = cb_event_order(b);
     if (ats !== bts) return ats - bts;
     var aid = a && a.id ? a.id : '';
     var bid = b && b.id ? b.id : '';
     if (aid < bid) return -1;
     if (aid > bid) return 1;
     return 0;
+}
+
+function cb_event_order(obj) {
+    if (obj && typeof obj.l === 'number' && isFinite(obj.l) && obj.l > 0) return obj.l;
+    return cb_event_ts(obj);
 }
 
 function cb_event_ts(obj) {
@@ -961,4 +1307,9 @@ function cb_event_ts(obj) {
         if (isFinite(n)) return n;
     }
     return 0;
+}
+
+function cb_short_author(feedId) {
+    if (typeof feedId !== 'string' || feedId.length < 10) return 'Unknown';
+    return feedId.slice(1, 9);
 }

@@ -1,23 +1,51 @@
 <div id='div:collabboard-main' style='display: none;'>
-  <div id='cb_toolbar'>
-    <button id='cb_tool_pen' class='cb_tool' type='button'
-            aria-pressed='false' onclick='cb_toggle_tool("pen")'>Draw</button>
-    <button id='cb_tool_text' class='cb_tool' type='button'
-            aria-pressed='false' onclick='cb_toggle_tool("text")'>Text</button>
-    <button id='cb_tool_select' class='cb_tool' type='button'
-            aria-pressed='true' onclick='cb_set_tool("select")'>Edit</button>
-    <input id='cb_color' class='cb_color' type='color' value='#2563eb'
-           title='Color' aria-label='Color'>
-    <button id='cb_delete_btn' class='cb_tool cb_delete' type='button' disabled
-            aria-label='Delete selected object' onclick='cb_delete_selected()'>Delete</button>
-    <button id='cb_clear_btn' class='cb_tool' type='button'
-            aria-label='Clear board' onclick='cb_clear()'>Clear all</button>
+  <section id='cb_room_setup' class='cb_room_setup' style='display: none;'>
+    <h2>Open a board</h2>
+    <label for='cb_username'>Your name</label>
+    <input id='cb_username' class='cb_room_input' type='text' maxlength='24'
+           autocomplete='nickname' placeholder='Name'>
+    <button class='cb_primary' type='button' onclick='cb_create_board()'>Create board</button>
+    <div class='cb_or'><span>or</span></div>
+    <label for='cb_invite_input'>Invite code</label>
+    <textarea id='cb_invite_input' class='cb_room_input cb_invite_input' rows='3'
+              spellcheck='false' placeholder='Paste code'></textarea>
+    <button class='cb_secondary' type='button' onclick='cb_join_board()'>Join board</button>
+    <p id='cb_setup_error' class='cb_setup_error' aria-live='polite'></p>
+  </section>
+
+  <div id='cb_workspace' class='cb_workspace' style='display: none;'>
+    <div id='cb_room_bar'>
+      <div class='cb_room_identity'>
+        <strong id='cb_room_label'></strong>
+        <span id='cb_member_count'>1/4</span>
+      </div>
+      <button class='cb_room_action' type='button' onclick='cb_copy_invite()'>Invite</button>
+      <button class='cb_room_action' type='button' onclick='cb_leave_board()'>Leave</button>
+      <input id='cb_invite_copy' class='cb_hidden_copy' aria-hidden='true' tabindex='-1'>
+    </div>
+    <div id='cb_toolbar'>
+      <button id='cb_tool_pen' class='cb_tool' type='button'
+              aria-pressed='false' onclick='cb_toggle_tool("pen")'>Draw</button>
+      <button id='cb_tool_text' class='cb_tool' type='button'
+              aria-pressed='false' onclick='cb_toggle_tool("text")'>Text</button>
+      <button id='cb_tool_select' class='cb_tool' type='button'
+              aria-pressed='true' onclick='cb_set_tool("select")'>Edit</button>
+      <input id='cb_color' class='cb_color' type='color' value='#2563eb'
+             title='Color' aria-label='Color'>
+      <button id='cb_delete_btn' class='cb_tool cb_delete' type='button' disabled
+              aria-label='Delete selected object' onclick='cb_delete_selected()'>Delete</button>
+      <button id='cb_clear_btn' class='cb_tool' type='button'
+              aria-label='Clear board' onclick='cb_clear()'>Clear all</button>
+    </div>
+    <div id='cb_sync_status' class='cb_sync_status cb_sync_waiting' aria-live='polite'>
+      <span id='cb_sync_dot' class='cb_sync_dot' aria-hidden='true'></span>
+      <span id='cb_sync_text'>Starting</span>
+    </div>
+    <div id='cb_selection_info' class='cb_selection_info' hidden></div>
+    <input id='cb_text' class='cb_textinput' type='text' maxlength='120'
+           placeholder='Write text' aria-label='Text to add' style='display: none;'>
+    <div class='cb_canvas_frame'>
+      <canvas id='cb_canvas' width='900' height='1200'></canvas>
+    </div>
   </div>
-  <div id='cb_sync_status' class='cb_sync_status cb_sync_waiting' aria-live='polite'>
-    <span id='cb_sync_dot' class='cb_sync_dot' aria-hidden='true'></span>
-    <span id='cb_sync_text'>Starting</span>
-  </div>
-  <input id='cb_text' class='cb_textinput' type='text' maxlength='120'
-         placeholder='Write text' aria-label='Text to add' style='display: none;'>
-  <canvas id='cb_canvas' width='340' height='460'></canvas>
 </div>

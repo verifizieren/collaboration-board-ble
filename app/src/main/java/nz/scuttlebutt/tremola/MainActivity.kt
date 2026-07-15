@@ -55,6 +55,7 @@ class MainActivity : Activity() {
         .build()
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var bluetoothReceiverRegistered = false
+    private var blePermissionRequestInFlight = false
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
@@ -276,8 +277,11 @@ class MainActivity : Activity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == BLE_PERMISSION_REQUEST && BleSync.missingPermissions(this).isEmpty()) {
-            bleSync?.start()
+        if (requestCode == BLE_PERMISSION_REQUEST) {
+            blePermissionRequestInFlight = false
+            if (BleSync.missingPermissions(this).isEmpty()) {
+                bleSync?.start()
+            }
         }
     }
 
@@ -380,10 +384,12 @@ class MainActivity : Activity() {
         val missing = BleSync.missingPermissions(this)
         if (missing.isEmpty()) {
             bleSync?.start()
-        } else {
+        } else if (!blePermissionRequestInFlight) {
             try {
+                blePermissionRequestInFlight = true
                 requestPermissions(missing, BLE_PERMISSION_REQUEST)
             } catch (e: Exception) {
+                blePermissionRequestInFlight = false
                 Log.e("BLE permissions", e.stackTraceToString())
             }
         }

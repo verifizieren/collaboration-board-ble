@@ -2,19 +2,19 @@
 
 A shared whiteboard mini-app inside Tremola for Android.
 
-## What It Can Do
+## Features
 
 - Draw and add text.
-- Move and resize objects.
-- Delete one selected object or clear the board.
-- Choose any color with the Android color picker.
-- Pan around the board.
-- Use a simple layout that fits normal Android phone screens.
-- Work without Internet.
-- Sync signed Tremola events between nearby phones over BLE.
+- Move, resize, recolor, and delete objects.
+- Clear the full board.
+- Use one fixed board that scales to the phone screen.
+- Keep the board after closing the app.
+- Work offline and catch up later.
+- Sync nearby phones over Bluetooth Low Energy.
+- Use invite-only boards with up to four members.
+- Show the creator name when an object is selected.
 
-There is one shared board. Everyone can edit every object. There are no profiles
-or owner locks.
+Every admitted member can edit every object.
 
 ## Android APK
 
@@ -22,34 +22,48 @@ The ready test build is here:
 
 [`install/tremola-collaboration-board-debug.apk`](install/tremola-collaboration-board-debug.apk)
 
-It contains the full Tremola app, the mini-app, and native BLE sync. It is not a
-standalone whiteboard.
+The APK contains the full Tremola app, the mini-app, local storage, and native
+BLE sync. It is not a separate whiteboard app.
 
 Requirements:
 
 - Android 7.0 or newer
-- Bluetooth Low Energy for nearby sync
-- two Android phones for the final BLE test
+- Bluetooth Low Energy
+- BLE advertising support on at least one phone in each connection
+- two real Android phones for the final BLE test
 
-See [`install/README.md`](install/README.md) for simple install steps.
+See [`install/README.md`](install/README.md) for the install and test steps.
 
-## First Use
+## Phone Workflow
 
 1. Install and open Tremola.
-2. Allow Bluetooth and location access.
-3. Open the mini-apps view.
-4. Open **Collaboration Board**.
-5. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, or **Clear all**.
+2. Allow Bluetooth and location access when Android asks.
+3. Open **MiniApps > Collaboration Board**.
+4. Enter a name.
+5. Create a board or paste an invite code.
+6. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, or **Clear all**.
 
-**Draw** and **Text** stay active for repeated work. Use **Edit** and tap an
-object to move, resize, recolor, or delete it.
+The board owner must be nearby the first time a new member joins. After that,
+the member keeps a signed admission and can reconnect through any admitted
+member. A board has one owner and at most three other members.
 
-Tremola creates a local cryptographic identity on first start. There is no
-central account or server login.
+Keep the invite code private. It contains the board key.
+
+## Reliable Sync
+
+A finished action is saved before it is sent. BLE sends frames one at a time
+and waits for Android's callback. The receiver acknowledges the complete board
+operation. Missing operations are requested again with board frontiers and
+WANT ranges.
+
+- operation retry: about every 2 seconds while connected
+- frontier check: about every 5 seconds
+- no pointer movement is sent while a finger is still moving
+- only operations for the active board use the board sync queue
 
 ## Check And Build
 
-Requirements for building:
+Requirements:
 
 - JDK 11
 - Android SDK
@@ -61,24 +75,17 @@ Run:
 ./scripts/check.sh
 ```
 
-This checks the browser and Android copies, runs JavaScript and Kotlin tests,
-runs Android lint, builds the APK, verifies its signature and contents, and
-updates the file in `install/`.
-
-## Test On Phones
+This runs JavaScript tests, Kotlin tests, Android lint, the APK build, APK
+checks, and Android instrumentation tests when a phone or emulator is attached.
+It then updates the APK in `install/`.
 
 With USB debugging enabled:
 
 ```bash
 ./scripts/android.sh devices
-./scripts/android.sh install
-./scripts/android.sh logs
+./scripts/android.sh install PHONE_SERIAL
+./scripts/android.sh logs PHONE_SERIAL
 ```
-
-For the real test, install the same APK on two phones and keep Tremola open on
-both. A finished action is sent immediately. Feed frontiers are also exchanged
-every 4 seconds so missed events can be recovered. New board actions have
-priority while older Tremola feed entries catch up in the background.
 
 ## Browser Preview
 
@@ -88,23 +95,22 @@ Run:
 ./start.sh
 ```
 
-Open Alice and Bob, then open **MiniApps > Collaboration Board** in both tabs.
-The browser checks the UI, offline replay, and collaboration rules. It does not
-test native Android BLE.
+The browser preview checks the UI and merge behavior. It does not test native
+Android BLE, invitations, encryption, or Android permissions.
 
 ## Project Files
 
-- `miniApps/collabboard/` - board source
-- `app/` - full Tremola Android app and BLE code
-- `app/src/main/assets/web/` - web files included in the APK
-- `install/` - APK and checksum
-- `scripts/` - check, build, install, and log commands
+- `miniApps/collabboard/` - mini-app source
+- `app/` - full Tremola Android app and native BLE code
+- `install/` - ready APK, checksum, and install steps
+- `scripts/` - build, install, and log commands
 - `docs/TECHNICAL_OVERVIEW.md` - technical design
-- `docs/REPORT_BASIS.md` - simple basis for the project report
+- `docs/REPORT_BASIS.md` - simple basis for the group report
 
 ## Submission
 
 Submit the full repository and the APK in `install/`. The mini-app folder alone
-does not contain signed log storage or native BLE transport.
+does not include Android storage, identities, admissions, encryption, or BLE.
 
-The remaining final check is a real two-phone BLE test.
+The remaining acceptance test is a real two-phone BLE run with Wi-Fi and mobile
+data turned off.

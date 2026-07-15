@@ -47,7 +47,7 @@ if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
   exit 1
 fi
 
-echo "[1/5] Checking the Android mini-app copy"
+echo "[1/6] Checking the Android mini-app copy"
 for path in \
   assets/board.svg \
   manifest.json \
@@ -61,7 +61,7 @@ do
   fi
 done
 
-echo "[2/5] Running JavaScript and board checks"
+echo "[2/6] Running JavaScript and board checks"
 bash -n scripts/check.sh scripts/android.sh
 sh -n start.sh
 for file in \
@@ -74,10 +74,18 @@ do
 done
 "$NODE_BIN" tests/collabboard.test.js
 
-echo "[3/5] Running Android unit tests, lint, and build"
+echo "[3/6] Running Android unit tests, lint, and build"
 ./gradlew --no-daemon clean testDebugUnitTest lintDebug assembleDebug
 
-echo "[4/5] Preparing the install APK"
+echo "[4/6] Running Android device tests when available"
+ADB="$ANDROID_HOME/platform-tools/adb"
+if [ -x "$ADB" ] && "$ADB" devices | awk 'NR > 1 && $2 == "device" { found = 1 } END { exit !found }'; then
+  ./gradlew --no-daemon connectedDebugAndroidTest
+else
+  echo "No Android phone or emulator attached; device tests skipped."
+fi
+
+echo "[5/6] Preparing the install APK"
 APK="app/build/outputs/apk/debug/app-debug.apk"
 INSTALL_APK="install/tremola-collaboration-board-debug.apk"
 test -f "$APK"
@@ -94,7 +102,7 @@ unzip -p "$INSTALL_APK" assets/web/miniApps/collabboard/src/collabboard.js \
   > "$TMP_DIR/collabboard.js"
 cmp -s miniApps/collabboard/src/collabboard.js "$TMP_DIR/collabboard.js"
 
-echo "[5/5] Verifying the APK"
+echo "[6/6] Verifying the APK"
 BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1)"
 if [ -x "$BUILD_TOOLS/apksigner" ]; then
   "$BUILD_TOOLS/apksigner" verify --verbose "$INSTALL_APK"
