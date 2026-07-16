@@ -152,11 +152,29 @@ const integrationPatch = fs.readFileSync(path.join(root, "tinyssb/integration.pa
 assert.strictEqual(integrationPatch.includes("'whiteboard_show_invitations'"), true);
 assert.strictEqual(integrationPatch.includes("whiteboard_invite_contacts();"), true);
 assert.strictEqual(integrationPatch.includes("'div:collabboard-main', 'plus'"), true);
+assert.strictEqual(integrationPatch.includes('else if (e.public[0] == "WBD")'), true);
+assert.strictEqual(adapterSource.includes("menu.parentNode !== core"), true);
+assert.strictEqual(adapterSource.includes("kanban_invitation_container light"), true);
+assert.strictEqual(adapterSource.includes("wb_official_invite_button"), true);
+
+const receivedStroke = {
+    k: "s", id: "received-stroke", r: roomId, ts: 90, l: 90,
+    u: "Owner", c: "#2563eb", w: 2, p: [[8, 8], [18, 18]]
+};
+const receivedMessage = {
+    header: { fid: owner, ref: "received-ref", seq: 3 },
+    public: ["WBD", JSON.stringify(receivedStroke)]
+};
+const entriesBeforeReceive = recipient.wb_room_events(roomId).length;
+recipient.whiteboard_new_event(receivedMessage);
+recipient.whiteboard_new_event(receivedMessage);
+assert.strictEqual(recipient.wb_room_events(roomId).length, entriesBeforeReceive + 1);
 
 const theme = fs.readFileSync(path.join(root, "tinyssb/whiteboard/theme.css"), "utf8");
 assert.strictEqual(theme.includes(".cb_tool.cb_active"), true);
 assert.strictEqual(theme.includes(".cb_tool[aria-pressed='true']"), true);
 assert.strictEqual(theme.includes(".cb_workspace.cb_dark_canvas #cb_canvas"), true);
 assert.strictEqual(theme.includes("background: transparent"), true);
+assert.strictEqual(theme.includes("../../img/send.svg"), true);
 
 console.log("tinySSB whiteboard tests passed");

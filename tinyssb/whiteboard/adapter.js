@@ -494,6 +494,12 @@ function wb_short_feed(fid) {
     return fid.slice(0, 11) + '...' + fid.slice(-11);
 }
 
+function wb_mount_invite_menu() {
+    var core = document.getElementById('core');
+    var menu = document.getElementById('div:invite_menu');
+    if (core && menu && menu.parentNode !== core) core.appendChild(menu);
+}
+
 function whiteboard_invite_contacts() {
     var room = cb_current_room();
     if (!room) {
@@ -508,6 +514,7 @@ function whiteboard_invite_contacts() {
         launch_snackbar('Only the board creator can invite contacts');
         return;
     }
+    wb_mount_invite_menu();
     closeOverlay();
     var content = document.getElementById('menu_invite_content');
     var contacts = Object.keys(tremola.contacts || {}).filter(function (fid) {
@@ -527,13 +534,19 @@ function whiteboard_invite_contacts() {
         var full = state.invitations.length >= WB_MAX_INVITES;
         var status = member ? 'Member' : (already ? 'Invited' : (full ? 'Invite limit reached' : ''));
         var arg = encodeURIComponent(fid);
-        html += "<div class='wb_invite_row'><div class='wb_invite_identity'><strong>" +
-            wb_html(wb_contact_alias(fid) || cb_short_author(fid)) + "</strong><span>" +
-            wb_html(wb_short_feed(fid)) + "</span></div>";
-        if (status) html += "<span class='wb_invite_status'>" + wb_html(status) + "</span>";
-        else html += "<button class='wb_invite_send' type='button' onclick=\"whiteboard_invite_contact(decodeURIComponent('" +
-            arg + "'))\">Invite</button>";
-        html += '</div>';
+        html += "<div class='kanban_invitation_container light wb_official_invite'>" +
+            "<div class='kanban_invitation_text_container'>" +
+            "<div class='wb_official_invite_name'>" +
+            wb_html(wb_contact_alias(fid) || cb_short_author(fid)) + "</div>" +
+            "<div class='wb_official_invite_detail'>" +
+            wb_html(status || wb_short_feed(fid)) + "</div></div>" +
+            "<div class='wb_official_invite_actions'>";
+        if (!status) {
+            html += "<button class='flat passive buttontext wb_official_invite_button' type='button' " +
+                "aria-label='Invite contact' title='Invite contact' onclick=\"whiteboard_invite_contact(decodeURIComponent('" +
+                arg + "'))\">&nbsp;</button>";
+        }
+        html += '</div></div>';
     });
     content.innerHTML = html;
     document.getElementById('div:invite_menu').style.display = 'initial';
@@ -658,6 +671,7 @@ cb_copy_invite = function () {
 
 function whiteboard_open() {
     wb_install_sync_status_hooks();
+    wb_mount_invite_menu();
     setScenario('whiteboard');
     var core = document.getElementById('core');
     if (core) {

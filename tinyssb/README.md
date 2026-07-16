@@ -1,10 +1,11 @@
 # tinySSB version
 
 - Based on official `ssbc/tinyssb` commit `39896b72`.
-- Version `0.4` (`versionCode 4`).
+- Version `0.5` (`versionCode 5`).
 - The board is listed under Productivity.
 - Authors: Dehlen Thavarajah, Max Mendes Carvalho, Frédéric Weyssow, Simon Zeugin.
 - Whiteboard events use the tinySSB `WBD` app type.
+- Complete whiteboard events are shown as soon as tinySSB receives them.
 - tinySSB retries missing packets and chunks over BLE.
 - The build fixes tinySSB's first-start BLE permission callback.
 - The board creator can invite up to eight verified contacts.

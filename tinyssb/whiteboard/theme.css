@@ -74,7 +74,6 @@
   line-height: 18px;
 }
 
-.wb_invite_row,
 .wb_invitation_card {
   display: flex;
   min-height: 52px;
@@ -89,7 +88,6 @@
   box-sizing: border-box;
 }
 
-.wb_invite_identity,
 .wb_invitation_card > div:first-child {
   min-width: 0;
   display: flex;
@@ -97,8 +95,6 @@
   gap: 3px;
 }
 
-.wb_invite_identity strong,
-.wb_invite_identity span,
 .wb_invitation_card strong,
 .wb_invitation_card span {
   overflow: hidden;
@@ -106,13 +102,11 @@
   white-space: nowrap;
 }
 
-.wb_invite_identity span,
 .wb_invitation_card > div:first-child span {
   color: #687078;
   font-size: 11px;
 }
 
-.wb_invite_send,
 .wb_invitation_accept,
 .wb_invitation_decline {
   flex: 0 0 auto;
@@ -137,6 +131,51 @@
   flex: 0 0 auto;
   color: #687078;
   font-size: 12px;
+}
+
+.wb_official_invite {
+  width: calc(100% - 10px);
+  min-height: 52px;
+  height: auto;
+  margin: 7px 5px;
+}
+
+.wb_official_invite_name,
+.wb_official_invite_detail {
+  overflow: hidden;
+  padding-left: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb_official_invite_name {
+  grid-area: name;
+  padding-top: 6px;
+  font-size: 15px;
+}
+
+.wb_official_invite_detail {
+  grid-area: author;
+  padding-top: 2px;
+  color: #687078;
+  font-size: 9px;
+}
+
+.wb_official_invite_actions {
+  grid-area: btns;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+
+.wb_official_invite_button {
+  width: 35px;
+  height: 40px;
+  background-image: url('../../img/send.svg');
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 22px;
 }
 
 .wb_invitation_actions {
