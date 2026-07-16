@@ -32,9 +32,12 @@ SHA-256 does not make six digits a strong secret. There are only one million
 possible codes, and the direct room ID contains the code. Call it a **shared
 access code**, not secure authentication or strong end-to-end privacy.
 
-The tinySSB adapter uses a small deterministic hash to map the same code to the
-same public board. It does not use SHA-256 here, does not encrypt `WBD` events,
-and does not enforce a hard four-person limit.
+The tinySSB adapter gives every new board a random ID. A signed invitation
+contains that exact ID, so typing the same short code cannot create another
+board. The Join form may use the code only to select an invitation that has
+already arrived. The creator may invite eight verified contacts. The creator
+and the first three valid acceptances form the deterministic four-person editor
+list. tinySSB does not encrypt public `WBD` events.
 
 ## Main Data Flow
 
@@ -137,6 +140,7 @@ Added or changed:
 - board-specific BLE ACK, retry, frontier, WANT, and relay
 - deterministic shared editing for all objects
 - the separate experimental tinySSB build
+- verified-contact invitations and Android JPEG/PDF export in the tinySSB build
 
 ## Source Map
 
@@ -151,6 +155,7 @@ Added or changed:
 - `app/src/test/` and `app/src/androidTest/` - Android protocol and crypto tests
 - `tinyssb/whiteboard/adapter.js` - public tinySSB `WBD` adapter
 - `tinyssb/ble-startup.patch` - tinySSB permission and BLE restart fix
+- `tinyssb/whiteboard-export.patch` - Android JPEG and PDF export
 - `docs/TECHNICAL_OVERVIEW.md` - detailed design
 - `install/README.md` - install and real-phone test steps
 

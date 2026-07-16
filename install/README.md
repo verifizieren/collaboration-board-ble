@@ -38,7 +38,7 @@ In the tinySSB APK, open **Productivity > Collaboration Board**.
 Tremola creates a cryptographic identity automatically. There is no server
 account or central login.
 
-## Create A Board
+## Tremola: Create A Board
 
 1. Enter your name.
 2. Enter a board name.
@@ -46,7 +46,7 @@ account or central login.
 4. The app shows a new six-digit code.
 5. Tap **Invite** and send the copied code privately.
 
-## Join A Board
+## Tremola: Join A Board
 
 1. Enter your name.
 2. Enter the six-digit code.
@@ -56,6 +56,22 @@ The code opens the same board directly. The creator does not have to be nearby.
 Anyone with the code can join until the board has four identities. After
 joining once, tap **Boards** to close the board without deleting it. Tap
 **Open** in the board list to return without entering the code again.
+
+## tinySSB: Invite And Join
+
+1. Add and verify the contacts on both phones.
+2. Open **Productivity > Collaboration Board**.
+3. Before creating a board, tap `+` and select up to eight contacts.
+4. Create the board. You can also use **Invite** later.
+5. On the other phone, open the top-right menu, choose **Invitations**, enter a
+   display name, and tap **Accept**. The Join form also works after the signed
+   invitation has arrived.
+6. The creator and the first three contacts who accept can edit.
+
+The tinySSB version joins only through a signed invitation. Its six-digit code
+can select a received invitation, but it cannot create or discover a board by
+itself. **Export** saves the canvas as a JPEG or PDF. A JPEG follows the local
+dark canvas; a PDF is white.
 
 Returning from the Tremola MiniApps screen within 30 seconds reopens the active
 board. Returning later, or starting Tremola again, opens the Boards screen.
@@ -157,6 +173,6 @@ The expected hashes for all APK files are stored in `SHA256SUMS`.
 
 ## tinySSB Limit
 
-The tinySSB code selects a board, but it is not a password. Public tinySSB
-events are not encrypted, and four members are shown rather than securely
-enforced. Use the Tremola APK for the main four-person test.
+Only verified contacts can see an invitation in the whiteboard UI. Public
+tinySSB events are not encrypted, so this is an app access rule, not private
+transport. Use the Tremola APK for the main submission.

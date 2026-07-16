@@ -1673,8 +1673,8 @@ const tinyAdapter = fs.readFileSync(
     path.join(root, "tinyssb/whiteboard/adapter.js"),
     "utf8"
 );
-assert.strictEqual(tinyAdapter.includes("peer.status === 'connected'"), true);
-assert.strictEqual(tinyAdapter.includes("peer.status === 'online'"), false);
+assert.strictEqual(tinyAdapter.includes("['online', 'connected'].indexOf(peer.status)"), true);
+assert.strictEqual(tinyAdapter.includes("peers[peer.name || peer.alias || id] = true"), true);
 
 [
     "manifest.json",

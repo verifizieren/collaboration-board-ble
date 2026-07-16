@@ -10,6 +10,8 @@ var WB_META_CREATE = 'wc';
 var WB_META_INVITE = 'wi';
 var WB_META_ACCEPT = 'wa';
 var WB_META_PROFILE = 'wp';
+var wb_member_choices = [];
+var wb_export_busy = false;
 
 function wb_hash(value, seed) {
     var hash = (2166136261 ^ (seed || 0)) >>> 0;
@@ -30,7 +32,7 @@ function wb_token(code, label, length) {
     return value.slice(0, length);
 }
 
-function wb_room_from_code(code, username, boardName, creator) {
+function wb_legacy_room_from_code(code, username, boardName, creator) {
     var roomId = 'wbd-' + wb_token(code, 'room', 32);
     var known = cb_board_catalog()[roomId];
     var knownRoom = known && known.room ? known.room : null;
@@ -44,6 +46,27 @@ function wb_room_from_code(code, username, boardName, creator) {
         b: boardName || (knownRoom && knownRoom.b) || ('Board ' + code),
         p: code,
         d: 2
+    };
+}
+
+function wb_room_key(roomId, code, protocol) {
+    return wb_token(protocol >= 3 ? roomId : code, 'key', 48);
+}
+
+function wb_new_room(code, username, boardName) {
+    var roomId = '';
+    do {
+        roomId = 'wbd-' + cb_random_token(24);
+    } while (cb_board_catalog()[roomId]);
+    return {
+        v: 3,
+        r: roomId,
+        k: wb_room_key(roomId, code, 3),
+        o: myId,
+        u: username,
+        b: boardName,
+        p: code,
+        d: 3
     };
 }
 
@@ -108,7 +131,8 @@ function wb_is_valid_meta_event(event) {
         (typeof event.u !== 'string' || !cb_clean_username(event.u) || event.u.length > 24)) return false;
     if (event.k === WB_META_CREATE) {
         return typeof event.b === 'string' && !!cb_clean_board_name(event.b) &&
-            cb_valid_pairing_code(event.p);
+            cb_valid_pairing_code(event.p) &&
+            (typeof event.v === 'undefined' || event.v === 2 || event.v === 3);
     }
     if (event.k === WB_META_INVITE) {
         return wb_valid_feed_id(event.to) && typeof event.invite === 'undefined';
@@ -159,6 +183,135 @@ function wb_is_verified_contact(fid) {
     return !!contact && Number(contact.trusted) === 2 && !contact.forgotten;
 }
 
+function wb_verified_contacts() {
+    return Object.keys(tremola.contacts || {}).filter(function (fid) {
+        return fid !== myId && wb_is_verified_contact(fid);
+    }).sort(function (a, b) {
+        return (wb_contact_alias(a) || a).localeCompare(wb_contact_alias(b) || b);
+    });
+}
+
+function wb_current_room() {
+    var room = tremola && tremola.collabboardRoom;
+    return room && typeof room.r === 'string' && room.r ? room : null;
+}
+
+function wb_current_room_id() {
+    var room = wb_current_room();
+    return room ? room.r : null;
+}
+
+function wb_draft_invites() {
+    var source = Array.isArray(tremola.collabboardTinyDraftInvites) ?
+        tremola.collabboardTinyDraftInvites : [];
+    var result = [];
+    source.forEach(function (fid) {
+        if (fid !== myId && wb_is_verified_contact(fid) && result.indexOf(fid) < 0 &&
+            result.length < WB_MAX_INVITES) result.push(fid);
+    });
+    return result;
+}
+
+function wb_set_draft_invites(invites) {
+    tremola.collabboardTinyDraftInvites = (invites || []).filter(function (fid, index, list) {
+        return fid !== myId && wb_is_verified_contact(fid) && list.indexOf(fid) === index;
+    }).slice(0, WB_MAX_INVITES);
+    persist();
+    wb_render_draft_invites();
+}
+
+function wb_install_draft_invites() {
+    if (document.getElementById('wb_draft_invites')) return;
+    var panel = document.getElementById('cb_create_panel');
+    if (!panel || !document.createElement) return;
+    var summary = document.createElement('button');
+    summary.id = 'wb_draft_invites';
+    summary.type = 'button';
+    summary.className = 'wb_draft_invites';
+    summary.onclick = whiteboard_select_contacts;
+    var create = panel.getElementsByTagName('button')[0];
+    panel.insertBefore(summary, create || null);
+    wb_render_draft_invites();
+}
+
+function wb_render_draft_invites() {
+    var summary = document.getElementById('wb_draft_invites');
+    if (!summary) return;
+    var count = wb_draft_invites().length;
+    summary.textContent = count ?
+        count + (count === 1 ? ' contact selected' : ' contacts selected') :
+        'Choose contacts with +';
+}
+
+function wb_set_title() {
+    var tremolaTitle = document.getElementById('tremolaTitle');
+    var title = document.getElementById('conversationTitle');
+    if (tremolaTitle) tremolaTitle.style.display = 'none';
+    if (title) {
+        title.style.display = null;
+        title.innerHTML = '<strong>Collaboration Board</strong>';
+    }
+}
+
+function wb_set_plus_visibility(visible) {
+    var plus = document.getElementById('plus');
+    if (plus) plus.style.display = visible ? null : 'none';
+}
+
+function whiteboard_plus() {
+    if (wb_current_room()) whiteboard_invite_contacts();
+    else whiteboard_select_contacts();
+}
+
+function whiteboard_select_contacts() {
+    closeOverlay();
+    var contacts = wb_verified_contacts();
+    var selected = wb_draft_invites();
+    wb_member_choices = contacts.slice(0);
+    var html = "<div class='wb_member_hint'>Choose up to eight verified contacts. Four people can edit.</div>" +
+        "<div class='wb_member_row wb_member_self'><input type='checkbox' checked disabled>" +
+        "<div><strong>" + wb_html(wb_contact_alias(myId) || 'You') +
+        "</strong><span>This device</span></div></div>";
+    if (!contacts.length) {
+        html += "<div class='wb_invite_empty'>Verify contacts in Contacts first.</div>";
+    }
+    contacts.forEach(function (fid, index) {
+        var checked = selected.indexOf(fid) >= 0 ? ' checked' : '';
+        html += "<label class='wb_member_row' for='wb_member_" + index + "'>" +
+            "<input id='wb_member_" + index + "' type='checkbox'" + checked + ">" +
+            "<div><strong>" + wb_html(wb_contact_alias(fid) || cb_short_author(fid)) +
+            "</strong><span>" + wb_html(wb_short_feed(fid)) + "</span></div></label>";
+    });
+    document.getElementById('lst:members').innerHTML = html;
+    prev_scenario = 'whiteboard';
+    setScenario('members');
+    document.getElementById('div:textarea').style.display = 'none';
+    document.getElementById('div:confirm-members').style.display = 'flex';
+    document.getElementById('tremolaTitle').style.display = 'none';
+    var title = document.getElementById('conversationTitle');
+    title.style.display = null;
+    title.innerHTML = '<strong>Invite contacts</strong><br>Select people for the new board';
+    wb_set_plus_visibility(false);
+}
+
+function whiteboard_members_confirmed() {
+    var selected = [];
+    wb_member_choices.forEach(function (fid, index) {
+        var checkbox = document.getElementById('wb_member_' + index);
+        if (checkbox && checkbox.checked && selected.length < WB_MAX_INVITES) selected.push(fid);
+    });
+    wb_set_draft_invites(selected);
+    whiteboard_members_cancelled();
+}
+
+function whiteboard_members_cancelled() {
+    setScenario('whiteboard');
+    wb_set_title();
+    cb_show_setup(true);
+    wb_set_plus_visibility(true);
+    wb_render_draft_invites();
+}
+
 function wb_meta_state(roomId) {
     var entries = wb_room_events(roomId).filter(function (entry) {
         return entry && wb_is_valid_meta_event(entry.e) && entry.h && wb_valid_feed_id(entry.h.fid);
@@ -172,7 +325,7 @@ function wb_meta_state(roomId) {
     if (!created) {
         return {
             managed: false, owner: '', boardName: '', code: '', members: [],
-            aliases: {}, invitations: [], acceptances: []
+            aliases: {}, invitations: [], acceptances: [], protocol: 0, roomId: roomId
         };
     }
 
@@ -227,7 +380,9 @@ function wb_meta_state(roomId) {
         members: members,
         aliases: aliases,
         invitations: invitations,
-        acceptances: acceptances
+        acceptances: acceptances,
+        protocol: Number(created.e.v) >= 3 ? 3 : 2,
+        roomId: roomId
     };
 }
 
@@ -285,20 +440,29 @@ function wb_pending_invitations() {
     return result;
 }
 
+function wb_pending_invitations_for_code(code) {
+    return wb_pending_invitations().filter(function (item) {
+        return item.state.code === code;
+    });
+}
+
 function wb_update_status() {
-    var roomId = cb_current_room_id();
+    var roomId = wb_current_room_id();
     if (!roomId) {
         cb_ble_status('Waiting for nearby device', 0, 0);
         return;
     }
     var members = wb_members(roomId);
-    var peerCount = 0;
+    var peers = Object.create(null);
     if (typeof localPeers === 'object' && localPeers) {
         Object.keys(localPeers).forEach(function (id) {
             var peer = localPeers[id];
-            if (peer && peer.type === 'ble' && peer.status === 'connected') peerCount += 1;
+            if (!peer || peer.type !== 'ble' ||
+                ['online', 'connected'].indexOf(peer.status) < 0) return;
+            peers[peer.name || peer.alias || id] = true;
         });
     }
+    var peerCount = Object.keys(peers).length;
     cb_room_status(Math.max(1, members.length), CB_MAX_MEMBERS, members);
     cb_ble_status(peerCount ? 'Syncing nearby' : 'Waiting for nearby device', peerCount, 0);
 }
@@ -333,7 +497,7 @@ function wb_fresh_board_state(roomId) {
 }
 
 function wb_rebuild_current_board() {
-    var roomId = cb_current_room_id();
+    var roomId = wb_current_room_id();
     if (!roomId) return;
     tremola.collabboard = wb_fresh_board_state(roomId);
     var wasReplay = cb_replay_active;
@@ -353,7 +517,7 @@ function wb_rebuild_current_board() {
 
 function wb_after_meta_change(roomId, kind) {
     var state = wb_meta_state(roomId);
-    if (cb_current_room_id() === roomId && state.managed) {
+    if (wb_current_room_id() === roomId && state.managed) {
         if (wb_has_acceptance(state, myId) && state.members.indexOf(myId) < 0) {
             cb_close_board();
             cb_forget_catalog_room(roomId);
@@ -397,14 +561,14 @@ function whiteboard_new_event(message) {
         entry.room.o = state.managed ? state.owner : header.fid;
         entry.room.b = cb_clean_board_name(event.b) || entry.room.b;
     }
-    if (inserted && authorized && cb_current_room_id() === event.r) {
+    if (inserted && authorized && wb_current_room_id() === event.r) {
         cb_apply(event, header);
         wb_update_status();
     }
 }
 
 function wb_replay_current_board() {
-    var roomId = cb_current_room_id();
+    var roomId = wb_current_room_id();
     wb_room_events(roomId).forEach(function (entry) {
         if (!entry || wb_is_meta_event(entry.e) || !wb_can_edit(roomId, entry.h.fid)) return;
         cb_apply(entry.e, entry.h);
@@ -445,31 +609,55 @@ function cb_create_board() {
         return;
     }
     var code = cb_new_pairing_code();
-    var attempts = 0;
-    while (cb_board_catalog()[wb_room_from_code(code, username, boardName, true).r] && attempts < 20) {
-        code = cb_new_pairing_code();
-        attempts += 1;
-    }
-    var room = wb_room_from_code(code, username, boardName, true);
+    var room = wb_new_room(code, username, boardName);
+    var invitees = wb_draft_invites();
     tremola.collabboardLastUser = username;
     cb_pending_open_kind = 'create';
     cb_force_publish_name = true;
-    wb_publish_meta(wb_make_meta(WB_META_CREATE, room, { b: boardName, p: code }));
+    wb_publish_meta(wb_make_meta(WB_META_CREATE, room, { b: boardName, p: code, v: 3 }));
+    invitees.forEach(function (fid) {
+        wb_publish_meta(wb_make_meta(WB_META_INVITE, room, { to: fid }));
+    });
+    wb_set_draft_invites([]);
     cb_activate_room(room);
 }
 
 function cb_join_board() {
-    cb_set_setup_error('Open Invitations from the top-right menu');
+    var usernameInput = document.getElementById('cb_username');
+    var codeInput = document.getElementById('cb_join_code');
+    var username = cb_clean_username(usernameInput && usernameInput.value);
+    var code = cb_clean_pairing_code(codeInput && codeInput.value);
+    if (!username) {
+        cb_set_setup_error('Enter a name');
+        if (usernameInput) usernameInput.focus();
+        return;
+    }
+    if (!cb_valid_pairing_code(code)) {
+        cb_set_setup_error('Enter a 6-digit code');
+        if (codeInput) codeInput.focus();
+        return;
+    }
+    var matches = wb_pending_invitations_for_code(code);
+    if (!matches.length) {
+        cb_set_setup_error('No signed invitation for this code yet');
+        return;
+    }
+    if (matches.length > 1) {
+        cb_set_setup_error('Open Invitations to choose this board');
+        return;
+    }
+    cb_blur_setup_inputs();
+    wb_accept_pending_invitation(matches[0], username);
 }
 
 function cb_write_board_event(event, applyLocal, trackPending) {
-    var roomId = cb_current_room_id();
+    var roomId = wb_current_room_id();
     if (!roomId || cb_native_config_pending) return false;
     if (!wb_can_edit(roomId, myId)) {
         cb_ble_status('Board access is not active', 0, 0);
         return false;
     }
-    var room = cb_current_room();
+    var room = wb_current_room();
     event.r = roomId;
     if (room && room.u) event.u = cb_clean_username(room.u);
     if (typeof event.l !== 'number' || !isFinite(event.l) || event.l <= 0) {
@@ -501,7 +689,7 @@ function wb_mount_invite_menu() {
 }
 
 function whiteboard_invite_contacts() {
-    var room = cb_current_room();
+    var room = wb_current_room();
     if (!room) {
         cb_set_setup_mode('create');
         var name = document.getElementById('cb_board_name');
@@ -516,12 +704,10 @@ function whiteboard_invite_contacts() {
     }
     wb_mount_invite_menu();
     closeOverlay();
+    var header = document.getElementById('menu_invite_hdr');
+    if (header) header.innerHTML = '<b>Invite contacts</b>';
     var content = document.getElementById('menu_invite_content');
-    var contacts = Object.keys(tremola.contacts || {}).filter(function (fid) {
-        return fid !== myId && wb_is_verified_contact(fid);
-    }).sort(function (a, b) {
-        return (wb_contact_alias(a) || a).localeCompare(wb_contact_alias(b) || b);
-    });
+    var contacts = wb_verified_contacts();
     var invited = Object.create(null);
     state.invitations.forEach(function (entry) { invited[entry.e.to] = true; });
     var html = "<div class='wb_invite_intro'>Verified contacts only. Up to eight can be invited; four can join.</div>";
@@ -555,7 +741,7 @@ function whiteboard_invite_contacts() {
 }
 
 function whiteboard_invite_contact(fid) {
-    var room = cb_current_room();
+    var room = wb_current_room();
     var state = room ? wb_meta_state(room.r) : null;
     if (!room || !state || !state.managed || state.owner !== myId || !wb_is_verified_contact(fid)) {
         launch_snackbar('This contact cannot be invited');
@@ -621,26 +807,32 @@ function whiteboard_accept_invite(inviteId) {
         if (input) input.focus();
         return;
     }
+    wb_accept_pending_invitation(item, username);
+}
+
+function wb_accept_pending_invitation(item, username) {
+    if (!item || !username) return false;
     if (item.state.members.length >= CB_MAX_MEMBERS) {
         launch_snackbar('This board already has four members');
-        return;
+        return false;
     }
     var room = {
-        v: 2,
+        v: item.state.protocol >= 3 ? 3 : 2,
         r: item.roomId,
-        k: wb_token(item.state.code, 'key', 48),
+        k: wb_room_key(item.roomId, item.state.code, item.state.protocol),
         o: item.state.owner,
         u: username,
         b: item.state.boardName,
         p: item.state.code,
-        d: 2
+        d: item.state.protocol >= 3 ? 3 : 2
     };
     tremola.collabboardLastUser = username;
-    wb_publish_meta(wb_make_meta(WB_META_ACCEPT, room, { invite: inviteId }));
+    wb_publish_meta(wb_make_meta(WB_META_ACCEPT, room, { invite: item.invitation.e.id }));
     closeOverlay();
     cb_pending_open_kind = 'join';
     cb_force_publish_name = false;
     cb_activate_room(room);
+    return true;
 }
 
 function whiteboard_decline_invite(inviteId) {
@@ -650,7 +842,7 @@ function whiteboard_decline_invite(inviteId) {
 }
 
 function wb_publish_profile_if_needed() {
-    var room = cb_current_room();
+    var room = wb_current_room();
     if (!room) return;
     var state = wb_meta_state(room.r);
     var username = cb_clean_username(room.u);
@@ -669,9 +861,101 @@ cb_copy_invite = function () {
     whiteboard_invite_contacts();
 };
 
+var wb_show_setup_base = cb_show_setup;
+cb_show_setup = function (show) {
+    wb_show_setup_base(show);
+    wb_set_plus_visibility(!!show && curr_scenario === 'whiteboard');
+    if (show) wb_render_draft_invites();
+};
+
+function wb_install_export_button() {
+    if (document.getElementById('wb_export_btn')) return;
+    var clear = document.getElementById('cb_clear_btn');
+    if (!clear || !clear.parentNode || !document.createElement) return;
+    var button = document.createElement('button');
+    button.id = 'wb_export_btn';
+    button.className = 'cb_tool wb_export_btn';
+    button.type = 'button';
+    button.textContent = 'Export';
+    button.setAttribute('aria-label', 'Export board');
+    button.onclick = whiteboard_show_export;
+    clear.parentNode.appendChild(button);
+}
+
+function whiteboard_show_export() {
+    if (!wb_current_room()) return;
+    wb_mount_invite_menu();
+    closeOverlay();
+    var header = document.getElementById('menu_invite_hdr');
+    var content = document.getElementById('menu_invite_content');
+    if (header) header.innerHTML = '<b>Export board</b>';
+    content.innerHTML = "<div class='wb_export_intro'>Export only the whiteboard canvas.</div>" +
+        "<button class='wb_export_choice' type='button' onclick=\"whiteboard_export('jpeg')\">JPEG image</button>" +
+        "<button class='wb_export_choice' type='button' onclick=\"whiteboard_export('pdf')\">PDF document</button>";
+    document.getElementById('div:invite_menu').style.display = 'initial';
+    document.getElementById('overlay-bg').style.display = 'initial';
+    overlayIsActive = true;
+}
+
+function wb_export_data_url(format) {
+    var width = 1200;
+    var scale = width / CB_BOARD_WIDTH;
+    var height = Math.round(CB_BOARD_HEIGHT * scale);
+    var canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    var ctx = canvas.getContext('2d');
+    var originalDark = cb_dark_canvas;
+    var exportDark = format === 'jpeg' && originalDark;
+    ctx.fillStyle = exportDark ? '#0f1115' : '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.save();
+    ctx.scale(scale, scale);
+    cb_dark_canvas = exportDark;
+    try {
+        var state = cb_state();
+        cb_visible_objects(state).forEach(function (object) {
+            var transform = cb_xf(state, object);
+            var color = cb_eff_color(state, object);
+            if (object.k === 's') cb_draw_stroke(ctx, object, transform, color);
+            else if (object.k === 't') cb_draw_text(ctx, object, transform, color);
+        });
+    } finally {
+        cb_dark_canvas = originalDark;
+        ctx.restore();
+    }
+    return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+function whiteboard_export(format) {
+    if (wb_export_busy || !wb_current_room()) return;
+    wb_export_busy = true;
+    closeOverlay();
+    try {
+        var normalized = format === 'pdf' ? 'pdf' : 'jpeg';
+        var dataUrl = wb_export_data_url(normalized);
+        var payload = dataUrl.slice(dataUrl.indexOf(',') + 1);
+        if (typeof Android !== 'undefined' && typeof Android.exportWhiteboard === 'function') {
+            Android.exportWhiteboard(normalized, payload);
+        } else if (normalized === 'jpeg') {
+            var link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = 'whiteboard.jpg';
+            link.click();
+        } else {
+            launch_snackbar('PDF export needs the Android app');
+        }
+    } catch (_error) {
+        launch_snackbar('Could not export board');
+    }
+    setTimeout(function () { wb_export_busy = false; }, 500);
+}
+
 function whiteboard_open() {
     wb_install_sync_status_hooks();
     wb_mount_invite_menu();
+    wb_install_draft_invites();
+    wb_install_export_button();
     setScenario('whiteboard');
     var core = document.getElementById('core');
     if (core) {
@@ -680,10 +964,11 @@ function whiteboard_open() {
         core.style.height = 'calc(100vh - 51pt)';
         core.style.overflow = 'hidden';
     }
-    document.getElementById('tremolaTitle').style.display = 'none';
-    var title = document.getElementById('conversationTitle');
-    title.style.display = null;
-    title.innerHTML = '<strong>Collaboration Board</strong>';
+    wb_set_title();
+    if (document.querySelector) {
+        var help = document.querySelector('#cb_code_help p');
+        if (help) help.textContent = 'Enter the code from a signed invitation. A code alone cannot open a board.';
+    }
 
     if (tremola.collabboardRoom) {
         cb_remember_room(tremola.collabboardRoom, true);
@@ -722,7 +1007,7 @@ function whiteboard_back() {
         cb_exit_view();
         return;
     }
-    if (cb_current_room() && tremola.collabboardRoom) {
+    if (wb_current_room()) {
         cb_close_board();
         return;
     }

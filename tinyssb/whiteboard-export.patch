@@ -1,0 +1,147 @@
+diff --git a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/MainActivity.kt b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/MainActivity.kt
+--- a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/MainActivity.kt
++++ b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/MainActivity.kt
+@@ -69,5 +69,6 @@ class MainActivity : Activity() {
+     companion object {
+         const val BLE_PERMISSION_REQUEST = 555
++        const val WHITEBOARD_EXPORT_REQUEST = 1809
+         const val BLUETOOTH_SCAN_PERMISSION = "android.permission.BLUETOOTH_SCAN"
+         const val BLUETOOTH_CONNECT_PERMISSION = "android.permission.BLUETOOTH_CONNECT"
+         const val BLUETOOTH_ADVERTISE_PERMISSION = "android.permission.BLUETOOTH_ADVERTISE"
+@@ -88,6 +89,7 @@ class MainActivity : Activity() {
+     var broadcastReceiver: BroadcastReceiver? = null
+     var isWifiConnected = false
+     var ble_event_listener: BluetoothEventListener? = null
++    private var pendingWhiteboardExport: ByteArray? = null
+
+     private fun requiredBlePermissions(): Array<String> {
+         val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+@@ -122,6 +124,24 @@ class MainActivity : Activity() {
+         }
+     }
+
++    fun beginWhiteboardExport(fileName: String, mimeType: String, content: ByteArray) {
++        runOnUiThread {
++            pendingWhiteboardExport = content
++            try {
++                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
++                    addCategory(Intent.CATEGORY_OPENABLE)
++                    type = mimeType
++                    putExtra(Intent.EXTRA_TITLE, fileName)
++                }
++                startActivityForResult(intent, WHITEBOARD_EXPORT_REQUEST)
++            } catch (error: Exception) {
++                pendingWhiteboardExport = null
++                Log.e("WhiteboardExport", "Could not open file picker", error)
++                Toast.makeText(this, "Could not export whiteboard.", Toast.LENGTH_LONG).show()
++            }
++        }
++    }
++
+     /*
+     var broadcast_socket: DatagramSocket? = null
+     var server_socket: ServerSocket? = null
+@@ -370,6 +391,22 @@ class MainActivity : Activity() {
+
+     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+         Log.d("activityResult", "request code ${requestCode} ${data}")
++        if (requestCode == WHITEBOARD_EXPORT_REQUEST) {
++            val content = pendingWhiteboardExport
++            pendingWhiteboardExport = null
++            if (resultCode == RESULT_OK && data?.data != null && content != null) {
++                try {
++                    contentResolver.openOutputStream(data.data!!)?.use { it.write(content) }
++                        ?: throw IllegalStateException("No output stream")
++                    Toast.makeText(this, "Whiteboard saved.", Toast.LENGTH_SHORT).show()
++                } catch (error: Exception) {
++                    Log.e("WhiteboardExport", "Could not save whiteboard", error)
++                    Toast.makeText(this, "Could not save whiteboard.", Toast.LENGTH_LONG).show()
++                }
++            }
++            super.onActivityResult(requestCode, resultCode, data)
++            return
++        }
+         val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
+         if (requestCode == 808) {
+             if (data == null)
+diff --git a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt
+--- a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt
++++ b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt
+@@ -7,6 +7,10 @@ import android.content.Context
+ import android.content.Intent
+ import android.content.pm.PackageManager
+ import android.net.Uri
++import android.graphics.BitmapFactory
++import android.graphics.Color
++import android.graphics.RectF
++import android.graphics.pdf.PdfDocument
+ import android.util.Base64
+ import android.util.Log
+ import android.webkit.JavascriptInterface
+@@ -43,6 +47,10 @@ import nz.scuttlebutt.tremolavossbol.utils.Constants.Companion.TINYSSB_APP_NEWTR
+ import nz.scuttlebutt.tremolavossbol.utils.Constants.Companion.TINYSSB_APP_TICTACTOE
+ import okio.ByteString.Companion.decodeHex
+ import java.io.File
++import java.io.ByteArrayOutputStream
++import java.text.SimpleDateFormat
++import java.util.Date
++import java.util.Locale
+
+
+ // pt 3 in https://betterprogramming.pub/5-android-webview-secrets-you-probably-didnt-know-b23f8a8b5a0c
+@@ -810,6 +818,55 @@ class WebAppInterface(val act: MainActivity, val webView: WebView) {
+         Bipf.encode(body)?.let { act.tinyNode.publish_public_content(it) }
+     }
+
++    @JavascriptInterface
++    fun exportWhiteboard(format: String, encodedImage: String) {
++        try {
++            val image = Base64.decode(encodedImage, Base64.NO_WRAP)
++            val normalized = if (format.lowercase(Locale.US) == "pdf") "pdf" else "jpeg"
++            val content = if (normalized == "pdf") whiteboardPdf(image) else image
++            val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
++            val extension = if (normalized == "pdf") "pdf" else "jpg"
++            val mime = if (normalized == "pdf") "application/pdf" else "image/jpeg"
++            act.beginWhiteboardExport("whiteboard-$stamp.$extension", mime, content)
++        } catch (error: Exception) {
++            Log.e("WhiteboardExport", "Could not prepare whiteboard export", error)
++            act.runOnUiThread {
++                Toast.makeText(act, "Could not export whiteboard.", Toast.LENGTH_LONG).show()
++            }
++        }
++    }
++
++    private fun whiteboardPdf(image: ByteArray): ByteArray {
++        val bitmap = BitmapFactory.decodeByteArray(image, 0, image.size)
++            ?: throw IllegalArgumentException("Invalid whiteboard image")
++        val document = PdfDocument()
++        try {
++            val pageWidth = 900
++            val pageHeight = 1200
++            val margin = 24f
++            val page = document.startPage(
++                PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
++            )
++            page.canvas.drawColor(Color.WHITE)
++            val availableWidth = pageWidth - 2f * margin
++            val availableHeight = pageHeight - 2f * margin
++            val scale = minOf(availableWidth / bitmap.width, availableHeight / bitmap.height)
++            val width = bitmap.width * scale
++            val height = bitmap.height * scale
++            val left = (pageWidth - width) / 2f
++            val top = (pageHeight - height) / 2f
++            page.canvas.drawBitmap(bitmap, null, RectF(left, top, left + width, top + height), null)
++            document.finishPage(page)
++            return ByteArrayOutputStream().use { output ->
++                document.writeTo(output)
++                output.toByteArray()
++            }
++        } finally {
++            document.close()
++            bitmap.recycle()
++        }
++    }
++
+     fun return_voice(voice: ByteArray) {
+         var cmd = "b2f_new_voice('" + voice.toBase64() + "');"
+         Log.d("CMD", cmd)

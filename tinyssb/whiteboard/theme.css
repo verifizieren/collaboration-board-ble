@@ -66,6 +66,94 @@
   display: none !important;
 }
 
+#div\:collabboard-main #cb_toolbar {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+#div\:collabboard-main #cb_delete_btn {
+  grid-column: 1;
+  padding: 0 4px;
+  font-size: 11px;
+}
+
+#div\:collabboard-main #cb_clear_btn {
+  grid-column: 2 / span 2;
+}
+
+#div\:collabboard-main #wb_export_btn {
+  grid-column: 4;
+  padding: 0 4px;
+  font-size: 11px;
+}
+
+.wb_draft_invites {
+  width: 100%;
+  min-height: 38px;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  border: 1px solid #cfd5da;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #245fbd;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.wb_member_hint {
+  margin: 4px 8px 14px;
+  color: #4c5359;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.wb_member_row {
+  width: calc(100% - 12px);
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px;
+  padding: 7px 10px;
+  border: 1px solid #dfe3e7;
+  border-radius: 6px;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.96);
+  color: #1c1d1f;
+  text-align: left;
+}
+
+.wb_member_row input {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  accent-color: #245fbd;
+}
+
+.wb_member_row > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wb_member_row strong,
+.wb_member_row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb_member_row span {
+  color: #687078;
+  font-size: 10px;
+}
+
+.wb_member_self {
+  opacity: 0.78;
+}
+
 .wb_invite_intro,
 .wb_invite_empty {
   margin: 8px 8px 14px;
@@ -201,4 +289,25 @@
   border-radius: 6px;
   box-sizing: border-box;
   font: inherit;
+}
+
+.wb_export_intro {
+  margin: 8px 8px 12px;
+  color: #4c5359;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.wb_export_choice {
+  width: calc(100% - 16px);
+  min-height: 44px;
+  margin: 4px 8px;
+  padding: 8px 12px;
+  border: 1px solid #245fbd;
+  border-radius: 6px;
+  background: #245fbd;
+  color: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
 }

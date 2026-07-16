@@ -82,6 +82,13 @@ strong confidentiality against a nearby observer. BLE addresses and handshake
 metadata are not hidden. The older owner-pairing messages remain readable for
 old saved boards, but new boards use direct code access.
 
+The separate tinySSB build uses a different access flow. A new board gets a
+random ID. The creator sends signed invitations to verified tinySSB contacts,
+and recipients can accept later from the Invitations menu. Up to eight contacts
+may be invited. The creator and the first three valid acceptances can edit.
+The short code can select an invitation already received on that phone, but it
+cannot derive or discover a room. Public `WBD` events are not encrypted.
+
 ## BLE Protocol
 
 The old implementation could lose one large JSON message when one BLE fragment
@@ -168,7 +175,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 - Android lint, APK build, signature, version, and bundled files
 
 `./scripts/build-tinyssb.sh` separately checks the tinySSB patch application,
-JavaScript, native build, signature, and bundled assets.
+invitation rules, JavaScript, native export, signature, and bundled assets.
 
 The emulator cannot test real BLE radio exchange. Two physical phones are still
 required for the final acceptance test.
@@ -185,6 +192,7 @@ required for the final acceptance test.
 - `BoardProtocolInstrumentedTest.kt` - Android crypto tests
 - `tinyssb/integration.patch` - official tinySSB Android integration
 - `tinyssb/ble-startup.patch` - tinySSB BLE permission and restart fix
+- `tinyssb/whiteboard-export.patch` - Android JPEG and PDF export
 - `scripts/build-tinyssb.sh` - reproducible tinySSB APK build
 
 ## References

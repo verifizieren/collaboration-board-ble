@@ -84,9 +84,14 @@ The six-digit code directly selects the board. No owner has to stay nearby for
 joining. Anyone with the code can open the board until the four-member limit is
 reached. Treat the code like a simple shared password.
 
-In the tinySSB APK, open **Productivity > Collaboration Board**. Its code only
-selects the board. tinySSB public events are not encrypted and the four-member
-label is not a hard access limit. Use the Tremola APK for the main submission.
+In the tinySSB APK, open **Productivity > Collaboration Board**. Add and verify
+contacts first. Use `+` before creating a board, or **Invite** later. The other
+person accepts from the top-right **Invitations** menu. The signed invitation
+contains the exact random board ID, so a six-digit code cannot open a different
+board. After that invitation arrives, the Join form can also select it by its
+six-digit code. The creator and the first three contacts who accept can edit.
+Up to eight contacts may be invited. tinySSB `WBD` events are public and not
+encrypted.
 
 Changing the display name does not create another member. The Tremola feed ID
 stays the same. Deleting a board removes only its copy on that phone.
