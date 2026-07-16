@@ -25,7 +25,8 @@ internal data class BoardRoomConfig(
     val ownerId: String,
     val username: String,
     val boardName: String = "Board",
-    val codeVerifier: String = ""
+    val codeVerifier: String = "",
+    val directAccess: Boolean = false
 )
 
 internal data class BoardHello(
@@ -97,6 +98,7 @@ internal object BoardProtocol {
             val boardName = cleanBoardName(obj.optString("b", ""))
             val pairingCode = obj.optString("p", "").trim()
             val storedVerifier = obj.optString("h", "")
+            val directAccess = obj.optInt("d", 0) == 1
             val roomKey = decodeUrlBase64(keyText) ?: return null
             if (!isValidRoomId(roomId) || roomKey.size != ROOM_KEY_BYTES ||
                 !isValidFeedId(ownerId) || username.isBlank()
@@ -113,7 +115,8 @@ internal object BoardProtocol {
                 ownerId,
                 username,
                 boardName.ifBlank { "Board" },
-                codeVerifier
+                codeVerifier,
+                directAccess
             )
         } catch (_: Exception) {
             null
@@ -128,7 +131,35 @@ internal object BoardProtocol {
             .put("u", config.username)
             .put("b", config.boardName)
         if (isValidCodeVerifier(config.codeVerifier)) result.put("h", config.codeVerifier)
+        if (config.directAccess) result.put("d", 1)
         return result.toString()
+    }
+
+    fun directConfig(
+        code: String,
+        ownerId: String,
+        username: String,
+        boardName: String
+    ): BoardRoomConfig? {
+        val cleanCode = code.trim()
+        val cleanName = cleanUsername(username)
+        if (!isValidPairingCode(cleanCode) || !isValidFeedId(ownerId) || cleanName.isBlank()) {
+            return null
+        }
+        val roomId = "code-$cleanCode-v1"
+        val roomKey = MessageDigest.getInstance("SHA-256")
+            .digest("$DIRECT_KEY_DOMAIN|$cleanCode".encodeToByteArray())
+        val cleanBoardName = cleanBoardName(boardName).ifBlank { "Board $cleanCode" }
+        return BoardRoomConfig(
+            roomId = roomId,
+            roomKey = roomKey,
+            roomKeyText = encodeUrlBase64(roomKey),
+            ownerId = ownerId,
+            username = cleanName,
+            boardName = cleanBoardName,
+            codeVerifier = pairingCodeVerifier(roomId, cleanCode),
+            directAccess = true
+        )
     }
 
     fun createOperation(
@@ -266,21 +297,25 @@ internal object BoardProtocol {
 
     fun verifyHello(config: BoardRoomConfig, msg: JSONObject): BoardHello? {
         return try {
-            if (msg.optInt("v", 0) != VERSION || msg.optString("r") != config.roomId ||
-                msg.optString("o") != config.ownerId
-            ) return null
+            if (msg.optInt("v", 0) != VERSION || msg.optString("r") != config.roomId) return null
             val feedId = msg.optString("f", "")
+            val ownerId = msg.optString("o", "")
             val username = cleanUsername(msg.optString("u", ""))
             val nonce = msg.optString("n", "")
             val reply = msg.optBoolean("reply", false)
             val admissionWire = msg.optJSONObject("m")?.toString()
-            if (!isValidFeedId(feedId) || username.isBlank() ||
+            if (!isValidFeedId(feedId) || !isValidFeedId(ownerId) || username.isBlank() ||
                 decodeUrlBase64(nonce)?.size != HELLO_NONCE_BYTES
             ) return null
+            if (config.directAccess) {
+                if (ownerId != feedId) return null
+            } else if (ownerId != config.ownerId) {
+                return null
+            }
             val canonical = helloCanonical(
                 config.roomId,
                 feedId,
-                config.ownerId,
+                ownerId,
                 username,
                 nonce,
                 reply,
@@ -916,6 +951,7 @@ internal object BoardProtocol {
     private const val PAIRING_SALT_BYTES = 16
     private const val PAIRING_CODE_LENGTH = 6
     private const val PAIRING_CODE_VERIFIER_DOMAIN = "collabboard-delete-v1"
+    private const val DIRECT_KEY_DOMAIN = "collabboard-direct-key-v1"
     private const val PAIRING_KDF_ITERATIONS = 120_000
     private const val MAX_PAIRING_TTL_SECONDS = 600
     private const val MAX_PAIRING_OFFER_BYTES = 4096

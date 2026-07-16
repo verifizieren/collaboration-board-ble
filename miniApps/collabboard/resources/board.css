@@ -432,12 +432,31 @@
 
 .cb_canvas_frame {
   position: relative;
+  width: 100%;
   min-height: 0;
+  min-width: 0;
   flex: 1 1 auto;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   overflow: auto;
+}
+
+.cb_canvas_frame.cb_edit_navigation {
+  flex: 0 0 auto;
+  display: block;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.cb_canvas_frame.cb_edit_navigation #cb_canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 900px;
+  height: 1200px;
+  max-width: none;
+  transform-origin: 0 0;
 }
 
 .cb_view_exit {

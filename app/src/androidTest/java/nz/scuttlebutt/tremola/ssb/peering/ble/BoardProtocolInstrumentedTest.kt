@@ -197,4 +197,62 @@ class BoardProtocolInstrumentedTest {
         val tampered = JSONObject(offer.toString()).put("f", owner.toRef())
         assertNull(BoardProtocol.verifyPairingOffer(tampered, "123456", challenge, "Bob"))
     }
+
+    @Test
+    fun sixDigitDirectBoardsOpenWithoutAnOwnerHandshake() {
+        val alice = SSBid()
+        val bob = SSBid()
+        val aliceConfig = BoardProtocol.directConfig(
+            "482913",
+            alice.toRef(),
+            "Alice",
+            "DPI Project"
+        )!!
+        val bobConfig = BoardProtocol.directConfig(
+            "482913",
+            bob.toRef(),
+            "Bob",
+            ""
+        )!!
+        val otherBoard = BoardProtocol.directConfig(
+            "482914",
+            bob.toRef(),
+            "Bob",
+            ""
+        )!!
+
+        assertTrue(aliceConfig.directAccess)
+        assertEquals("code-482913-v1", aliceConfig.roomId)
+        assertEquals(aliceConfig.roomId, bobConfig.roomId)
+        assertTrue(aliceConfig.roomKey.contentEquals(bobConfig.roomKey))
+        assertFalse(aliceConfig.roomKey.contentEquals(otherBoard.roomKey))
+        assertEquals(alice.toRef(), aliceConfig.ownerId)
+        assertEquals(bob.toRef(), bobConfig.ownerId)
+        assertEquals("Board 482913", bobConfig.boardName)
+        assertTrue(JSONObject(BoardProtocol.configJson(aliceConfig)).getInt("d") == 1)
+        assertTrue(BoardProtocol.matchesPairingCode(aliceConfig, "482913"))
+
+        val hello = BoardProtocol.createHello(
+            bobConfig,
+            bob,
+            replyRequested = true,
+            admissionWire = null
+        )
+        val verified = BoardProtocol.verifyHello(aliceConfig, hello)!!
+        assertEquals(bob.toRef(), verified.feedId)
+        assertEquals("Bob", verified.username)
+        assertNull(BoardProtocol.verifyHello(otherBoard, hello))
+
+        val event = JSONObject()
+            .put("k", "t")
+            .put("id", "direct-text-1")
+            .put("ts", 42L)
+            .put("s", "SGVsbG8=")
+        val operation = BoardProtocol.createOperation(bobConfig, bob, 1, event)!!
+        assertEquals(
+            "direct-text-1",
+            BoardProtocol.decodeOperation(aliceConfig, operation.operation.wireJson)!!.payload
+                .getString("id")
+        )
+    }
 }

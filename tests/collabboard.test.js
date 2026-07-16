@@ -239,7 +239,8 @@ const immediateTextBoard = loadBoard();
 const immediateTextInput = {
     value: "Persistent text",
     style: {},
-    focus: function () {}
+    focus: function () {},
+    blur: function () {}
 };
 immediateTextBoard.document.getElementById = function (id) {
     if (id === "cb_text") return immediateTextInput;
@@ -249,10 +250,38 @@ immediateTextBoard.document.getElementById = function (id) {
 immediateTextBoard.cb_tool = "text";
 immediateTextBoard.cb_place_text([30, 40]);
 assert.strictEqual(immediateTextBoard.writes.length, 1);
-assert.strictEqual(immediateTextBoard.cb_tool, "text");
+assert.strictEqual(immediateTextBoard.cb_tool, "select");
+assert.strictEqual(immediateTextBoard.cb_sel, immediateTextBoard.writes[0].id);
 assert.strictEqual(snapshot(immediateTextBoard).length, 1);
 apply(immediateTextBoard, immediateTextBoard.writes[0], "@alice.ed25519");
 assert.strictEqual(snapshot(immediateTextBoard).length, 1);
+
+// Android's keyboard Go action hides the keyboard without placing the text.
+// The next board tap still uses the active text tool.
+const textGoBoard = loadBoard();
+let textBlurred = 0;
+let canvasFocused = 0;
+const textGoInput = {
+    value: "Place me", style: {}, focus: function () {},
+    blur: function () { textBlurred += 1; }
+};
+textGoBoard.document.getElementById = function (id) {
+    if (id === "cb_text") return textGoInput;
+    if (id === "cb_canvas") return { focus: function () { canvasFocused += 1; } };
+    return null;
+};
+textGoBoard.cb_tool = "text";
+let goPrevented = 0;
+textGoBoard.cb_text_keydown({
+    key: "Enter",
+    preventDefault: function () { goPrevented += 1; }
+});
+assert.strictEqual(goPrevented, 1);
+assert.strictEqual(textBlurred, 1);
+assert.strictEqual(canvasFocused, 1);
+assert.strictEqual(textGoBoard.cb_tool, "text");
+assert.strictEqual(textGoInput.value, "Place me");
+assert.strictEqual(textGoBoard.writes.length, 0);
 
 // Shared text is large enough to remain readable after the 900-wide board is
 // fitted to a phone screen, and its selection box uses the same dimensions.
@@ -408,9 +437,11 @@ gestureUi.color.value = "#7c3aed";
 gestureUi.textInput.value = "Shared text";
 gestureSender.cb_set_tool("text");
 gestureSender.cb_down(pointerEvent(gestureUi.canvas, 34, 90, 80));
-assert.strictEqual(gestureSender.cb_pointer_id, null);
+assert.strictEqual(gestureSender.writes.length, 5);
 gestureSender.cb_up(pointerEvent(gestureUi.canvas, 34, 90, 80));
 assert.strictEqual(gestureSender.writes[5].k, "t");
+assert.strictEqual(gestureSender.cb_tool, "select");
+assert.strictEqual(gestureSender.cb_sel, gestureSender.writes[5].id);
 apply(gestureReceiver, gestureSender.writes[5], "@alice.ed25519");
 assert.strictEqual(snapshot(gestureReceiver)[0].color, "#7c3aed");
 
@@ -519,6 +550,62 @@ cancelMoveBoard.cb_move(pointerEvent(cancelMoveUi.canvas, 65, 40, 35));
 cancelMoveBoard.cb_cancel(pointerEvent(cancelMoveUi.canvas, 65, 40, 35));
 assert.strictEqual(cancelMoveBoard.writes.length, 1);
 assert.strictEqual(cancelMoveBoard.writes[0].k, "m");
+
+// Two fingers navigate in every editing tool. Starting the gesture cancels the
+// unfinished one-finger action so it cannot leave an accidental dot or label.
+const editNavBoard = loadBoard();
+const editNavUi = pointerHarness(editNavBoard, "#2563eb");
+const editNavFrame = {
+    style: {}, clientWidth: 320, clientHeight: 240,
+    getBoundingClientRect: function () {
+        return { left: 0, top: 0, width: 320, height: 240 };
+    }
+};
+const editNavLookup = editNavBoard.document.getElementById;
+editNavBoard.document.getElementById = function (id) {
+    if (id === "cb_canvas_frame") return editNavFrame;
+    return editNavLookup(id);
+};
+editNavBoard.cb_edit_view = {
+    scale: 1 / 3, x: 10, y: 0, fit: 1 / 3,
+    minScale: 0.1, maxScale: 2, width: 320, height: 240, initialized: true
+};
+editNavBoard.cb_set_tool("pen");
+editNavBoard.cb_down(pointerEvent(editNavUi.canvas, 71, 90, 90));
+assert.ok(editNavBoard.cb_draft);
+const secondNavDown = pointerEvent(editNavUi.canvas, 72, 190, 90);
+secondNavDown.isPrimary = false;
+editNavBoard.cb_down(secondNavDown);
+assert.strictEqual(editNavBoard.cb_draft, null);
+assert.strictEqual(editNavBoard.cb_edit_navigation, true);
+const secondNavMove = pointerEvent(editNavUi.canvas, 72, 260, 90);
+secondNavMove.isPrimary = false;
+editNavBoard.cb_move(secondNavMove);
+assert.ok(editNavBoard.cb_edit_view.scale > 1 / 3);
+editNavBoard.cb_up(secondNavMove);
+editNavBoard.cb_up(pointerEvent(editNavUi.canvas, 71, 90, 90));
+assert.strictEqual(editNavBoard.writes.length, 0);
+assert.strictEqual(editNavBoard.cb_edit_navigation, false);
+
+editNavUi.textInput.value = "Do not place";
+editNavBoard.cb_set_tool("text");
+editNavBoard.cb_down(pointerEvent(editNavUi.canvas, 73, 80, 80));
+const textNavSecond = pointerEvent(editNavUi.canvas, 74, 180, 80);
+textNavSecond.isPrimary = false;
+editNavBoard.cb_down(textNavSecond);
+editNavBoard.cb_up(textNavSecond);
+editNavBoard.cb_up(pointerEvent(editNavUi.canvas, 73, 80, 80));
+assert.strictEqual(editNavBoard.writes.length, 0);
+
+editNavBoard.cb_set_tool("pen");
+editNavBoard.cb_down(pointerEvent(editNavUi.canvas, 75, 80, 80));
+const lostNavSecond = pointerEvent(editNavUi.canvas, 76, 180, 80);
+lostNavSecond.isPrimary = false;
+editNavBoard.cb_down(lostNavSecond);
+editNavBoard.cb_lost_capture(lostNavSecond);
+editNavBoard.cb_lost_capture(pointerEvent(editNavUi.canvas, 75, 80, 80));
+assert.strictEqual(editNavBoard.cb_edit_navigation, false);
+assert.strictEqual(editNavBoard.writes.length, 0);
 
 finishTransform(transformSender, { mode: "move", dx: 30, dy: -10, sc: 1 });
 assert.strictEqual(transformSender.writes[0].k, "m");
@@ -822,6 +909,20 @@ assert.strictEqual(Buffer.from(
 inviteBoard.cb_pairing_started(true, 600);
 assert.strictEqual(copiedInvite, "123456");
 
+const directInviteBoard = loadBoard({ android: true });
+directInviteBoard.tremola.collabboardRoom = {
+    v: 1, r: "code-654321-v1", k: "direct-room-key",
+    o: directInviteBoard.myId, u: "Alice", p: "654321", d: 1
+};
+let copiedDirectCode = "";
+directInviteBoard.Android.copyCollaborationBoardInvite = function (encoded) {
+    copiedDirectCode = Buffer.from(encoded, "base64").toString("utf8");
+    return true;
+};
+directInviteBoard.cb_copy_invite();
+assert.strictEqual(copiedDirectCode, "654321");
+assert.strictEqual(directInviteBoard.commands.length, 0);
+
 const uniqueCodeBoard = loadBoard();
 uniqueCodeBoard.tremola.collabboardBoards = {
     one: { room: { p: "123456" }, updated: 1 }
@@ -833,35 +934,41 @@ uniqueCodeBoard.cb_random_pairing_code = function () {
 };
 assert.strictEqual(uniqueCodeBoard.cb_new_pairing_code(), "654321");
 
-// Creating generates a six-digit code. The real board key is separate and is
-// only returned by the native pairing protocol.
+// Creating generates a six-digit code and asks Android to open its deterministic
+// room directly. There is no owner-pairing wait.
 const createBoard = loadBoard({ android: true });
 const createName = { value: "Alice", focus: function () {} };
 const createBoardName = { value: "DPI Project", focus: function () {} };
+createBoard.cb_random_pairing_code = function () { return "482913"; };
 createBoard.document.getElementById = function (id) {
     if (id === "cb_username") return createName;
     if (id === "cb_board_name") return createBoardName;
     return null;
 };
 createBoard.cb_create_board();
+assert.strictEqual(createBoard.commands[0].startsWith("collabboard:open-code "), true);
+const createRequest = JSON.parse(Buffer.from(
+    createBoard.commands[0].slice("collabboard:open-code ".length), "base64"
+).toString("utf8"));
+assert.deepStrictEqual(createRequest, { u: "Alice", c: "482913", b: "DPI Project" });
+assert.strictEqual(createBoard.cb_current_room(), null);
+createBoard.cb_board_code_opened(JSON.stringify({
+    r: "code-482913-v1", k: "a".repeat(43), o: createBoard.myId,
+    u: "Alice", b: "DPI Project", p: "482913", d: 1
+}));
 const generatedCode = createBoard.tremola.collabboardRoom.p;
-assert.strictEqual(/^\d{6}$/.test(generatedCode), true);
+assert.strictEqual(generatedCode, "482913");
 assert.strictEqual(createBoard.tremola.collabboardRoom.b, "DPI Project");
-assert.strictEqual(createBoard.tremola.collabboardRoom.k.length >= 32, true);
+assert.strictEqual(createBoard.cb_native_config_pending, false);
 const createdRoomId = createBoard.tremola.collabboardRoom.r;
 assert.strictEqual(
     createBoard.tremola.collabboardBoards[createdRoomId].room.b,
     "DPI Project"
 );
-assert.strictEqual(createBoard.commands[0].startsWith("collabboard:configure "), true);
-createBoard.cb_board_configured(true);
 assert.strictEqual(createBoard.commands.includes("collabboard:read"), true);
-const pairingCommand = createBoard.commands.find(function (command) {
+assert.strictEqual(createBoard.commands.some(function (command) {
     return command.startsWith("collabboard:pairing ");
-});
-assert.strictEqual(Buffer.from(
-    pairingCommand.slice("collabboard:pairing ".length), "base64"
-).toString("utf8"), generatedCode);
+}), false);
 createBoard.cb_close_board();
 assert.strictEqual(createBoard.tremola.collabboardRoom, undefined);
 assert.strictEqual(createBoard.tremola.collabboard, undefined);
@@ -963,23 +1070,20 @@ joinBoard.document.getElementById = function (id) {
 };
 joinBoard.cb_join_board();
 assert.strictEqual(joinBoard.commands.length, 1);
-assert.strictEqual(joinBoard.commands[0].startsWith("collabboard:join "), true);
+assert.strictEqual(joinBoard.commands[0].startsWith("collabboard:open-code "), true);
 assert.deepStrictEqual(JSON.parse(Buffer.from(
-    joinBoard.commands[0].slice("collabboard:join ".length), "base64"
+    joinBoard.commands[0].slice("collabboard:open-code ".length), "base64"
 ).toString("utf8")), { u: "Bob", c: "482913" });
 assert.strictEqual(joinBoard.cb_current_room(), null);
-joinBoard.cb_board_join_started(true);
-joinBoard.cb_board_joined(JSON.stringify({
-    r: "joined-room", k: "a".repeat(43), o: "@owner.ed25519", u: "Bob",
-    b: "Shared Plan"
+joinBoard.cb_board_code_opened(JSON.stringify({
+    r: "code-482913-v1", k: "a".repeat(43), o: joinBoard.myId, u: "Bob",
+    b: "Board 482913", p: "482913", d: 1
 }));
-assert.strictEqual(joinBoard.tremola.collabboardRoom.r, "joined-room");
-assert.strictEqual(joinBoard.tremola.collabboardRoom.b, "Shared Plan");
-assert.strictEqual(joinBoard.tremola.collabboardBoards["joined-room"].room.b, "Shared Plan");
-assert.strictEqual(joinBoard.tremola.collabboardRoom.p, undefined);
+assert.strictEqual(joinBoard.tremola.collabboardRoom.r, "code-482913-v1");
+assert.strictEqual(joinBoard.tremola.collabboardRoom.b, "Board 482913");
+assert.strictEqual(joinBoard.tremola.collabboardBoards["code-482913-v1"].room.b, "Board 482913");
+assert.strictEqual(joinBoard.tremola.collabboardRoom.p, "482913");
 assert.strictEqual(joinBoard.commands.includes("collabboard:read"), true);
-assert.strictEqual(joinBoard.cb_native_config_pending, true);
-joinBoard.cb_board_access_ready();
 assert.strictEqual(joinBoard.cb_native_config_pending, false);
 joinBoard.cb_board_access_rejected("Board is full");
 assert.strictEqual(joinBoard.tremola.collabboardRoom, undefined);

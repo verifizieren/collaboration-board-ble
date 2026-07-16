@@ -244,6 +244,17 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
                 val accepted = config != null && tremolaState.bleSync?.configureBoard(config) == true
                 eval("if (typeof cb_board_configured === 'function') cb_board_configured($accepted);")
             }
+            s.startsWith("collabboard:open-code ") -> {
+                val encoded = s.substringAfter("collabboard:open-code ")
+                val request = decodeFrontendBase64(encoded)
+                (act as? MainActivity)?.startBleSyncIfPermitted()
+                val config = request?.let { tremolaState.bleSync?.openBoardByCode(it) }
+                val quoted = JSONObject.quote(config ?: "")
+                eval(
+                    "if (typeof cb_board_code_opened === 'function') " +
+                        "cb_board_code_opened($quoted);"
+                )
+            }
             s.startsWith("collabboard:pairing ") -> {
                 val encoded = s.substringAfter("collabboard:pairing ")
                 val code = decodeFrontendBase64(encoded)

@@ -298,6 +298,24 @@ class BleSync(
         return activateBoard(requested)
     }
 
+    fun openBoardByCode(requestJson: String): String? {
+        val request = try {
+            JSONObject(requestJson)
+        } catch (_: Exception) {
+            return null
+        }
+        val code = request.optString("c", "").trim()
+        val username = BoardProtocol.cleanUsername(request.optString("u", ""))
+        val boardName = BoardProtocol.cleanBoardName(request.optString("b", ""))
+        val ownFeed = tremolaState.idStore.identity.toRef()
+        val config = BoardProtocol.directConfig(code, ownFeed, username, boardName) ?: return null
+        if (!activateBoard(config)) return null
+        return JSONObject(BoardProtocol.configJson(config))
+            .put("p", code)
+            .put("d", 1)
+            .toString()
+    }
+
     private fun activateBoard(requested: BoardRoomConfig): Boolean {
         val ownFeed = tremolaState.idStore.identity.toRef()
         synchronized(boardConfigLock) {
@@ -1749,17 +1767,29 @@ class BleSync(
 
     private fun isAuthorizedBoardMember(feedId: String): Boolean {
         val config = boardConfig ?: return false
+        if (config.directAccess) return true
         return feedId == config.ownerId || verifiedBoardAdmission(feedId) != null
     }
 
     private fun authorizedBoardMemberCount(): Int {
         val config = boardConfig ?: return 0
+        if (config.directAccess) return boardMembers.keys.toSet().size
         return (boardAdmissions.keys.filter { verifiedBoardAdmission(it) != null } + config.ownerId)
             .toSet().size
     }
 
     private fun boardRoster(): Map<String, String> {
         val config = boardConfig ?: return emptyMap()
+        if (config.directAccess) {
+            val ownFeed = tremolaState.idStore.identity.toRef()
+            val result = linkedMapOf(ownFeed to (boardMembers[ownFeed] ?: config.username))
+            boardMembers.keys.sorted().forEach { feedId ->
+                if (feedId != ownFeed && result.size < MAX_BOARD_MEMBERS) {
+                    result[feedId] = boardMembers[feedId] ?: "Nearby"
+                }
+            }
+            return result
+        }
         val result = linkedMapOf(config.ownerId to (boardMembers[config.ownerId] ?: "Owner"))
         boardAdmissions.keys.sorted().forEach { feedId ->
             verifiedBoardAdmission(feedId)?.let { admission ->
@@ -1785,7 +1815,7 @@ class BleSync(
             config,
             tremolaState.idStore.identity,
             replyRequested,
-            boardAdmissions[ownFeed]
+            if (config.directAccess) null else boardAdmissions[ownFeed]
         )
         sendJsonToPeer(peerAddress, msg)
     }
@@ -1798,6 +1828,30 @@ class BleSync(
         }
         val ownFeed = tremolaState.idStore.identity.toRef()
         if (hello.feedId == ownFeed) return
+
+        if (config.directAccess) {
+            val accepted = synchronized(boardConfigLock) {
+                val known = boardMembers.containsKey(hello.feedId)
+                if (!known && authorizedBoardMemberCount() >= MAX_BOARD_MEMBERS) {
+                    false
+                } else {
+                    boardMembers[hello.feedId] = hello.username
+                    authenticatedBoardPeers[peerAddress] = hello.feedId
+                    remoteFeedIds[peerAddress] = hello.feedId
+                    persistBoardMembers()
+                    true
+                }
+            }
+            if (!accepted) {
+                reportStatus("Board is full")
+                return
+            }
+            if (hello.replyRequested) sendBoardHello(peerAddress, replyRequested = false)
+            sendBoardFrontier(peerAddress)
+            reportStatus("Board peer ${hello.username}")
+            reportBoardRoomStatus()
+            return
+        }
 
         var issuedAdmission: BoardAdmission? = null
         val accepted = synchronized(boardConfigLock) {
@@ -1892,6 +1946,7 @@ class BleSync(
 
     private fun handleBoardAdmission(peerAddress: String, msg: JSONObject) {
         val config = boardConfig ?: return
+        if (config.directAccess) return
         val peerFeed = authenticatedBoardPeers[peerAddress] ?: return
         if (msg.optString("r") != config.roomId || msg.optString("f") != peerFeed) return
         val admission = BoardProtocol.verifyAdmission(config, msg.optJSONObject("a")?.toString())

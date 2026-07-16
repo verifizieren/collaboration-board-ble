@@ -78,9 +78,11 @@
     </div>
     <div id='cb_selection_info' class='cb_selection_info' hidden></div>
     <input id='cb_text' class='cb_textinput' type='text' maxlength='120'
-           placeholder='Write text' aria-label='Text to add' style='display: none;'>
+           enterkeyhint='go' autocomplete='off' autocapitalize='sentences'
+           placeholder='Write text' aria-label='Text to add' style='display: none;'
+           onkeydown='cb_text_keydown(event)'>
     <div id='cb_canvas_frame' class='cb_canvas_frame'>
-      <canvas id='cb_canvas' width='900' height='1200'></canvas>
+      <canvas id='cb_canvas' width='900' height='1200' tabindex='-1'></canvas>
       <button id='cb_view_exit' class='cb_view_exit' type='button'
               aria-label='Leave board view' onclick='cb_exit_view()'>&larr;</button>
     </div>

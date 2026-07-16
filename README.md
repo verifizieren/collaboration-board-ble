@@ -15,10 +15,10 @@ A shared whiteboard mini-app inside Tremola for Android.
 - Keep board data and membership after closing the board or app.
 - Work offline and catch up later.
 - Sync nearby phones over Bluetooth Low Energy.
-- Use invite-only boards with up to four members.
+- Join a board with its six-digit code, with up to four members.
 - Show the author's current name when an object is selected.
 
-Every admitted member can edit every object.
+Every member can edit every object.
 
 ## Android APKs
 
@@ -54,16 +54,14 @@ See [`install/README.md`](install/README.md) for the install and test steps.
 6. The app shows a new six-digit code. Share it with the other members.
 7. Other members use **Join** and enter the code.
 8. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, or **Clear all**.
-9. Use **View** to pan and pinch zoom. **Dark** changes only this phone.
-10. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
+9. Press the keyboard **Go** button before placing text. Use two fingers to
+   move or zoom while **Draw** or **Text** is active.
+10. Use **View** to pan and pinch zoom. **Dark** changes only this phone.
+11. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
 
-The board owner must be nearby the first time a new member joins. After that,
-the member keeps a signed admission and can reconnect through any admitted
-member. A board has one owner and at most three other members.
-
-The app creates a new six-digit code for each board. Pairing stays open for 10
-minutes. The real 256-bit board key is created separately and sent only through
-encrypted BLE pairing.
+The six-digit code directly selects the board. No owner has to stay nearby for
+joining. Anyone with the code can open the board until the four-member limit is
+reached. Treat the code like a simple shared password.
 
 Changing the display name does not create another member. The Tremola feed ID
 stays the same. Deleting a board removes only its copy on that phone.
@@ -128,7 +126,7 @@ Android BLE, invitations, encryption, or Android permissions.
 ## Submission
 
 Submit the full repository and the APK in `install/`. The mini-app folder alone
-does not include Android storage, identities, admissions, encryption, or BLE.
+does not include Android storage, identities, encryption, or BLE.
 
 The remaining acceptance test is a real two-phone BLE run with Wi-Fi and mobile
 data turned off.

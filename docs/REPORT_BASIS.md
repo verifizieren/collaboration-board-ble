@@ -12,15 +12,17 @@ phones should work without Internet and exchange changes over BLE.
 
 - The board is integrated as a Tremola mini-app.
 - It runs in the full Tremola Android APK.
-- The app creates a six-digit pairing code for each private board.
+- The app creates a six-digit access code for each board.
 - Each member chooses a display name.
-- The owner admits at most three other Tremola identities.
-- Every admitted member can edit every object.
+- Up to four Tremola identities can use a board.
+- Every member can edit every object.
 - Draw, text, move, resize, color, delete, and clear are supported.
 - The fixed board scales to different phone screens.
 - Boards have names and can be reopened from a local list.
 - A board copy can be deleted locally after entering its code.
 - A full-screen view supports local pan, pinch zoom, and a dark canvas.
+- Draw and Text also allow two-finger pan and zoom.
+- Android's keyboard Go button closes the keyboard before text placement.
 - Board state and membership survive closing the board or app.
 - Offline and late members recover missing operations.
 
@@ -80,24 +82,20 @@ The board is an operation log, not one shared file.
 No phone is always correct or always the master. The signed operations are
 merged with the same deterministic rules on every phone.
 
-## Security
+## Access And Identity
 
 - Tremola feed IDs identify members.
-- The owner signs member admissions.
-- The board key authenticates the handshake.
+- The six-digit code selects the board and derives its board key.
+- A member can join without waiting for the creator.
+- The board key authenticates the BLE hello.
 - Board content uses AES-256-GCM encryption.
 - Operations use Ed25519 signatures.
-- The board is limited to four admitted identities.
+- The board keeps up to four known identities.
 
-The six-digit code is temporary and is not the board key. PBKDF2 derives a
-pairing key, and the random board key is transferred in an encrypted,
-owner-signed BLE message.
-
-The feed ID remains the identity when a user changes the display name. Android
-stores only a verifier for the code. Local deletion does not erase other phones.
-
-The pairing code should be shared privately. BLE radio metadata is not
-encrypted. A six-digit code is convenient, but weaker than a long random code.
+The feed ID remains the identity when a user changes the display name. Local
+deletion does not erase other phones. The code is a simple shared password. It
+is easy to share but much weaker than a long random key. Anyone who knows the
+code can open the board. BLE radio metadata is not hidden.
 
 ## Compatibility
 
@@ -127,9 +125,8 @@ and mobile data off.
 
 - The provided APK is debug-signed.
 - BLE is designed for the app foreground.
-- A new member needs the owner for first admission.
-- Member slots are not revoked; create a new board to reset them.
-- The pairing code does not hide BLE addresses or all handshake metadata.
+- Member slots are not centrally revoked; create a new board to reset them.
+- The short code does not hide BLE addresses or handshake metadata.
 
 ## Suggested Report Sections
 

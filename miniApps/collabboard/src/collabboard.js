@@ -102,6 +102,14 @@ var cb_view = { scale: 1, x: 0, y: 0, minScale: 0.05, maxScale: 4 };
 var cb_view_pointers = Object.create(null);
 var cb_view_gesture = null;
 var cb_view_bound = false;
+var cb_edit_view = {
+    scale: 0, x: 0, y: 0, fit: 0, minScale: 0.05, maxScale: 4,
+    width: 0, height: 0, initialized: false
+};
+var cb_edit_pointers = Object.create(null);
+var cb_edit_gesture = null;
+var cb_edit_navigation = false;
+var cb_pending_text_point = null;
 
 function cb_is_android() {
     return typeof Android !== 'undefined' && typeof backend === 'function';
@@ -318,8 +326,17 @@ function cb_create_board() {
         return;
     }
     var code = cb_new_pairing_code();
-    cb_pending_pairing_code = code;
     tremola.collabboardLastUser = username;
+    persist();
+    if (cb_is_android()) {
+        cb_native_config_pending = true;
+        cb_set_setup_error('Opening board...');
+        backend('collabboard:open-code ' + cb_utf8_b64(JSON.stringify({
+            u: username, c: code, b: boardName
+        })));
+        return;
+    }
+    cb_pending_pairing_code = code;
     cb_activate_room({
         v: 1,
         r: cb_random_token(12),
@@ -327,7 +344,8 @@ function cb_create_board() {
         o: typeof myId === 'string' ? myId : '@local.ed25519',
         u: username,
         b: boardName,
-        p: code
+        p: code,
+        d: 1
     });
 }
 
@@ -352,8 +370,8 @@ function cb_join_board() {
     tremola.collabboardLastUser = username;
     persist();
     cb_native_config_pending = true;
-    cb_set_setup_error('Looking for board owner...');
-    backend('collabboard:join ' + cb_utf8_b64(JSON.stringify({ u: username, c: code })));
+    cb_set_setup_error('Opening board...');
+    backend('collabboard:open-code ' + cb_utf8_b64(JSON.stringify({ u: username, c: code })));
 }
 
 function cb_open_saved_board(roomId) {
@@ -467,6 +485,7 @@ function cb_board_deleted(roomId, success) {
 }
 
 function cb_activate_room(room, savedState) {
+    cb_reset_edit_view();
     room.b = cb_board_name(room);
     tremola.collabboardRoom = room;
     tremola.collabboard = savedState && savedState.roomId === room.r ? savedState : {
@@ -498,6 +517,7 @@ function cb_board_configured(accepted) {
     }
     cb_set_setup_error('');
     cb_show_setup(false);
+    cb_schedule_fit();
     if (cb_is_android()) {
         backend('collabboard:read');
         if (cb_pending_pairing_code) {
@@ -516,6 +536,14 @@ function cb_board_join_started(accepted) {
     cb_set_setup_error('Could not start joining');
 }
 
+function cb_board_code_opened(configJson) {
+    if (!configJson) {
+        cb_board_join_failed('Could not open this board');
+        return;
+    }
+    cb_board_joined(configJson);
+}
+
 function cb_board_joined(configJson) {
     try {
         var config = typeof configJson === 'string' ? JSON.parse(configJson) : configJson;
@@ -526,7 +554,8 @@ function cb_board_joined(configJson) {
         }
         config.v = 1;
         config.b = cb_board_name(config);
-        cb_native_config_pending = cb_is_android();
+        cb_reset_edit_view();
+        cb_native_config_pending = cb_is_android() && config.d !== 1;
         tremola.collabboardRoom = config;
         tremola.collabboard = {
             roomId: config.r,
@@ -538,9 +567,12 @@ function cb_board_joined(configJson) {
         cb_set_setup_error('');
         cb_show_setup(false);
         cb_update_room_bar();
-        cb_fit_canvas();
+        cb_schedule_fit();
         cb_redraw();
-        if (cb_is_android()) backend('collabboard:read');
+        if (cb_is_android()) {
+            backend('collabboard:read');
+            if (config.d === 1) cb_ble_status('Board ready', 1, 0);
+        }
     } catch (e) {
         cb_board_join_failed('Could not open this board');
     }
@@ -596,6 +628,11 @@ function cb_copy_invite() {
         persist();
     }
     cb_pending_copy_code = code;
+    if (room.d === 1) {
+        cb_pending_copy_code = '';
+        cb_copy_text(code);
+        return;
+    }
     if (cb_is_android()) {
         backend('collabboard:pairing ' + cb_utf8_b64(code));
         return;
@@ -633,6 +670,7 @@ function cb_close_board() {
     delete tremola.collabboardRoom;
     delete tremola.collabboard;
     cb_members = Object.create(null);
+    cb_reset_edit_view();
     cb_pending_pairing_code = '';
     cb_pending_copy_code = '';
     persist();
@@ -721,7 +759,12 @@ function cb_enter_view() {
     cb_view_gesture = null;
     cb_set_tool('select');
     var workspace = document.getElementById('cb_workspace');
+    var frame = document.getElementById('cb_canvas_frame');
     if (workspace) workspace.classList.add('cb_view_mode');
+    if (frame) {
+        frame.style.height = '';
+        frame.style.flexBasis = '';
+    }
     cb_apply_dark_state();
     cb_redraw();
     setTimeout(cb_reset_view, 0);
@@ -736,7 +779,7 @@ function cb_exit_view() {
     var cv = document.getElementById('cb_canvas');
     if (workspace) workspace.classList.remove('cb_view_mode');
     if (cv) cv.style.transform = 'none';
-    setTimeout(cb_fit_canvas, 0);
+    cb_schedule_fit();
 }
 
 function cb_reset_view() {
@@ -953,7 +996,7 @@ function cb_open() {
     }
     cb_set_tool('select');
     cb_update_room_bar();
-    cb_fit_canvas();
+    cb_schedule_fit();
     if (typeof Android === 'undefined') {
         cb_ble_status('Browser preview', 0, 0);
     } else if (typeof bleState !== 'undefined' && bleState) {
@@ -1040,7 +1083,7 @@ function cb_set_tool(tool) {
         if (tool === 'text') inp.focus();
     }
     cb_update_selection_controls();
-    setTimeout(cb_fit_canvas, 0);
+    cb_schedule_fit();
 }
 
 function cb_color() {
@@ -1128,6 +1171,31 @@ function cb_bind_canvas() {
     }
 }
 
+function cb_schedule_fit() {
+    cb_fit_canvas();
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(function () {
+            requestAnimationFrame(cb_fit_canvas);
+        });
+    }
+    setTimeout(cb_fit_canvas, 80);
+    setTimeout(cb_fit_canvas, 260);
+}
+
+function cb_reset_edit_view() {
+    cb_edit_view.scale = 0;
+    cb_edit_view.x = 0;
+    cb_edit_view.y = 0;
+    cb_edit_view.fit = 0;
+    cb_edit_view.width = 0;
+    cb_edit_view.height = 0;
+    cb_edit_view.initialized = false;
+    cb_edit_pointers = Object.create(null);
+    cb_edit_gesture = null;
+    cb_edit_navigation = false;
+    cb_pending_text_point = null;
+}
+
 function cb_fit_canvas() {
     var cv = document.getElementById('cb_canvas');
     var main = document.getElementById('div:collabboard-main');
@@ -1142,26 +1210,79 @@ function cb_fit_canvas() {
         if (changed) cb_redraw();
         return;
     }
-    var maxWidth = main.clientWidth - 10;
+    var measuredWidth = Number(main.clientWidth) || 0;
+    if (measuredWidth < 120 && main.getBoundingClientRect) {
+        measuredWidth = Number(main.getBoundingClientRect().width) || measuredWidth;
+    }
+    if (measuredWidth < 120 && typeof window !== 'undefined') {
+        measuredWidth = Number(window.innerWidth) || measuredWidth;
+    }
+    var maxWidth = Math.min(CB_BOARD_WIDTH, measuredWidth - 10);
     if (maxWidth <= 0) return;
     // Android changes the available height when its keyboard opens. Width is
     // stable, so text entry no longer collapses the board to a tiny preview.
-    var scale = maxWidth / CB_BOARD_WIDTH;
-    scale = Math.max(0.05, scale);
+    var scale = Math.max(0.05, maxWidth / CB_BOARD_WIDTH);
     var canvasWidth = Math.max(1, Math.floor(CB_BOARD_WIDTH * scale));
     var canvasHeight = Math.max(1, Math.floor(CB_BOARD_HEIGHT * scale));
-    cv.style.transform = 'none';
-    cv.style.width = canvasWidth + 'px';
-    cv.style.height = canvasHeight + 'px';
+    var frame = document.getElementById('cb_canvas_frame');
+    if (!frame) {
+        cv.style.transform = 'none';
+        cv.style.width = canvasWidth + 'px';
+        cv.style.height = canvasHeight + 'px';
+        cb_clamp_camera(cv);
+        if (changed) cb_redraw();
+        return;
+    }
+    if (frame.classList) frame.classList.add('cb_edit_navigation');
+    frame.style.height = canvasHeight + 'px';
+    frame.style.flexBasis = canvasHeight + 'px';
+    if (!cb_edit_view.initialized || Math.abs(cb_edit_view.width - maxWidth) > 2) {
+        cb_edit_view.scale = scale;
+        cb_edit_view.fit = scale;
+        cb_edit_view.minScale = Math.max(0.03, scale * 0.65);
+        cb_edit_view.maxScale = Math.max(scale * 5, 2);
+        cb_edit_view.width = maxWidth;
+        cb_edit_view.height = canvasHeight;
+        cb_edit_view.x = (maxWidth - CB_BOARD_WIDTH * scale) / 2;
+        cb_edit_view.y = 0;
+        cb_edit_view.initialized = true;
+    } else {
+        cb_edit_view.height = canvasHeight;
+    }
+    cb_apply_edit_transform();
     cb_clamp_camera(cv);
     if (changed) cb_redraw();
+}
+
+function cb_apply_edit_transform() {
+    if (cb_view_mode || !cb_edit_view.initialized) return;
+    var cv = document.getElementById('cb_canvas');
+    if (!cv) return;
+    cb_clamp_edit_view();
+    cv.style.width = CB_BOARD_WIDTH + 'px';
+    cv.style.height = CB_BOARD_HEIGHT + 'px';
+    cv.style.transform = 'translate3d(' + Math.round(cb_edit_view.x) + 'px,' +
+        Math.round(cb_edit_view.y) + 'px,0) scale(' + cb_edit_view.scale + ')';
+}
+
+function cb_clamp_edit_view() {
+    var width = cb_edit_view.width || 1;
+    var height = cb_edit_view.height || 1;
+    cb_edit_view.scale = Math.max(cb_edit_view.minScale,
+        Math.min(cb_edit_view.maxScale, cb_edit_view.scale));
+    cb_edit_view.x = cb_clamp_view_axis(
+        cb_edit_view.x, width, CB_BOARD_WIDTH * cb_edit_view.scale
+    );
+    cb_edit_view.y = cb_clamp_view_axis(
+        cb_edit_view.y, height, CB_BOARD_HEIGHT * cb_edit_view.scale
+    );
 }
 
 // position in canvas pixels (before the camera is applied)
 function cb_screen_pos(cv, e) {
     var r = cv.getBoundingClientRect();
-    var sx = cv.width / r.width;
-    var sy = cv.height / r.height;
+    var sx = cv.width / Math.max(1, r.width);
+    var sy = cv.height / Math.max(1, r.height);
     return [Math.round((e.clientX - r.left) * sx), Math.round((e.clientY - r.top) * sy)];
 }
 
@@ -1174,19 +1295,101 @@ function cb_pos(cv, e) {
     ];
 }
 
+function cb_edit_pointer_values() {
+    return Object.keys(cb_edit_pointers).sort().map(function (id) {
+        return cb_edit_pointers[id];
+    });
+}
+
+function cb_edit_frame_point(point) {
+    var frame = document.getElementById('cb_canvas_frame');
+    var rect = frame && frame.getBoundingClientRect ? frame.getBoundingClientRect() : { left: 0, top: 0 };
+    return { x: point.x - (rect.left || 0), y: point.y - (rect.top || 0) };
+}
+
+function cb_begin_edit_navigation() {
+    var points = cb_edit_pointer_values();
+    if (points.length < 2) return;
+    if (!cb_edit_view.initialized) cb_fit_canvas();
+    cb_edit_navigation = true;
+    cb_pointer_id = null;
+    cb_pending_text_point = null;
+    cb_draft = null;
+    cb_drag = null;
+    var first = cb_edit_frame_point(points[0]);
+    var second = cb_edit_frame_point(points[1]);
+    var midX = (first.x + second.x) / 2;
+    var midY = (first.y + second.y) / 2;
+    var distance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
+    cb_edit_gesture = {
+        distance: distance,
+        scale: cb_edit_view.scale,
+        worldX: (midX - cb_edit_view.x) / cb_edit_view.scale,
+        worldY: (midY - cb_edit_view.y) / cb_edit_view.scale,
+        count: points.length
+    };
+    cb_redraw();
+}
+
+function cb_update_edit_navigation() {
+    var points = cb_edit_pointer_values();
+    if (!cb_edit_navigation || points.length < 2) return;
+    if (!cb_edit_gesture || cb_edit_gesture.count !== points.length) {
+        cb_begin_edit_navigation();
+        return;
+    }
+    var first = cb_edit_frame_point(points[0]);
+    var second = cb_edit_frame_point(points[1]);
+    var midX = (first.x + second.x) / 2;
+    var midY = (first.y + second.y) / 2;
+    var distance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
+    cb_edit_view.scale = Math.max(cb_edit_view.minScale, Math.min(
+        cb_edit_view.maxScale,
+        cb_edit_gesture.scale * distance / cb_edit_gesture.distance
+    ));
+    cb_edit_view.x = midX - cb_edit_gesture.worldX * cb_edit_view.scale;
+    cb_edit_view.y = midY - cb_edit_gesture.worldY * cb_edit_view.scale;
+    cb_apply_edit_transform();
+}
+
+function cb_finish_edit_pointer(e) {
+    if (e && Object.prototype.hasOwnProperty.call(cb_edit_pointers, e.pointerId)) {
+        delete cb_edit_pointers[e.pointerId];
+    }
+    cb_release_pointer(e);
+    var count = cb_edit_pointer_values().length;
+    if (count === 0) {
+        cb_edit_navigation = false;
+        cb_edit_gesture = null;
+    } else if (count >= 2) {
+        cb_begin_edit_navigation();
+    }
+}
+
 function cb_down(e) {
     if (cb_view_mode) return;
-    if (e.isPrimary === false || cb_pointer_id !== null) return;
+    cb_edit_pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (cb_edit_pointer_values().length >= 2) {
+        if (e.preventDefault) e.preventDefault();
+        if (e.currentTarget && e.currentTarget.setPointerCapture) {
+            try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_e) {}
+        }
+        cb_begin_edit_navigation();
+        return;
+    }
+    if (cb_edit_navigation) return;
+    if (e.isPrimary === false) {
+        delete cb_edit_pointers[e.pointerId];
+        return;
+    }
+    if (cb_pointer_id !== null) return;
     cb_pointer_id = e.pointerId;
     if (e.preventDefault) e.preventDefault();
     var cv = e.currentTarget;
     var p = cb_pos(cv, e);
     if (cb_tool === 'text') {
-        cb_place_text(p);
-        // Text placement finishes on pointer-down. Do not wait for pointer-up:
-        // focusing the input can retarget that event in Android WebView and
-        // otherwise leave the board locked to the old pointer id.
-        cb_pointer_id = null;
+        cb_pending_text_point = p;
+        if (cv.setPointerCapture) cv.setPointerCapture(e.pointerId);
         return;
     }
     if (cb_tool === 'select') {
@@ -1223,6 +1426,14 @@ function cb_down(e) {
 }
 
 function cb_move(e) {
+    if (Object.prototype.hasOwnProperty.call(cb_edit_pointers, e.pointerId)) {
+        cb_edit_pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    }
+    if (cb_edit_navigation) {
+        if (e.preventDefault) e.preventDefault();
+        cb_update_edit_navigation();
+        return;
+    }
     if (e.isPrimary === false || cb_pointer_id === null || e.pointerId !== cb_pointer_id) return;
     if (e.preventDefault) e.preventDefault();
     var cv = e.currentTarget;
@@ -1264,10 +1475,25 @@ function cb_move(e) {
 }
 
 function cb_up(e) {
-    if (e && (e.isPrimary === false || cb_pointer_id === null || e.pointerId !== cb_pointer_id)) return;
+    if (cb_edit_navigation) {
+        if (e && e.preventDefault) e.preventDefault();
+        cb_finish_edit_pointer(e);
+        return;
+    }
+    if (e && (e.isPrimary === false || cb_pointer_id === null || e.pointerId !== cb_pointer_id)) {
+        cb_finish_edit_pointer(e);
+        return;
+    }
     if (e && e.preventDefault) e.preventDefault();
     cb_release_pointer(e);
+    if (e) delete cb_edit_pointers[e.pointerId];
     cb_pointer_id = null;
+    if (cb_pending_text_point) {
+        var textPoint = cb_pending_text_point;
+        cb_pending_text_point = null;
+        if (cb_tool === 'text') cb_place_text(textPoint);
+        return;
+    }
     if (cb_drag) {
         var d = cb_drag;
         cb_drag = null;
@@ -1303,7 +1529,15 @@ function cb_leave(e) {
 }
 
 function cb_cancel(e) {
-    if (e && cb_pointer_id !== null && e.pointerId !== cb_pointer_id) return;
+    if (cb_edit_navigation) {
+        if (e && e.preventDefault) e.preventDefault();
+        cb_finish_edit_pointer(e);
+        return;
+    }
+    if (e && (cb_pointer_id === null || e.pointerId !== cb_pointer_id)) {
+        cb_finish_edit_pointer(e);
+        return;
+    }
     var hasStroke = cb_draft && Array.isArray(cb_draft.p) && cb_draft.p.length > 0;
     var hasTransform = cb_drag && cb_drag.mode !== 'pan' && cb_drag.moved;
     if (cb_pointer_id !== null && (hasStroke || hasTransform)) {
@@ -1314,7 +1548,9 @@ function cb_cancel(e) {
     }
     if (e && e.preventDefault) e.preventDefault();
     cb_release_pointer(e);
+    if (e) delete cb_edit_pointers[e.pointerId];
     cb_pointer_id = null;
+    cb_pending_text_point = null;
     cb_drag = null;
     cb_draft = null;
     var cv = e && e.currentTarget;
@@ -1323,6 +1559,10 @@ function cb_cancel(e) {
 }
 
 function cb_lost_capture(e) {
+    if (e && Object.prototype.hasOwnProperty.call(cb_edit_pointers, e.pointerId)) {
+        cb_up(e);
+        return;
+    }
     if (cb_pointer_id !== null && e && e.pointerId === cb_pointer_id) cb_up(e);
 }
 
@@ -1343,11 +1583,27 @@ function cb_place_text(p) {
     // spaces. Base64-encode the user's text (the only field that can) and decode
     // it again at render time.
     var ts = cb_next_ts();
-    cb_write_board_event({
+    var event = {
         k: 't', id: cb_id(ts), ts: ts, c: cb_color(), x: p[0], y: p[1], s: cb_enc(s)
-    }, true);
+    };
+    cb_write_board_event(event, true);
     inp.value = '';
-    inp.focus();
+    if (inp.blur) inp.blur();
+    cb_sel = event.id;
+    cb_set_tool('select');
+    cb_redraw();
+}
+
+function cb_text_keydown(e) {
+    if (!e || (e.key !== 'Enter' && e.keyCode !== 13)) return;
+    if (e.preventDefault) e.preventDefault();
+    var inp = document.getElementById('cb_text');
+    if (inp && inp.blur) inp.blur();
+    var cv = document.getElementById('cb_canvas');
+    if (cv && cv.focus) {
+        try { cv.focus({ preventScroll: true }); } catch (_e) { cv.focus(); }
+    }
+    cb_schedule_fit();
 }
 
 // --- apply incoming events -------------------------------------------------

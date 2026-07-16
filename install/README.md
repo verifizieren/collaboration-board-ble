@@ -1,6 +1,6 @@
 # Install On Android
 
-Current live test build: **0.8.0** (`versionCode 21`).
+Current live test build: **0.9.0** (`versionCode 22`).
 
 Install the same variant on every test phone:
 
@@ -31,20 +31,22 @@ account or central login.
 3. Tap **Create board**.
 4. The app shows a new six-digit code.
 5. Tap **Invite** and send the copied code privately.
-6. Keep the owner's phone nearby while each new member joins for the first time.
-
-The code stays open for 10 minutes. Tap **Invite** again to reopen it.
 
 ## Join A Board
 
 1. Enter your name.
 2. Enter the six-digit code.
 3. Tap **Join board**.
-4. Keep the owner nearby and wait for the board to open.
 
-The board allows one owner and three other identities. After joining once, tap
-**Boards** to close the board without deleting it. Tap **Open** in the board
-list to return without entering the code again.
+The code opens the same board directly. The creator does not have to be nearby.
+Anyone with the code can join until the board has four identities. After
+joining once, tap **Boards** to close the board without deleting it. Tap
+**Open** in the board list to return without entering the code again.
+
+In **Text**, write the text and press the Android keyboard **Go** button. The
+keyboard closes but **Text** stays active. Tap the board to place it. The new
+text is selected so it can be moved or resized. In **Draw** and **Text**, use
+two fingers to move or zoom the board without creating an object.
 
 Use **View** for a full-screen read-only board. Drag to move the view and pinch
 to zoom. **Dark** changes only the canvas on the current phone. It does not
@@ -73,7 +75,7 @@ Use `tremola-collaboration-board-debug.apk` on both phones.
 2. Turn on Bluetooth. On Android 7-11, also turn on Location.
 3. Keep Tremola open and both screens unlocked.
 4. Create a new board on phone A.
-5. Join from phone B while phone A is nearby.
+5. Join from phone B with the same code.
 6. Wait until each phone shows one nearby peer.
 7. Draw a long stroke on A and check B.
 8. Add text on B and check A.

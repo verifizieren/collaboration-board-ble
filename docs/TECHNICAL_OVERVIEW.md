@@ -5,7 +5,7 @@
 - The APK is the full Uni Basel Tremola Android app with our whiteboard changes.
 - The board is a bundled HTML, CSS, and JavaScript mini-app.
 - Tremola runs it inside its Android WebView.
-- Native Kotlin code handles identity, storage, invitations, encryption, and BLE.
+- Native Kotlin code handles identity, storage, board access, encryption, and BLE.
 - The browser version is only a UI and merge simulator.
 
 The tinySSB Android project was used as a design reference. We keep the Uni
@@ -35,41 +35,37 @@ The board sends one operation after a user finishes an action:
 
 The board is fixed at 900 x 1200 logical units. CSS scales it to the available
 Tremola width. It does not shrink when Android opens the keyboard. Different
-phone sizes therefore use the same shared positions.
+phone sizes therefore use the same shared positions. The keyboard **Go** action
+hides the keyboard but keeps Text active. Two fingers pan or zoom in Draw and
+Text without creating an object.
 
 ## Storage And Identity
 
 - Tremola creates an Ed25519 feed identity on first start.
 - Every board operation is signed with that identity.
 - Board payloads are compressed before encryption when this saves space.
-- AES-256-GCM encrypts board content with a random 256-bit board key.
+- AES-256-GCM encrypts board content with a key derived from the board code.
 - Operations are stored in Room before BLE transmission.
 - Each local operation is also added to the local Tremola custom-app log.
-- Named board metadata and signed admissions are stored per board.
+- Named board metadata and known member IDs are stored per board.
 - Closing and reopening a board replays its saved Room operations.
 - A local dark canvas and full-screen pan/zoom view do not create shared events.
 
-## Invite-Only Boards
+## Board Access
 
-- A random board ID and 256-bit board key are created on the owner's phone.
-- The mini-app generates a new six-digit pairing code for each board.
-- The code is active for 10 minutes and never becomes the board key.
-- Signed BLE pairing proves the code and transfers the board setup with
-  AES-GCM.
-- PBKDF2 slows offline guessing of the short code.
-- The owner signs the first admission for each member.
-- One owner and three admitted members are allowed.
-- An admitted member keeps the signed admission after restarting the app.
-- A new member needs the owner nearby for the first admission.
-- Usernames are display names; the cryptographic feed ID is the real identity.
-- Renaming the same feed changes its signed display name, not its member slot.
-- The native board profile stores a hash for local code checks. Only the owner
-  keeps the code in the mini-app list so **Invite** can show it again.
+- The mini-app creates a six-digit code for each new board.
+- The code selects the board ID and its 256-bit content key.
+- A phone can open the board immediately without waiting for its creator.
+- A signed BLE hello proves that a peer has the same code.
+- Up to four Tremola feed IDs are kept in the board roster.
+- Usernames are display names; the feed ID is the stable identity.
+- Renaming the same feed does not use another member slot.
 - Deleting removes the local board profile and Room operations only.
 
-The board content is private from nearby devices that do not complete pairing.
-The short code should still be shared privately. BLE addresses and some
-handshake metadata are not hidden.
+The code is a simple shared password, not strong access security. Anyone who
+knows it can derive the board key. BLE addresses and handshake metadata are not
+hidden. The older owner-pairing messages remain readable for old saved boards,
+but new boards use direct code access.
 
 ## BLE Protocol
 
@@ -78,14 +74,12 @@ was missed. Small events such as Clear were more likely to arrive.
 
 The board protocol now uses:
 
-- `bp/bc/bj/bi` - short-code pairing and encrypted board setup
-- `bh` - authenticated board hello
-- `bm` - owner-signed member admission
+- `bh` - signed and authenticated board hello
 - `bf` - contiguous sequence frontier for each author
 - `bw` - request for missing sequence ranges
 - `bo` - encrypted and signed operation
 - `ba` - acknowledgement for a complete operation
-- `br` - board full or owner required
+- `br` - board full or legacy owner required
 
 Each GATT link has a bounded queue. Frames are written one at a time. The next
 frame starts only after `onCharacteristicWrite` or `onNotificationSent`.
@@ -95,7 +89,7 @@ acknowledgement, so a dropped notification causes a retry.
 The live build queues a completed operation immediately and retries it until an
 acknowledgement arrives. About every five seconds, peers also exchange
 frontiers. WANT ranges recover missed and offline operations. Stored operations
-can also be relayed by another admitted member.
+can also be relayed by another member.
 
 Event payloads are compressed before encryption. This makes long strokes much
 smaller than the old Base64 Tremola JSON path. Board traffic is separate from
@@ -109,8 +103,8 @@ general Tremola history while a board is active.
 - Events may arrive in any order.
 - Move, resize, color, delete, and clear use Lamport order plus event ID.
 - A transform may arrive before its original object and is applied later.
-- All admitted members can edit all objects.
-- No phone is the master copy after admission.
+- All members can edit all objects.
+- No phone is the master copy.
 
 Concurrent changes converge deterministically. For the same object and action
 type, the later Lamport event wins. A clear hides older board objects.
@@ -121,13 +115,13 @@ type, the later Lamport event wins. A clear hides older board objects.
 - If no peer is nearby, it stays in the Room database.
 - Reconnecting phones compare per-author frontiers.
 - Missing ranges are requested until the contiguous frontiers match.
-- A late admitted member can receive the full board from any admitted peer that
-  has the missing operations.
+- A late member can receive the full board from any peer that has the missing
+  operations.
 
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.8.0` (`versionCode 21`)
+- Version: `0.9.0` (`versionCode 22`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.
@@ -147,11 +141,13 @@ type, the later Lamport event wins. A clear hides older board objects.
 - draw, text, move, resize, color, delete, and clear
 - finite-board scaling on different display sizes
 - stable text and canvas size while the Android keyboard opens
+- keyboard Go, immediate text resize, and two-finger edit navigation
 - named board catalogue, close, and reopen behavior
-- generated codes, stable identity rename, local deletion, dark view, pan, and pinch zoom
+- direct six-digit codes, stable identity rename, local deletion, dark view,
+  pan, and pinch zoom
 - saved board-state migration from the previous UI format
 - frontiers, missing ranges, queues, retries, and frame limits
-- real Android pairing, Ed25519, AES-GCM, compression, and tamper rejection
+- Android direct-code handshakes, Ed25519, AES-GCM, compression, and tamper rejection
 - Android lint, APK build, signature, version, and bundled files
 
 The emulator cannot test real BLE radio exchange. Two physical phones are still
@@ -160,7 +156,7 @@ required for the final acceptance test.
 ## Main Files
 
 - `miniApps/collabboard/src/collabboard.js` - board state and UI behavior
-- `BoardProtocol.kt` - signing, encryption, admissions, and frontier helpers
+- `BoardProtocol.kt` - signing, encryption, board access, and frontier helpers
 - `BleSync.kt` - BLE links, frames, ACK, retry, WANT, and relay
 - `BoardOperation.kt` and `BoardOperationDAO.kt` - persistent board log
 - `WebAppInterface.kt` - WebView bridge
