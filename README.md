@@ -28,25 +28,14 @@ Every member can edit every object.
 
 ## Android APKs
 
-The simplest downloads are both named `whiteboard.apk`:
+The repository keeps only the two current version 1.0 APKs:
 
 - [`install/tremola/whiteboard.apk`](install/tremola/whiteboard.apk) - Tremola version
 - [`install/tinyssb/whiteboard.apk`](install/tinyssb/whiteboard.apk) - tinySSB version
 
-The install folder also keeps the older file names:
-
-- [`install/tremola-collaboration-board-debug.apk`](install/tremola-collaboration-board-debug.apk)
-  is the current live-sync build.
-- [`install/whiteboardlive.apk`](install/whiteboardlive.apk) is the same current
-  live-sync build.
-- [`install/whiteboard5sek.apk`](install/whiteboard5sek.apk) saves locally and
-  exchanges new operations in 5-second batches. It is kept as an experiment.
-- [`install/tinyssb-collaboration-board-debug.apk`](install/tinyssb-collaboration-board-debug.apk)
-  puts the same board under **Productivity** in the official tinySSB app.
-
-The Tremola APK and its aliases use one Android package, so install only one of
-those at a time. The tinySSB APK uses another package and can be installed next
-to Tremola. Use the same variant on every phone in one sync test.
+They use different Android packages and can be installed next to each other.
+Use the same variant on every phone in one sync test. Tremola and tinySSB boards
+do not synchronize with each other.
 
 Requirements:
 
@@ -58,6 +47,13 @@ Requirements:
 The tinySSB APK needs Android 8.0 or newer.
 
 See [`install/README.md`](install/README.md) for the install and test steps.
+
+Detailed guides:
+
+- [`docs/TREMOLA_VERSION.md`](docs/TREMOLA_VERSION.md) - Tremola workflow and implementation
+- [`docs/TINYSSB_VERSION.md`](docs/TINYSSB_VERSION.md) - tinySSB workflow and invitations
+- [`docs/SYNC_AND_MERGE.md`](docs/SYNC_AND_MERGE.md) - strokes, events, BLE delivery, recovery, and merge rules
+- [`docs/REPOSITORY_STRUCTURE.md`](docs/REPOSITORY_STRUCTURE.md) - required files, builds, and possible upstream integration
 
 ## Phone Workflow
 
@@ -111,7 +107,9 @@ never transmitted.
 
 - no pointer movement is sent while a finger is still moving
 - only operations for the active board use the board sync queue
-- the 5-second APK uses the same recovery protocol but batches new actions
+
+See [`docs/SYNC_AND_MERGE.md`](docs/SYNC_AND_MERGE.md) for the complete path
+from one sampled stroke to deterministic replay on another phone.
 
 ## Check And Build
 
@@ -159,6 +157,10 @@ Android BLE, invitations, encryption, or Android permissions.
 - `tinyssb/` - pinned patch, adapter, icon, theme, and tinySSB build notes
 - `docs/TECHNICAL_OVERVIEW.md` - technical design
 - `docs/REPORT_BASIS.md` - short basis for the group report
+- `docs/TREMOLA_VERSION.md` - main app guide
+- `docs/TINYSSB_VERSION.md` - alternative app guide
+- `docs/SYNC_AND_MERGE.md` - detailed protocol and merge guide
+- `docs/REPOSITORY_STRUCTURE.md` - what is required for both APKs and upstream integration
 - `docs/Collaboration_Board_Report_Guide.docx` - Word notes for the report team
 
 ## Submission

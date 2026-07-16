@@ -1,5 +1,11 @@
 # Technical Overview
 
+Focused guides:
+
+- [`TREMOLA_VERSION.md`](TREMOLA_VERSION.md) - main app workflow and implementation
+- [`TINYSSB_VERSION.md`](TINYSSB_VERSION.md) - alternative app and invitation rules
+- [`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md) - complete stroke, event, BLE, recovery, and merge walkthrough
+
 ## Base
 
 - The main APK is the full Uni Basel Tremola Android app with our whiteboard changes.
@@ -41,6 +47,12 @@ The board sends one operation after a user finishes an action:
 - `n` - board display name
 - `x` - legacy cancellation event, still accepted but not created by the current UI
 
+A stroke is not a video stream. The UI samples points while the finger moves,
+shows them locally, simplifies them to at most 160 points, and creates one `s`
+event when the finger is released. A move or resize creates a new `m` event
+that refers to the original object's ID; it does not rewrite or resend the
+original object. See [`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md).
+
 The board is a finite 1800 x 2400 logical units. The first view is the original
 900 x 1200 area, scaled to the available Tremola width. It does not shrink when
 Android opens the keyboard. Different phone sizes therefore use the same shared
@@ -76,6 +88,10 @@ Two fingers pan or zoom in Draw and Text without creating an object.
 - Renaming the same feed does not use another member slot.
 - Deleting removes the local board profile and Room operations only.
 
+The four-person rule means four stable identities in the stored roster, not
+only four phones visible at the same moment. Going offline does not free a
+place. A display-name change also does not consume another place.
+
 The code is a simple shared access code, not strong security. SHA-256 creates a
 32-byte key but does not add entropy to the one million possible codes. The
 direct room ID also contains the code, so this design must not be described as
@@ -91,6 +107,9 @@ Accept and decline are signed feed events, so the creator can reproduce each
 status. Repeat invites to one contact are limited to one every 30 seconds.
 The short code can select an invitation already received on that phone, but it
 cannot derive or discover a room. Public `WBD` events are not encrypted.
+
+Eight is the number of tinySSB invite targets, not the editor count. The editor
+count remains four in both Android variants.
 
 ## BLE Protocol
 
@@ -199,6 +218,9 @@ required for the final acceptance test.
 - `tinyssb/ble-startup.patch` - tinySSB BLE permission and restart fix
 - `tinyssb/whiteboard-export.patch` - Android JPEG and PDF export
 - `scripts/build-tinyssb.sh` - reproducible tinySSB APK build
+- `docs/TREMOLA_VERSION.md` - detailed Tremola workflow
+- `docs/TINYSSB_VERSION.md` - detailed tinySSB workflow
+- `docs/SYNC_AND_MERGE.md` - event, transport, recovery, and merge walkthrough
 
 ## References
 

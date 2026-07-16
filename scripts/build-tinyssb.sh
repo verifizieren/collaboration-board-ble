@@ -9,8 +9,7 @@ SOURCE="${TINYSSB_SOURCE:-$DEFAULT_SOURCE}"
 BUILD_ROOT="$ROOT/.build/tinyssb"
 ANDROID_PROJECT="$BUILD_ROOT/android/tinySSB"
 WEB_DIR="$ANDROID_PROJECT/app/src/main/assets/web"
-OUTPUT="$ROOT/install/tinyssb-collaboration-board-debug.apk"
-NAMED_OUTPUT="$ROOT/install/tinyssb/whiteboard.apk"
+OUTPUT="$ROOT/install/tinyssb/whiteboard.apk"
 
 ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"
@@ -80,7 +79,7 @@ env PATH="$CMAKE_BIN:$PATH" "$ANDROID_PROJECT/gradlew" \
 echo "[5/5] Preparing and verifying APK"
 mkdir -p "$ROOT/install/tinyssb"
 cp "$ANDROID_PROJECT/app/build/outputs/apk/debug/app-debug.apk" "$OUTPUT"
-cp "$OUTPUT" "$NAMED_OUTPUT"
+rm -f "$ROOT/install/tinyssb-collaboration-board-debug.apk"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -109,8 +108,6 @@ if grep -Fq "keep working offline while tinySSB" "$TMP_DIR/tools.js"; then
   echo "Old tinySSB whiteboard description is still present." >&2
   exit 1
 fi
-cmp -s "$OUTPUT" "$NAMED_OUTPUT"
-
 BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1)"
 if [ -x "$BUILD_TOOLS/apksigner" ]; then
   "$BUILD_TOOLS/apksigner" verify --verbose "$OUTPUT"
@@ -122,11 +119,13 @@ fi
 
 (
   cd "$ROOT/install"
-  APK_FILES=(tremola-collaboration-board-debug.apk whiteboardlive.apk whiteboard5sek.apk tremola/whiteboard.apk tinyssb-collaboration-board-debug.apk tinyssb/whiteboard.apk)
+  APK_FILES=(tinyssb/whiteboard.apk)
+  if [ -f tremola/whiteboard.apk ]; then
+    APK_FILES=(tremola/whiteboard.apk "${APK_FILES[@]}")
+  fi
   shasum -a 256 "${APK_FILES[@]}" > SHA256SUMS
 )
 
 echo
 echo "Ready: $OUTPUT"
-echo "Named: $NAMED_OUTPUT"
 shasum -a 256 "$OUTPUT"

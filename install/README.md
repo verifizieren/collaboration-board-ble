@@ -1,182 +1,159 @@
 # Install On Android
 
-Current Tremola build: **1.0** (`versionCode 29`).
-Current tinySSB build: **1.0** (`versionCode 9`).
+The repository contains two current version 1.0 APKs and no old test builds:
 
-Both main downloads use the same simple file name in separate folders:
+- [`tremola/whiteboard.apk`](tremola/whiteboard.apk) - main Tremola version
+- [`tinyssb/whiteboard.apk`](tinyssb/whiteboard.apk) - alternative tinySSB version
 
-- [`tremola/whiteboard.apk`](tremola/whiteboard.apk) - Tremola
-- [`tinyssb/whiteboard.apk`](tinyssb/whiteboard.apk) - tinySSB
+Install the same variant on every phone taking part in one test. The variants
+use different Android packages and can be installed next to each other, but
+they do not synchronize with each other.
 
-For tinySSB, allow **Nearby devices** and **Location** on first start. Keep
-Bluetooth and Location enabled and leave both phones inside the app while
-testing. Its gray app entries are disabled upstream demos; use Collaboration
-Board or Kanban for a sync test.
+## Requirements
 
-Install the same variant on every test phone:
+| Version | Minimum Android | Access | Board limit |
+| --- | --- | --- | --- |
+| Tremola | Android 7.0 / API 24 | Six-digit shared board code | Four stable feed identities |
+| tinySSB | Android 8.0 / API 26 | Signed invite to a verified contact | Eight invitees, creator plus three editors |
 
-- [`tremola-collaboration-board-debug.apk`](tremola-collaboration-board-debug.apk) - current live build
-- [`whiteboardlive.apk`](whiteboardlive.apk) - same current live build
-- [`whiteboard5sek.apk`](whiteboard5sek.apk) - older 5-second experiment
-- [`tinyssb-collaboration-board-debug.apk`](tinyssb-collaboration-board-debug.apk)
-  - separate tinySSB version under **Productivity**
-
-The Tremola APKs need Android 7.0 or newer and share one package. The tinySSB
-APK needs Android 8.0 or newer and uses another package, so it can be installed
-next to Tremola.
+Both versions need Bluetooth Low Energy. Keep the phones close, unlocked, and
+inside the app during the final test. Android 7-11 also needs Location
+permission and may require the Location setting to be on. Android 12 and newer
+ask for Nearby devices permissions.
 
 ## Direct Install
 
-1. Send the APK to the phone.
-2. Open the APK.
+1. Download the correct `whiteboard.apk` from one of the folders above.
+2. Open the APK on the Android phone.
 3. Allow installation from this source if Android asks.
-4. Install and open Tremola.
-5. Allow Bluetooth and location access.
-6. In Tremola, open **MiniApps > Collaboration Board**.
+4. Install and open the app.
+5. Allow the requested Bluetooth, Nearby devices, and Location permissions.
 
-In the tinySSB APK, open **Productivity > Collaboration Board (dpi26.15)**.
+If Android reports an incompatible update, a build signed with another key is
+already installed. Back up important local data, uninstall that old build, and
+install the current APK again.
 
-Tremola creates a cryptographic identity automatically. There is no server
-account or central login.
+## Tremola Workflow
 
-## Tremola: Create A Board
-
-1. Enter your name.
-2. Enter a board name.
+1. Open **MiniApps > Collaboration Board**.
+2. Enter your display name and a board name.
 3. Tap **Create board**.
-4. The app shows a new six-digit code.
-5. Tap **Invite** and send the copied code privately.
+4. Tap **Code** to copy the generated six-digit board code.
+5. On another phone, enter a display name and the same code under **Join**.
+6. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, **Clear all**,
+   **View**, **Dark**, or **Export**.
+7. Tap **Boards** to close the board without deleting its saved local copy.
 
-## Tremola: Join A Board
+The roster stores at most four distinct Tremola feed identities. A display name
+is only a label, so renaming the same phone does not consume another place. A
+fifth identity is rejected even if one of the existing four is currently
+offline. Every accepted member may edit every object.
 
-1. Enter your name.
-2. Enter the six-digit code.
-3. Tap **Join board**.
+The creator does not need to remain online after the code has been shared. Each
+member stores its own operation log. The board survives closing or restarting
+the app on that phone.
 
-The code opens the same board directly. The creator does not have to be nearby.
-Anyone with the code can join until the board has four identities. After
-joining once, tap **Boards** to close the board without deleting it. Tap
-**Open** in the board list to return without entering the code again.
+## tinySSB Workflow
 
-## tinySSB: Invite And Join
-
-1. Add and verify the contacts on both phones.
+1. Add and verify the other people in tinySSB Contacts.
 2. Open **Productivity > Collaboration Board (dpi26.15)**.
-3. Create and open a board.
-4. Tap `+` and invite a verified contact.
-5. On the other phone, enter a display name in the popup and tap **Accept**.
-   The top-right **Invitations** menu keeps the invite and sender status.
-6. The creator and the first three contacts who accept can edit.
+3. Enter a display name and create a board.
+4. Open the board and tap `+`.
+5. Invite a verified contact.
+6. The receiver enters a whiteboard name and accepts or declines the popup.
+7. Use **Invitations** to see Waiting, Accepted, Declined, or Board full.
+8. After acceptance, open the board from the saved board list.
 
-The tinySSB version joins only through a signed invitation. Its six-digit code
-can select a received invitation, but it cannot create or discover a board by
-itself. A repeat invite to one contact is available after 30 seconds.
+The creator may invite up to eight different verified contacts. This is an
+invitation capacity, not an eight-person editor limit. The final editor list is
+the creator plus the first three valid acceptances, for four editors total.
+Later acceptances cannot edit that board. Only the creator sends invitations,
+and one contact can be invited again after 30 seconds.
 
-In both variants, **Export** saves only the canvas as JPEG or PDF. JPEG follows
-the local dark canvas; PDF is white. **Clear all** takes effect immediately and
-has no undo.
+The signed invitation carries the exact random board ID. The six-digit code can
+select an invitation that has already arrived on a phone, but the code alone
+cannot discover a tinySSB board.
 
-Returning from the Tremola MiniApps screen within 30 seconds reopens the active
-board. Returning later, or starting Tremola again, opens the Boards screen.
-Only three saved board rows are shown at once; scroll that list for more.
-Boards with the same name get different local name and code colors. Leading or
-trailing spaces do not make a different name. One name can be used eight times.
+## Board Controls
 
-In **Text**, write the text and press the Android keyboard **Go** button. The
-keyboard closes but **Text** stays active. Tap the board to place it. The new
-text is selected so it can be moved or resized. In **Draw** and **Text**, use
-two fingers to move or zoom the board without creating an object.
+- **Draw:** hold one finger down to draw. One stroke event is created when the
+  finger is released.
+- **Text:** type, press the Android keyboard **Go** button, then tap the board.
+- **Edit:** select an object, move it, resize it, recolor it, or delete it.
+- **Two fingers:** pan or zoom without creating an object.
+- **View:** open a full-screen read-only canvas with pan and pinch zoom.
+- **Dark:** change only this phone's canvas background.
+- **Clear all:** create one shared clear event immediately. There is no prompt
+  and no undo.
+- **Export:** save only the finite canvas. JPEG follows the local Dark setting;
+  PDF always uses a white background.
 
-The drawing area is finite but larger than the first phone view. There is no
-visible page border. Use two fingers to reach the rest of the board.
-
-Use **View** for a full-screen read-only board. Drag to move the view and pinch
-to zoom. **Dark** changes only the canvas on the current phone. It does not
-change shared board data.
-
-To remove a saved board from one phone, tap **Delete** in the board list and
-enter its six-digit code. This does not delete another member's copy.
-
-Each phone stores its own copy. The board survives when everyone closes it. It
-is lost on a phone only if the app is uninstalled or its app data is cleared.
+The logical canvas is 1800 x 2400 units. Positions therefore stay consistent
+across phones with different screen sizes.
 
 ## USB Install
 
-Enable USB debugging, connect the phone, and run from the repo folder:
+Enable USB debugging, connect the phone, and run from the repository root:
 
 ```bash
 ./scripts/android.sh devices
 ./scripts/android.sh install PHONE_SERIAL
 ```
 
+The helper installs [`tremola/whiteboard.apk`](tremola/whiteboard.apk). To use
+`adb` directly for tinySSB, run:
+
+```bash
+adb install -r install/tinyssb/whiteboard.apk
+```
+
 ## Two-Phone BLE Test
 
-Use `tremola-collaboration-board-debug.apk` on both phones.
+1. Install the same APK variant on both phones.
+2. Turn off Wi-Fi and mobile data so the test measures BLE only.
+3. Turn on Bluetooth. On Android 7-11, also turn on Location.
+4. Keep both apps in the foreground and both screens unlocked.
+5. Create and join one Tremola board, or create and accept one tinySSB invite.
+6. Wait until board loading finishes.
+7. Draw a long stroke from phone A and confirm it appears on B.
+8. Add text from B and confirm it appears on A.
+9. Move, resize, recolor, and delete objects in both directions.
+10. Tap **Clear all** and confirm both boards become empty.
+11. Turn Bluetooth off. Create different edits on both phones.
+12. Turn Bluetooth on and wait until both boards converge.
+13. Close and reopen the apps and confirm the saved current state returns.
+14. Export one JPEG and one PDF and open both files.
 
-1. Turn off Wi-Fi and mobile data on both phones.
-2. Turn on Bluetooth. On Android 7-11, also turn on Location.
-3. Keep Tremola open and both screens unlocked.
-4. Create a new board on phone A.
-5. Join from phone B with the same code.
-6. Wait until each phone shows one nearby peer.
-7. Wait for **Loading board...** to disappear. Only the merged current state
-   should appear.
-8. Draw a long stroke on A and check B.
-9. Add text on B and check A.
-10. Move, resize, recolor, and delete the other member's object.
-11. Use **Clear all** and check both phones.
-12. Export one JPEG and one PDF and open both files.
-13. Turn Bluetooth off on B. Edit on both phones. Turn Bluetooth on again.
-14. Wait for both boards to converge.
-15. Tap **Boards**, reopen the named board, and confirm its content is present.
-16. Close and reopen Tremola and check the Boards screen opens first.
-17. Change your display name, reopen the board, and confirm the member count
-    does not increase.
-18. Test **View** on its first tap, pan, pinch zoom, **Dark**, and local board deletion.
-19. Create two boards with the same name and confirm their labels use different colors.
-
-Repeat with a third and fourth identity if available. A fifth identity must be
-rejected as **Board is full**.
-
-## Different Android Versions
-
-- Android 7-11: grant location and keep the Location setting on.
-- Android 12+: grant Nearby devices permissions.
-- Use the same APK version on every phone.
-- Some phones cannot advertise BLE. The app reports this. At least one phone in
-  a pair must advertise so the other phone can discover it.
-- App launch and protocol tests pass on Android 7, 15, and 16 emulators.
-- Real BLE still needs two physical phones.
+Repeat the Tremola test with third and fourth identities when possible. A fifth
+identity must be rejected. For tinySSB, verify that eight contacts can be
+invited but only four identities become editors.
 
 ## Logs
 
-Connect a phone by USB and run:
+Connect a Tremola phone by USB and run:
 
 ```bash
 ./scripts/android.sh logs PHONE_SERIAL
 ```
 
-Useful successful log lines include `board op`, `attempt=`, `accepted`, and a
-queue that returns to zero.
+Useful successful log messages contain `board op`, `attempt=`, `accepted`, and
+a queue that returns to zero.
 
-## Install Problems
+## Checksums
 
-If Android reports an incompatible update, another Tremola APK was signed with
-a different key. Back up important Tremola data, uninstall the old build, and
-install this APK again.
+[`SHA256SUMS`](SHA256SUMS) contains the hashes of exactly the two current APKs.
+From this folder, verify them with:
 
-If no peer appears:
+```bash
+shasum -a 256 -c SHA256SUMS
+```
 
-- keep the app in the foreground
-- confirm all requested permissions
-- turn Bluetooth off and on once
-- move the phones close together
-- create a fresh board if four member slots were already used
+## More Documentation
 
-The expected hashes for all APK files are stored in `SHA256SUMS`.
+- [`../docs/TREMOLA_VERSION.md`](../docs/TREMOLA_VERSION.md) - detailed Tremola guide
+- [`../docs/TINYSSB_VERSION.md`](../docs/TINYSSB_VERSION.md) - detailed tinySSB guide
+- [`../docs/SYNC_AND_MERGE.md`](../docs/SYNC_AND_MERGE.md) - event, BLE, recovery, and merge walkthrough
+- [`../docs/TECHNICAL_OVERVIEW.md`](../docs/TECHNICAL_OVERVIEW.md) - complete architecture
 
-## tinySSB Limit
-
-Only verified contacts can see an invitation in the whiteboard UI. Public
-tinySSB events are not encrypted, so this is an app access rule, not private
-transport. Use the Tremola APK for the main submission.
+tinySSB invitations restrict the whiteboard UI, but public `WBD` feed events are
+not encrypted. Use the Tremola APK as the main submission build.

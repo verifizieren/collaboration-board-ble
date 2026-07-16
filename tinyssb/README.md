@@ -42,5 +42,8 @@ Build with:
 
 The script applies `integration.patch`, `ble-startup.patch`, and
 `whiteboard-export.patch`, adds the shared board files, and writes
-`install/tinyssb-collaboration-board-debug.apk` and
 `install/tinyssb/whiteboard.apk`.
+
+See [`../docs/TINYSSB_VERSION.md`](../docs/TINYSSB_VERSION.md) for the full user
+workflow and [`../docs/SYNC_AND_MERGE.md`](../docs/SYNC_AND_MERGE.md) for the
+event and merge model.

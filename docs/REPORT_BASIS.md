@@ -3,6 +3,13 @@
 Short notes for the group report. The report itself should stay honest about
 what was tested on real phones.
 
+Read these focused guides before writing technical sections:
+
+- [`TREMOLA_VERSION.md`](TREMOLA_VERSION.md) - how the main app works
+- [`TINYSSB_VERSION.md`](TINYSSB_VERSION.md) - how invitations and editors work
+- [`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md) - what a stroke/event is and how BLE recovery and merge work
+- [`REPOSITORY_STRUCTURE.md`](REPOSITORY_STRUCTURE.md) - which files belong to each APK and why they stay in the repository
+
 ## Current System
 
 - The Collaboration Board is a mini-app inside the full Tremola Android app.
@@ -59,6 +66,19 @@ finished action
 
 The full canvas image is never sent. Pointer movement is kept local while the
 finger is down. One operation is created when the action finishes.
+
+Keep these units separate in the report:
+
+- a **stroke** is one visible object made from sampled points
+- an **event** describes one completed action such as create, move, or clear
+- a Tremola **operation** wraps that event with author sequence, encryption,
+  and signature
+- a BLE **frame** is only one MTU-sized transport part of a message
+- a **frontier** records the highest uninterrupted sequence for each author
+- a **merge** applies deterministic rules to the complete valid event set
+
+The full walkthrough and a worked frontier example are in
+[`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md).
 
 ## Methodology Feedback
 
@@ -165,6 +185,10 @@ Added or changed:
 - `tinyssb/ble-startup.patch` - tinySSB permission and BLE restart fix
 - `tinyssb/whiteboard-export.patch` - Android JPEG and PDF export
 - `docs/TECHNICAL_OVERVIEW.md` - detailed design
+- `docs/TREMOLA_VERSION.md` - main app workflow and implementation
+- `docs/TINYSSB_VERSION.md` - tinySSB workflow, eight invitees, and four editors
+- `docs/SYNC_AND_MERGE.md` - complete event, BLE, recovery, and merge explanation
+- `docs/REPOSITORY_STRUCTURE.md` - required source, build files, and upstream integration path
 - `install/README.md` - install and real-phone test steps
 
 ## External Sources
