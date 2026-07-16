@@ -2164,7 +2164,18 @@ class BleSync(
         val peerFeed = authenticatedBoardPeers[peerAddress] ?: return
         if (msg.optString("r") != config.roomId || msg.optString("f") != peerFeed) return
         val operationId = msg.optString("i", "")
-        if (operationId.isNotBlank()) pendingBoardDeliveries.remove(BoardDeliveryKey(peerFeed, operationId))
+        if (operationId.isBlank()) return
+        val pending = pendingBoardDeliveries.remove(BoardDeliveryKey(peerFeed, operationId)) ?: return
+        if (pending.operation.authorId != tremolaState.idStore.identity.toRef()) return
+        val quotedId = JSONObject.quote(operationId)
+        val quotedRoom = JSONObject.quote(pending.operation.roomId)
+        try {
+            tremolaState.wai.eval(
+                "if (typeof cb_board_event_acked === 'function') " +
+                    "cb_board_event_acked($quotedId, $quotedRoom);"
+            )
+        } catch (_: Exception) {
+        }
     }
 
     private fun storeBoardOperation(decoded: DecodedBoardOperation): Boolean {

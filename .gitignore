@@ -9,3 +9,4 @@ local.properties
 .vscode/
 lib/
 qr-scan.png
+.build/

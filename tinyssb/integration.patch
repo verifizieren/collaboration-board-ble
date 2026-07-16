@@ -1,0 +1,155 @@
+diff --git a/android/tinySSB/app/src/main/assets/web/prod/tools.js b/android/tinySSB/app/src/main/assets/web/prod/tools.js
+index 7bed6ef..24091fe 100644
+--- a/android/tinySSB/app/src/main/assets/web/prod/tools.js
++++ b/android/tinySSB/app/src/main/assets/web/prod/tools.js
+@@ -4,6 +4,8 @@
+
+ function load_prod_list() {
+     document.getElementById("lst:prod").innerHTML = '';
++    load_prod_item('Collaboration Board', 'prod/whiteboard/whiteboard.svg', 'whiteboard_open()',
++                   'Draw and edit together over nearby sync.<br><em>Authors: Dehlen, Max, Simon, Frederic</em>');
+     load_prod_item('Kanban', 'prod/kanban/kanban.svg', 'setScenario("kanban")',
+                    'Collaboratively visualize your work items and give participants a view of progress and process, from start to finish.<br><em>Author: Jannick Heisch</em>');
+     load_prod_item('Event Scheduler (dpi24.14)', 'prod/dpi24-14-sched/schedule.svg', null /* 'setScenario("scheduling")' */,
+diff --git a/android/tinySSB/app/src/main/assets/web/tremola.html b/android/tinySSB/app/src/main/assets/web/tremola.html
+index d330e5b..f473adc 100644
+--- a/android/tinySSB/app/src/main/assets/web/tremola.html
++++ b/android/tinySSB/app/src/main/assets/web/tremola.html
+@@ -7,6 +7,8 @@
+   <!-- link rel="stylesheet" type="text/css" href="games/dpi24-06-battleship/duel.css" media="screen" / -->
+   <!-- link rel="stylesheet" type="text/css" href="games/dpi24-09-connect4/connect4.css" media="screen" / -->
+   <link rel="stylesheet" type="text/css" href="prod/kanban/kanban.css" media="screen" />
++  <link rel="stylesheet" type="text/css" href="prod/whiteboard/board.css" media="screen" />
++  <link rel="stylesheet" type="text/css" href="prod/whiteboard/theme.css" media="screen" />
+   <!-- link rel="stylesheet" type="text/css" href="prod/dpi24-14-sched/scheduling.css" media="screen" / -->
+   <!-- link rel="stylesheet" type="text/css" href="prod/dpi24-15-kahoot/kahoot.css" media="screen" / -->
+   <script type="text/javascript" charset="UTF-8" src="util/bipf.js"></script>
+@@ -25,6 +27,9 @@
+   <!-- script type="text/javascript" charset="UTF-8" src="prod/dpi24-15-kahoot/jakob_kahoot_ui.js"></script -->
+   <script type="text/javascript" charset="UTF-8" src="prod/kanban/board.js"></script>
+   <script type="text/javascript" charset="UTF-8" src="prod/kanban/board_ui.js"></script>
++  <script type="text/javascript">var CB_TINYSSB_HOST = true;</script>
++  <script type="text/javascript" charset="UTF-8" src="prod/whiteboard/collabboard.js"></script>
++  <script type="text/javascript" charset="UTF-8" src="prod/whiteboard/adapter.js"></script>
+   <script type="text/javascript" charset="UTF-8" src="games/games.js"></script>
+   <script type="text/javascript" charset="UTF-8" src="games/tictactoe/ttt.js"></script>
+   <!-- script type="text/javascript" charset="UTF-8" src="games/dpi24-06-battleship/duel.js"></script -->
+@@ -123,6 +128,8 @@
+
+     <div id='lst:kanban' class='w100 coreScroll' style="display: none;"></div>
+
++    <!-- COLLABBOARD_CONTENT -->
++
+     <div id='kanban-create-personal-board-overlay' class='qr-overlay'>
+       <div style="display:flex; justify-content: center;align-items: center; flex-direction: column; gap: 20px">
+         <div style="text-align: center">
+diff --git a/android/tinySSB/app/src/main/assets/web/tremola.js b/android/tinySSB/app/src/main/assets/web/tremola.js
+index fdec125..e8e608b 100644
+--- a/android/tinySSB/app/src/main/assets/web/tremola.js
++++ b/android/tinySSB/app/src/main/assets/web/tremola.js
+@@ -478,6 +478,9 @@ function b2f_new_in_order_event(e) {
+     }
+
+     if (e.public) switch (e.public[0]) {
++        case "WBD":
++            whiteboard_new_event(e)
++            break
+         case "KAN":
+             console.log("New kanban event")
+             kanban_new_event(e)
+diff --git a/android/tinySSB/app/src/main/assets/web/tremola_ui.js b/android/tinySSB/app/src/main/assets/web/tremola_ui.js
+index af2b3e1..23ba7ba 100644
+--- a/android/tinySSB/app/src/main/assets/web/tremola_ui.js
++++ b/android/tinySSB/app/src/main/assets/web/tremola_ui.js
+@@ -9,7 +9,7 @@ var display_or_not = [
+     'lst:chats', 'lst:prod', 'lst:games', 'lst:contacts', 'lst:members',
+     'div:posts', 'lst:kanban', 'div:board',
+     'div:footer', 'div:textarea', 'div:confirm-members', 'div:settings',
+-    'div:tictactoe_list', 'div:tictactoe_board'
++    'div:tictactoe_list', 'div:tictactoe_board', 'div:collabboard-main'
+ ];
+
+ var prev_scenario = 'chats';
+@@ -26,6 +26,7 @@ var scenarioDisplay = {
+     'settings': ['div:back', 'core', 'div:settings'],
+     'kanban': ['div:back', 'core', 'lst:kanban', 'plus'], // KANBAN
+     'board': ['div:back', 'core', 'div:board'], // KANBAN
++    'whiteboard': ['div:back', 'core', 'div:collabboard-main'],
+     'tictactoe-list': ['div:back', 'core', 'div:tictactoe_list', 'plus'],
+     'tictactoe-board': ['div:back', 'core', 'div:tictactoe_board'],
+ }
+@@ -56,6 +57,7 @@ var scenarioMenu = {
+         ['About', 'menu_about']],
+
+     'settings': [],
++    'whiteboard': [],
+
+     'kanban': [
+         // ['New Kanban board', 'menu_new_board'], // no redundant functionality
+@@ -114,6 +116,8 @@ function onBackPressed() {
+         setScenario('chats')
+     else if (curr_scenario == 'board')
+         setScenario('kanban')
++    else if (curr_scenario == 'whiteboard')
++        whiteboard_back()
+     else if (curr_scenario == 'tictactoe-list')
+         setScenario('games')
+     else if (curr_scenario == 'tictactoe-board')
+diff --git a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt
+index a3e2402..60152c7 100644
+--- a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt
++++ b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt
+@@ -30,6 +30,7 @@ import nz.scuttlebutt.tremolavossbol.utils.Bipf.Companion.BIPF_LIST
+ import nz.scuttlebutt.tremolavossbol.utils.Constants.Companion.TINYSSB_APP_IAM
+ import nz.scuttlebutt.tremolavossbol.utils.Constants.Companion.TINYSSB_APP_TEXTANDVOICE
+ import nz.scuttlebutt.tremolavossbol.utils.Constants.Companion.TINYSSB_APP_KANBAN
++import nz.scuttlebutt.tremolavossbol.utils.Constants.Companion.TINYSSB_APP_WHITEBOARD
+ import nz.scuttlebutt.tremolavossbol.utils.HelperFunctions.Companion.deRef
+ import nz.scuttlebutt.tremolavossbol.utils.HelperFunctions.Companion.toBase64
+ import nz.scuttlebutt.tremolavossbol.utils.HelperFunctions.Companion.toHex
+@@ -322,6 +323,12 @@ class WebAppInterface(val act: MainActivity, val webView: WebView) {
+
+                 kanban(bid, prev , op, argsList)
+             }
++            "whiteboard" -> {
++                if (args.size > 1) {
++                    val payload = Base64.decode(args[1], Base64.NO_WRAP).decodeToString()
++                    whiteboard(payload)
++                }
++            }
+             "iam" -> {
+                 val new_alias = Base64.decode(args[1], Base64.NO_WRAP).decodeToString()
+                 val lst = Bipf.mkList()
+@@ -796,6 +803,13 @@ class WebAppInterface(val act: MainActivity, val webView: WebView) {
+
+     }
+
++    fun whiteboard(payload: String) {
++        val body = Bipf.mkList()
++        Bipf.list_append(body, TINYSSB_APP_WHITEBOARD)
++        Bipf.list_append(body, Bipf.mkString(payload))
++        Bipf.encode(body)?.let { act.tinyNode.publish_public_content(it) }
++    }
++
+     fun return_voice(voice: ByteArray) {
+         var cmd = "b2f_new_voice('" + voice.toBase64() + "');"
+         Log.d("CMD", cmd)
+diff --git a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/utils/Constants.kt b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/utils/Constants.kt
+index 94db1d4..f4d42e9 100644
+--- a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/utils/Constants.kt
++++ b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/utils/Constants.kt
+@@ -31,6 +31,7 @@ class Constants{
+         val TINYSSB_APP_DLV          = Bipf.mkString("DLV") // ref - this confirms delivery/arrival of msg w/ ref
+         val TINYSSB_APP_ACK          = Bipf.mkString("ACK") // ref - this confirms consumption of msg w/ ref
+         val TINYSSB_APP_KANBAN       = Bipf.mkString("KAN") // kanban boards
++        val TINYSSB_APP_WHITEBOARD   = Bipf.mkString("WBD") // collaboration boards
+         val TINYSSB_APP_TEXTANDVOICE = Bipf.mkString("TAV") // tips bytes bytes int (rcpt)
+         val TINYSSB_APP_TICTACTOE    = Bipf.mkString("TTT") //
+         val TINYSSB_APP_IAM          = Bipf.mkString("IAM") // str
+@@ -46,4 +47,4 @@ class Constants{
+
+         val TINYSSB_DIR = "tinyssb"
+     }
+-}
+\ No newline at end of file
++}

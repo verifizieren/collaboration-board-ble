@@ -22,12 +22,13 @@ A shared whiteboard mini-app inside Tremola for Android.
   when returning from Tremola.
 - Show the merged current state after joining, without replaying old steps on
   the visible canvas.
+- Let users load or cancel local edits that have not received a peer ACK yet.
 
 Every member can edit every object.
 
 ## Android APKs
 
-The install folder contains three APK files:
+The install folder contains two current APKs and two older aliases:
 
 - [`install/tremola-collaboration-board-debug.apk`](install/tremola-collaboration-board-debug.apk)
   is the current live-sync build.
@@ -35,10 +36,12 @@ The install folder contains three APK files:
   live-sync build.
 - [`install/whiteboard5sek.apk`](install/whiteboard5sek.apk) saves locally and
   exchanges new operations in 5-second batches. It is kept as an experiment.
+- [`install/tinyssb-collaboration-board-debug.apk`](install/tinyssb-collaboration-board-debug.apk)
+  puts the same board under **Productivity** in the official tinySSB app.
 
-All APKs contain the full Tremola app, the mini-app, local storage, and native
-BLE sync. They use the same Android package, so install only one variant at a
-time and use the same variant on every test phone.
+The Tremola APK and its aliases use one Android package, so install only one of
+those at a time. The tinySSB APK uses another package and can be installed next
+to Tremola. Use the same variant on every phone in one sync test.
 
 Requirements:
 
@@ -46,6 +49,8 @@ Requirements:
 - Bluetooth Low Energy
 - BLE advertising support on at least one phone in each connection
 - two real Android phones for the final BLE test
+
+The tinySSB APK needs Android 8.0 or newer.
 
 See [`install/README.md`](install/README.md) for the install and test steps.
 
@@ -64,8 +69,11 @@ See [`install/README.md`](install/README.md) for the install and test steps.
 10. Use **View** to pan and pinch zoom. **Dark** changes only this phone.
 11. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
 
+When opening a board with unconfirmed local edits, choose **Load changes** to
+keep them. Choose **Cancel** to discard only those edits and draw again.
+
 The first visible area matches the original board size. Use two fingers to move
-into the larger drawing area. More than four saved boards scroll inside the
+into the larger drawing area. More than three saved boards scroll inside the
 board list.
 
 Extra spaces do not create a new board name. Up to eight boards may share one
@@ -74,6 +82,11 @@ name; their names and invite codes use different colors on this phone.
 The six-digit code directly selects the board. No owner has to stay nearby for
 joining. Anyone with the code can open the board until the four-member limit is
 reached. Treat the code like a simple shared password.
+
+In the tinySSB APK, open **Productivity > Collaboration Board**. Its code only
+selects the board. tinySSB public events are not encrypted and the four-member
+label is not a hard access limit. Use the Tremola APK for the private four-person
+version.
 
 Changing the display name does not create another member. The Tremola feed ID
 stays the same. Deleting a board removes only its copy on that phone.
@@ -132,13 +145,14 @@ Android BLE, invitations, encryption, or Android permissions.
 - `app/` - full Tremola Android app and native BLE code
 - `install/` - ready APK, checksum, and install steps
 - `scripts/` - build, install, and log commands
+- `tinyssb/` - pinned patch, adapter, icon, theme, and tinySSB build notes
 - `docs/TECHNICAL_OVERVIEW.md` - technical design
 - `docs/REPORT_BASIS.md` - simple basis for the group report
 
 ## Submission
 
-Submit the full repository and the APK in `install/`. The mini-app folder alone
-does not include Android storage, identities, encryption, or BLE.
+Submit the full repository and the selected APK in `install/`. The mini-app
+folder alone does not include Android storage, identities, or BLE.
 
 The remaining acceptance test is a real two-phone BLE run with Wi-Fi and mobile
 data turned off.

@@ -16,6 +16,7 @@
  *           absolute offset+scale relative to the original, last write wins
  *   recolor:{ k:'k', id, t:<targetId>, c:<color> } — last write wins
  *   delete: { k:'d', id, t:<targetId> } — removes one object
+ *   cancel: { k:'x', id, t:<eventId> } — discards one unsynced local action
  *   name:   { k:'n', id, b:<boardName> } — shared board display name
  *
  * Every peer may edit every object. Retired profile/owner events from
@@ -46,6 +47,7 @@ cb_root.miniApps["collabboard"] = {
                         cb_resume_room_id = roomId;
                         cb_resume_until = Date.now() + CB_QUICK_RESUME_MS;
                     }
+                    cb_restore_host_layout();
                     quitApp();
                 }
                 break;
@@ -92,11 +94,12 @@ var CB_MAX_CLEARS = 8;
 var CB_MAX_DELETES = 2000;
 var CB_MAX_SEEN = 4000;
 var CB_MAX_NAMES = 8;
+var CB_MAX_CANCELS = 2000;
 var CB_BOARD_COLORS = [
     '#2563eb', '#dc2626', '#16a34a', '#7c3aed',
     '#0891b2', '#d97706', '#db2777', '#4f46e5'
 ];
-var CB_STATE_VERSION = 5;
+var CB_STATE_VERSION = 6;
 var CB_INITIAL_VIEW_WIDTH = 900;
 var CB_INITIAL_VIEW_HEIGHT = 1200;
 var CB_BOARD_WIDTH = 1800;
@@ -137,9 +140,18 @@ var cb_replay_native_done = false;
 var cb_replay_waiting_for_peer = false;
 var cb_replay_remote = false;
 var cb_replay_timer = null;
+var cb_replay_continue = null;
+var cb_replay_cancel_ids = [];
+var cb_host_core_height = null;
+var cb_host_core_min_height = null;
+var cb_host_core_overflow = null;
 
 function cb_is_android() {
-    return typeof Android !== 'undefined' && typeof backend === 'function';
+    return !cb_is_tinyssb() && typeof Android !== 'undefined' && typeof backend === 'function';
+}
+
+function cb_is_tinyssb() {
+    return cb_root.CB_TINYSSB_HOST === true;
 }
 
 function cb_current_room() {
@@ -483,6 +495,16 @@ function cb_set_setup_error(message) {
     if (el) el.textContent = message || '';
 }
 
+function cb_show_code_help() {
+    var dialog = document.getElementById('cb_code_help');
+    if (dialog) dialog.style.display = null;
+}
+
+function cb_hide_code_help() {
+    var dialog = document.getElementById('cb_code_help');
+    if (dialog) dialog.style.display = 'none';
+}
+
 function cb_show_setup(show) {
     var setup = document.getElementById('cb_room_setup');
     var workspace = document.getElementById('cb_workspace');
@@ -686,11 +708,66 @@ function cb_board_deleted(roomId, success) {
     cb_set_setup_error('Board deleted from this phone');
 }
 
+function cb_pending_catalog() {
+    if (!tremola.collabboardPending || typeof tremola.collabboardPending !== 'object' ||
+        Array.isArray(tremola.collabboardPending)) {
+        tremola.collabboardPending = {};
+    }
+    return tremola.collabboardPending;
+}
+
+function cb_pending_ids(roomId) {
+    var catalog = cb_pending_catalog();
+    var ids = roomId && Array.isArray(catalog[roomId]) ? catalog[roomId] : [];
+    return ids.filter(function (id, index) {
+        return typeof id === 'string' && id.length <= 96 && ids.indexOf(id) === index;
+    }).slice(-CB_MAX_CANCELS);
+}
+
+function cb_track_pending_event(event) {
+    var roomId = cb_current_room_id();
+    if (!roomId || !event || typeof event.id !== 'string' || event.k === 'n' || event.k === 'x') return;
+    var catalog = cb_pending_catalog();
+    var ids = cb_pending_ids(roomId);
+    if (ids.indexOf(event.id) < 0) ids.push(event.id);
+    catalog[roomId] = ids.slice(-CB_MAX_CANCELS);
+    persist();
+}
+
+function cb_board_event_acked(operationId, acknowledgedRoomId) {
+    var roomId = acknowledgedRoomId || cb_current_room_id();
+    if (!roomId || typeof operationId !== 'string') return;
+    var catalog = cb_pending_catalog();
+    var ids = cb_pending_ids(roomId);
+    var next = ids.filter(function (id) { return id !== operationId; });
+    if (next.length === ids.length) return;
+    if (next.length) catalog[roomId] = next;
+    else delete catalog[roomId];
+    persist();
+}
+
+function cb_set_load_prompt(show) {
+    var title = document.getElementById('cb_loading_title');
+    var text = document.getElementById('cb_loading_text');
+    var actions = document.getElementById('cb_loading_actions');
+    if (title) title.textContent = show ? 'Saved edits found' : 'Loading board...';
+    if (text) {
+        text.textContent = show ? 'Load your unsynced strokes and edits into this board?' : '';
+        text.style.display = show ? null : 'none';
+    }
+    if (actions) actions.style.display = show ? null : 'none';
+}
+
 function cb_set_replay_ui(loading) {
     var workspace = document.getElementById('cb_workspace');
     var overlay = document.getElementById('cb_board_loading');
+    var frame = document.getElementById('cb_canvas_frame');
     if (workspace && workspace.classList) {
         workspace.classList.toggle('cb_replay_loading', !!loading);
+    }
+    if (loading && frame) {
+        frame.scrollTop = 0;
+        frame.scrollLeft = 0;
     }
     if (overlay) overlay.style.display = loading ? null : 'none';
 }
@@ -706,7 +783,38 @@ function cb_begin_board_replay(kind) {
     cb_replay_native_done = false;
     cb_replay_waiting_for_peer = kind === 'join';
     cb_replay_remote = kind === 'join' || kind === 'catchup';
+    cb_replay_continue = null;
+    cb_replay_cancel_ids = [];
+    cb_set_load_prompt(false);
     cb_set_replay_ui(true);
+}
+
+function cb_prepare_board_replay(kind, continueLoad) {
+    cb_begin_board_replay(kind);
+    cb_replay_continue = continueLoad;
+    if (cb_pending_ids(cb_current_room_id()).length) {
+        cb_set_load_prompt(true);
+        return;
+    }
+    cb_continue_board_load();
+}
+
+function cb_continue_board_load() {
+    if (!cb_replay_active) return;
+    cb_set_load_prompt(false);
+    var next = cb_replay_continue;
+    cb_replay_continue = null;
+    if (typeof next === 'function') next();
+}
+
+function cb_cancel_board_load() {
+    if (!cb_replay_active) return;
+    var roomId = cb_current_room_id();
+    var catalog = cb_pending_catalog();
+    cb_replay_cancel_ids = cb_pending_ids(roomId);
+    if (roomId) delete catalog[roomId];
+    persist();
+    cb_continue_board_load();
 }
 
 function cb_schedule_replay_finish(delay) {
@@ -721,6 +829,8 @@ function cb_finish_board_replay() {
     cb_replay_active = false;
     cb_replay_native_done = false;
     cb_replay_remote = false;
+    cb_replay_continue = null;
+    cb_replay_cancel_ids = [];
     cb_pending_open_kind = '';
     cb_set_replay_ui(false);
     var room = cb_current_room();
@@ -739,12 +849,16 @@ function cb_stop_board_replay() {
     cb_replay_native_done = false;
     cb_replay_waiting_for_peer = false;
     cb_replay_remote = false;
+    cb_replay_continue = null;
+    cb_replay_cancel_ids = [];
+    cb_set_load_prompt(false);
     cb_set_replay_ui(false);
 }
 
 function cb_latest_board_name_event(st) {
     var best = null;
     (st.names || []).forEach(function (event) {
+        if (cb_is_event_cancelled(st, event)) return;
         if (!best || cb_compare_events(event, best) > 0) best = event;
     });
     return best;
@@ -776,12 +890,18 @@ function cb_ensure_board_name_event() {
     cb_force_publish_name = false;
     if (!name || !shouldPublish || cb_native_config_pending) return;
     var ts = cb_next_ts();
-    cb_write_board_event({ k: 'n', id: cb_id(ts), ts: ts, b: name }, true);
+    cb_write_board_event({ k: 'n', id: cb_id(ts), ts: ts, b: name }, true, false);
 }
 
 function cb_board_replay_complete() {
     if (!cb_current_room()) return;
     cb_replay_native_done = true;
+    var cancelled = cb_replay_cancel_ids.slice();
+    cb_replay_cancel_ids = [];
+    cancelled.forEach(function (target) {
+        var ts = cb_next_ts();
+        cb_write_board_event({ k: 'x', id: cb_id(ts), ts: ts, t: target }, true, false);
+    });
     cb_ensure_board_name_event();
     cb_schedule_replay_finish(cb_replay_remote ?
         CB_REPLAY_REMOTE_QUIET_MS : CB_REPLAY_LOCAL_QUIET_MS);
@@ -794,7 +914,7 @@ function cb_activate_room(room, savedState) {
     tremola.collabboardRoom = room;
     tremola.collabboard = savedState && savedState.roomId === room.r ? savedState : {
             roomId: room.r, names: [],
-            objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
+            objects: [], clears: [], deletes: [], seen: [], mods: [], cancels: [], clock: 0, order: 0,
             schema: CB_STATE_VERSION
         };
     cb_remember_room(room, true);
@@ -820,22 +940,23 @@ function cb_board_configured(accepted) {
         cb_set_setup_error('Could not open this board');
         return;
     }
-    cb_begin_board_replay(cb_pending_open_kind || 'saved');
     cb_set_setup_error('');
     cb_show_setup(false);
     cb_schedule_fit();
-    if (cb_is_android()) {
-        backend('collabboard:read');
-        if (cb_pending_pairing_code) {
-            var code = cb_pending_pairing_code;
-            cb_pending_pairing_code = '';
-            backend('collabboard:pairing ' + cb_utf8_b64(code));
+    cb_prepare_board_replay(cb_pending_open_kind || 'saved', function () {
+        if (cb_is_android()) {
+            backend('collabboard:read');
+            if (cb_pending_pairing_code) {
+                var code = cb_pending_pairing_code;
+                cb_pending_pairing_code = '';
+                backend('collabboard:pairing ' + cb_utf8_b64(code));
+            }
+        } else {
+            cb_ble_status('Browser preview', 0, 0);
+            cb_board_replay_complete();
+            cb_finish_board_replay();
         }
-    } else {
-        cb_ble_status('Browser preview', 0, 0);
-        cb_board_replay_complete();
-        cb_finish_board_replay();
-    }
+    });
 }
 
 function cb_board_join_started(accepted) {
@@ -869,21 +990,26 @@ function cb_board_joined(configJson) {
         tremola.collabboardRoom = config;
         tremola.collabboard = {
             roomId: config.r, names: [],
-            objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
+            objects: [], clears: [], deletes: [], seen: [], mods: [], cancels: [], clock: 0, order: 0,
             schema: CB_STATE_VERSION
         };
         cb_remember_room(config, true);
         persist();
-        cb_begin_board_replay(cb_pending_open_kind || 'join');
         cb_set_setup_error('');
         cb_show_setup(false);
         cb_update_room_bar();
         cb_schedule_fit();
         cb_redraw();
-        if (cb_is_android()) {
-            backend('collabboard:read');
-            if (config.d === 1) cb_ble_status('Board ready', 0, 0);
-        }
+        cb_prepare_board_replay(cb_pending_open_kind || 'join', function () {
+            if (cb_is_android()) {
+                backend('collabboard:read');
+                if (config.d === 1) cb_ble_status('Board ready', 0, 0);
+            } else {
+                cb_ble_status('Browser preview', 0, 0);
+                cb_board_replay_complete();
+                cb_finish_board_replay();
+            }
+        });
     } catch (e) {
         cb_board_join_failed('Could not open this board');
     }
@@ -1045,7 +1171,8 @@ function cb_room_status(count, maximum, members) {
 function cb_receive_board_operation(payload, feedId, username) {
     var room = cb_current_room();
     if (!room) return;
-    if (cb_replay_waiting_for_peer && typeof feedId === 'string' &&
+    if (cb_replay_waiting_for_peer && cb_replay_continue === null &&
+        typeof feedId === 'string' &&
         (typeof myId !== 'string' || feedId !== myId)) {
         cb_begin_board_replay('catchup');
         cb_replay_native_done = true;
@@ -1319,14 +1446,14 @@ function cb_state() {
     if (typeof tremola.collabboard == "undefined") {
         tremola.collabboard = {
             roomId: roomId, names: [],
-            objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
+            objects: [], clears: [], deletes: [], seen: [], mods: [], cancels: [], clock: 0, order: 0,
             schema: CB_STATE_VERSION
         };
     }
     if (tremola.collabboard.roomId && tremola.collabboard.roomId !== roomId) {
         tremola.collabboard = {
             roomId: roomId, names: [],
-            objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
+            objects: [], clears: [], deletes: [], seen: [], mods: [], cancels: [], clock: 0, order: 0,
             schema: CB_STATE_VERSION
         };
     }
@@ -1337,6 +1464,7 @@ function cb_state() {
     if (!Array.isArray(tremola.collabboard.seen)) tremola.collabboard.seen = [];
     if (!Array.isArray(tremola.collabboard.mods)) tremola.collabboard.mods = [];
     if (!Array.isArray(tremola.collabboard.names)) tremola.collabboard.names = [];
+    if (!Array.isArray(tremola.collabboard.cancels)) tremola.collabboard.cancels = [];
     if (typeof tremola.collabboard.clock !== 'number' ||
         !isFinite(tremola.collabboard.clock) || tremola.collabboard.clock < 0) {
         tremola.collabboard.clock = 0;
@@ -1351,6 +1479,7 @@ function cb_state() {
         tremola.collabboard.deletes = tremola.collabboard.deletes.filter(cb_is_shared_state_event);
         tremola.collabboard.mods = tremola.collabboard.mods.filter(cb_is_shared_state_event);
         tremola.collabboard.names = tremola.collabboard.names.filter(cb_is_shared_state_event);
+        tremola.collabboard.cancels = tremola.collabboard.cancels.filter(cb_is_shared_state_event);
         delete tremola.collabboard.profiles;
         delete tremola.collabboard.localProfile;
         delete tremola.collabboard.mode;
@@ -1378,7 +1507,14 @@ function cb_open() {
     // Tremola normally reserves space for its bottom navigation. Miniapps hide
     // that navigation, so reclaim the space for the finite drawing surface.
     var core = document.getElementById('core');
-    if (core) core.style.height = 'calc(100% - 50px)';
+    if (core) {
+        if (cb_host_core_height === null) cb_host_core_height = core.style.height || '';
+        if (cb_host_core_min_height === null) cb_host_core_min_height = core.style.minHeight || '';
+        if (cb_host_core_overflow === null) cb_host_core_overflow = core.style.overflow || '';
+        core.style.height = 'calc(100vh - 51px)';
+        core.style.minHeight = 'calc(100vh - 51px)';
+        core.style.overflow = 'hidden';
+    }
 
     document.getElementById("tremolaTitle").style.display = 'none';
     var c = document.getElementById("conversationTitle");
@@ -1439,6 +1575,17 @@ function cb_open() {
         cb_history_requested = true;
         readLogEntries(CB_HISTORY_LIMIT);
     }
+}
+
+function cb_restore_host_layout() {
+    var core = document.getElementById('core');
+    if (!core || cb_host_core_height === null) return;
+    core.style.height = cb_host_core_height;
+    core.style.minHeight = cb_host_core_min_height || '';
+    core.style.overflow = cb_host_core_overflow || '';
+    cb_host_core_height = null;
+    cb_host_core_min_height = null;
+    cb_host_core_overflow = null;
 }
 
 function cb_ble_status(status, peers, queued) {
@@ -2046,9 +2193,9 @@ function cb_text_keydown(e) {
 
 // --- apply incoming events -------------------------------------------------
 
-function cb_write_board_event(event, applyLocal) {
+function cb_write_board_event(event, applyLocal, trackPending) {
     var roomId = cb_current_room_id();
-    if (!roomId || cb_native_config_pending) return;
+    if (!roomId || cb_native_config_pending) return false;
     var room = cb_current_room();
     event.r = roomId;
     if (room && room.u) event.u = cb_clean_username(room.u);
@@ -2060,7 +2207,7 @@ function cb_write_board_event(event, applyLocal) {
         if (typeof Android.writeCollaborationBoardEvent === 'function') {
             if (!Android.writeCollaborationBoardEvent(encoded)) {
                 cb_board_write_failed();
-                return;
+                return false;
             }
         } else {
             backend('collabboard:write ' + encoded);
@@ -2068,7 +2215,9 @@ function cb_write_board_event(event, applyLocal) {
     } else {
         writeLogEntry(JSON.stringify(event));
     }
+    if (trackPending !== false) cb_track_pending_event(event);
     if (applyLocal) cb_apply(event, cb_local_header(event.ts));
+    return true;
 }
 
 function cb_local_header(ts) {
@@ -2115,7 +2264,9 @@ function cb_apply(raw, header) {
     if (st.seen.indexOf(obj.id) >= 0) return; // already applied (incl. self-echo)
     st.seen.push(obj.id);
 
-    if (obj.k === 'c') {
+    if (obj.k === 'x') {
+        st.cancels.push(obj);
+    } else if (obj.k === 'c') {
         st.clears.push(obj);
     } else if (obj.k === 'n') {
         st.names.push(obj);
@@ -2175,6 +2326,7 @@ function cb_visible_objects(st) {
     var clear = cb_latest_clear(st);
     var latestDeletes = Object.create(null);
     (st.deletes || []).forEach(function (deletion) {
+        if (cb_is_event_cancelled(st, deletion)) return;
         if (!latestDeletes[deletion.t] ||
             cb_compare_events(deletion, latestDeletes[deletion.t]) > 0) {
             latestDeletes[deletion.t] = deletion;
@@ -2182,6 +2334,7 @@ function cb_visible_objects(st) {
     });
     return st.objects
         .filter(function (o) {
+            if (cb_is_event_cancelled(st, o)) return false;
             if (clear && cb_compare_events(o, clear) <= 0) return false;
             var deletion = latestDeletes[o.id];
             return !deletion || cb_compare_events(o, deletion) > 0;
@@ -2259,6 +2412,7 @@ function cb_xf(st, o) {
 function cb_latest_mod(st, targetId, kind) {
     var best = null;
     st.mods.forEach(function (m) {
+        if (cb_is_event_cancelled(st, m)) return;
         if (m.t === targetId && m.k === kind &&
             (!best || cb_compare_events(m, best) > 0)) best = m;
     });
@@ -2407,6 +2561,8 @@ function cb_next_ts() {
     st.clears.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
     st.deletes.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
     st.mods.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
+    st.names.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
+    st.cancels.forEach(function (event) { next = Math.max(next, cb_event_ts(event)); });
     st.clock = next + 1;
     return st.clock;
 }
@@ -2420,6 +2576,8 @@ function cb_next_order() {
     st.clears.forEach(function (event) { next = Math.max(next, cb_event_order(event)); });
     st.deletes.forEach(function (event) { next = Math.max(next, cb_event_order(event)); });
     st.mods.forEach(function (event) { next = Math.max(next, cb_event_order(event)); });
+    st.names.forEach(function (event) { next = Math.max(next, cb_event_order(event)); });
+    st.cancels.forEach(function (event) { next = Math.max(next, cb_event_order(event)); });
     st.order = next + 1;
     return st.order;
 }
@@ -2487,6 +2645,9 @@ function cb_is_valid_event(obj) {
     if (typeof obj.u !== 'undefined' &&
         (typeof obj.u !== 'string' || !cb_clean_username(obj.u) || obj.u.length > 24)) return false;
     if (obj.k === 'c') return true;
+    if (obj.k === 'x') {
+        return typeof obj.t === 'string' && obj.t.length > 0 && obj.t.length <= 96;
+    }
     if (obj.k === 'n') {
         return typeof obj.b === 'string' && obj.b.length <= 40 &&
             !!cb_clean_board_name(obj.b);
@@ -2521,41 +2682,20 @@ function cb_is_valid_event(obj) {
 }
 
 function cb_prune_state(st) {
-    var clear = cb_latest_clear(st);
     st.clears = st.clears.slice().sort(cb_compare_events).slice(-CB_MAX_CLEARS);
     st.names = (st.names || []).slice().sort(cb_compare_events).slice(-CB_MAX_NAMES);
-
-    var latestDeletes = Object.create(null);
-    st.deletes.forEach(function (deletion) {
-        if (clear && cb_compare_events(deletion, clear) <= 0) return;
-        if (!latestDeletes[deletion.t] ||
-            cb_compare_events(deletion, latestDeletes[deletion.t]) > 0) {
-            latestDeletes[deletion.t] = deletion;
-        }
-    });
-    st.deletes = Object.keys(latestDeletes).map(function (target) {
-        return latestDeletes[target];
-    });
+    st.cancels = (st.cancels || []).slice().sort(cb_compare_events).slice(-CB_MAX_CANCELS);
+    st.deletes = st.deletes.slice().sort(cb_compare_events);
     if (st.deletes.length > CB_MAX_DELETES) {
-        st.deletes = st.deletes.slice().sort(cb_compare_events).slice(-CB_MAX_DELETES);
+        st.deletes = st.deletes.slice(-CB_MAX_DELETES);
     }
-
-    st.objects = st.objects.filter(function (object) {
-        if (clear && cb_compare_events(object, clear) <= 0) return false;
-        var deletion = latestDeletes[object.id];
-        return !deletion || cb_compare_events(object, deletion) > 0;
-    });
+    st.objects = st.objects.slice().sort(cb_compare_events);
     if (st.objects.length > CB_MAX_OBJECTS) {
-        st.objects = st.objects.slice().sort(cb_compare_events).slice(-CB_MAX_OBJECTS);
+        st.objects = st.objects.slice(-CB_MAX_OBJECTS);
     }
-    var latest = Object.create(null);
-    st.mods.forEach(function (m) {
-        var key = m.k + ':' + m.t;
-        if (!latest[key] || cb_compare_events(m, latest[key]) > 0) latest[key] = m;
-    });
-    st.mods = Object.keys(latest).map(function (key) { return latest[key]; });
+    st.mods = st.mods.slice().sort(cb_compare_events);
     if (st.mods.length > CB_MAX_MODS) {
-        st.mods = st.mods.slice().sort(cb_compare_events).slice(-CB_MAX_MODS);
+        st.mods = st.mods.slice(-CB_MAX_MODS);
     }
     if (st.seen.length > CB_MAX_SEEN) {
         st.seen = st.seen.slice(st.seen.length - CB_MAX_SEEN);
@@ -2583,9 +2723,15 @@ function cb_is_valid_color(c) {
 function cb_latest_clear(st) {
     var best = null;
     (st.clears || []).forEach(function (clear) {
+        if (cb_is_event_cancelled(st, clear)) return;
         if (!best || cb_compare_events(clear, best) > 0) best = clear;
     });
     return best;
+}
+
+function cb_is_event_cancelled(st, event) {
+    if (!event || typeof event.id !== 'string') return false;
+    return (st.cancels || []).some(function (cancel) { return cancel.t === event.id; });
 }
 
 function cb_compare_events(a, b) {

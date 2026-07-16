@@ -39,7 +39,11 @@
       <button class='cb_primary' type='button' onclick='cb_create_board()'>Create board</button>
     </div>
     <div id='cb_join_panel' class='cb_setup_panel' role='tabpanel' style='display: none;'>
-      <label for='cb_join_code'>6-digit code</label>
+      <div class='cb_label_help'>
+        <label for='cb_join_code'>6-digit code</label>
+        <button class='cb_help_button' type='button' aria-label='Code help'
+                onclick='cb_show_code_help()'>?</button>
+      </div>
       <input id='cb_join_code' class='cb_room_input cb_code_input' type='text'
              inputmode='numeric' pattern='[0-9]*' maxlength='6' autocomplete='one-time-code'
              placeholder='123456' oninput='this.value=cb_clean_pairing_code(this.value)'>
@@ -90,9 +94,29 @@
     <div id='cb_canvas_frame' class='cb_canvas_frame'>
       <canvas id='cb_canvas' width='1800' height='2400' tabindex='-1'></canvas>
       <div id='cb_board_loading' class='cb_board_loading' style='display: none;'
-           role='status' aria-live='polite'>Loading board...</div>
+           role='status' aria-live='polite'>
+        <div class='cb_loading_card'>
+          <strong id='cb_loading_title'>Loading board...</strong>
+          <p id='cb_loading_text' style='display: none;'></p>
+          <div id='cb_loading_actions' class='cb_loading_actions' style='display: none;'>
+            <button class='cb_secondary' type='button'
+                    onclick='cb_cancel_board_load()'>Cancel</button>
+            <button class='cb_primary' type='button'
+                    onclick='cb_continue_board_load()'>Load changes</button>
+          </div>
+        </div>
+      </div>
       <button id='cb_view_exit' class='cb_view_exit' type='button'
               aria-label='Leave board view' onclick='cb_exit_view()'>&larr;</button>
+    </div>
+  </div>
+
+  <div id='cb_code_help' class='cb_dialog_backdrop' style='display: none;'
+       role='dialog' aria-modal='true' aria-labelledby='cb_code_help_title'>
+    <div class='cb_dialog'>
+      <strong id='cb_code_help_title'>Board code</strong>
+      <p>Use a code from an existing board. A random code opens an empty board and cannot sync with the board you want.</p>
+      <button class='cb_primary' type='button' onclick='cb_hide_code_help()'>Understand</button>
     </div>
   </div>
 </div>

@@ -1,16 +1,18 @@
 # Install On Android
 
-Current live test build: **0.9.2** (`versionCode 24`).
+Current Tremola test build: **0.9.4** (`versionCode 26`).
 
 Install the same variant on every test phone:
 
 - [`tremola-collaboration-board-debug.apk`](tremola-collaboration-board-debug.apk) - current live build
 - [`whiteboardlive.apk`](whiteboardlive.apk) - same current live build
 - [`whiteboard5sek.apk`](whiteboard5sek.apk) - older 5-second experiment
+- [`tinyssb-collaboration-board-debug.apk`](tinyssb-collaboration-board-debug.apk)
+  - separate tinySSB version under **Productivity**
 
-The APKs contain the full Tremola app, Collaboration Board, local storage, and
-native BLE sync. They need Android 7.0 or newer. All use the same package and
-cannot be installed side by side.
+The Tremola APKs need Android 7.0 or newer and share one package. The tinySSB
+APK needs Android 8.0 or newer and uses another package, so it can be installed
+next to Tremola.
 
 ## Direct Install
 
@@ -19,7 +21,9 @@ cannot be installed side by side.
 3. Allow installation from this source if Android asks.
 4. Install and open Tremola.
 5. Allow Bluetooth and location access.
-6. Open **MiniApps > Collaboration Board**.
+6. In Tremola, open **MiniApps > Collaboration Board**.
+
+In the tinySSB APK, open **Productivity > Collaboration Board**.
 
 Tremola creates a cryptographic identity automatically. There is no server
 account or central login.
@@ -43,9 +47,13 @@ Anyone with the code can join until the board has four identities. After
 joining once, tap **Boards** to close the board without deleting it. Tap
 **Open** in the board list to return without entering the code again.
 
+If the app finds local edits without a peer ACK, it asks before loading them.
+Tap **Load changes** to keep them. Tap **Cancel** to discard only those local
+edits and start drawing again.
+
 Returning from the Tremola MiniApps screen within 30 seconds reopens the active
 board. Returning later, or starting Tremola again, opens the Boards screen.
-Only four saved board rows are shown at once; scroll that list for more.
+Only three saved board rows are shown at once; scroll that list for more.
 Boards with the same name get different local name and code colors. Leading or
 trailing spaces do not make a different name. One name can be used eight times.
 
@@ -139,4 +147,10 @@ If no peer appears:
 - move the phones close together
 - create a fresh board if four member slots were already used
 
-The expected hashes for both variants are stored in `SHA256SUMS`.
+The expected hashes for all APK files are stored in `SHA256SUMS`.
+
+## tinySSB Limit
+
+The tinySSB code selects a board, but it is not a password. Public tinySSB
+events are not encrypted, and four members are shown rather than securely
+enforced. Use the Tremola APK for private four-person testing.

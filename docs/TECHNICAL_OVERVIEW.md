@@ -2,15 +2,16 @@
 
 ## Base
 
-- The APK is the full Uni Basel Tremola Android app with our whiteboard changes.
+- The main APK is the full Uni Basel Tremola Android app with our whiteboard changes.
 - The board is a bundled HTML, CSS, and JavaScript mini-app.
 - Tremola runs it inside its Android WebView.
 - Native Kotlin code handles identity, storage, board access, encryption, and BLE.
 - The browser version is only a UI and merge simulator.
 
-The tinySSB Android project was used as a design reference. We keep the Uni
-Basel Tremola app and use a board-specific replication protocol because the two
-projects use different log formats.
+There is also a separate APK based on the official tinySSB Android app. It uses
+the same board UI, a `WBD` public event type, and tinySSB packet recovery. It is
+kept separate because Tremola and tinySSB use different log formats and Android
+packages.
 
 ## Project Family
 
@@ -33,6 +34,7 @@ The board sends one operation after a user finishes an action:
 - `d` - delete one object
 - `c` - clear the board
 - `n` - board display name
+- `x` - cancel one unconfirmed local operation
 
 The board is a finite 1800 x 2400 logical units. The first view is the original
 900 x 1200 area, scaled to the available Tremola width. It does not shrink when
@@ -54,6 +56,8 @@ Two fingers pan or zoom in Draw and Text without creating an object.
 - Replay is batched so the WebView first shows the merged current state instead
   of painting old intermediate states.
 - A local dark canvas and full-screen pan/zoom view do not create shared events.
+- A peer ACK removes an operation from the local pending list. On the next load,
+  pending edits can be kept or canceled without clearing the full board.
 
 ## Board Access
 
@@ -125,7 +129,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.9.2` (`versionCode 24`)
+- Version: `0.9.4` (`versionCode 26`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.
@@ -155,6 +159,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 - frontiers, missing ranges, queues, retries, and frame limits
 - Android direct-code handshakes, Ed25519, AES-GCM, compression, and tamper rejection
 - Android lint, APK build, signature, version, and bundled files
+- tinySSB patch application, JavaScript, native build, signature, and assets
 
 The emulator cannot test real BLE radio exchange. Two physical phones are still
 required for the final acceptance test.
@@ -169,6 +174,8 @@ required for the final acceptance test.
 - `tests/collabboard.test.js` - board behavior tests
 - `BoardProtocolTest.kt` - protocol unit tests
 - `BoardProtocolInstrumentedTest.kt` - Android crypto tests
+- `tinyssb/integration.patch` - official tinySSB Android integration
+- `scripts/build-tinyssb.sh` - reproducible tinySSB APK build
 
 ## References
 

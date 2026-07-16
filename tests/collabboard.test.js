@@ -100,7 +100,9 @@ const winningMove = {
 const forward = replay([stroke, olderMove, recolor, winningMove, winningMove]);
 const reverse = replay([winningMove, recolor, olderMove, stroke]);
 assert.deepStrictEqual(snapshot(forward), snapshot(reverse));
-assert.strictEqual(forward.cb_state().mods.length, 2);
+// Keep bounded transform history so a later cancel event can reveal the
+// previous valid transform instead of losing it during compaction.
+assert.strictEqual(forward.cb_state().mods.length, 3);
 assert.strictEqual(forward.cb_state().seen.length, 4);
 
 const clear = { k: "c", id: "peer-150-1", ts: 150 };
@@ -135,6 +137,34 @@ const deletedReverse = replay([deletion, stroke]);
 assert.deepStrictEqual(snapshot(deletedForward), []);
 assert.deepStrictEqual(snapshot(deletedReverse), []);
 assert.strictEqual(deletedForward.cb_state().deletes.length, 1);
+
+// A cancel event is a CRDT tombstone for one unsynced local action. It works
+// before or after the target arrives and never clears unrelated board content.
+const cancelledMove = { k: "x", id: "cancel-400-1", ts: 400, t: winningMove.id };
+const cancelMoveForward = replay([stroke, olderMove, winningMove, cancelledMove]);
+const cancelMoveReverse = replay([cancelledMove, winningMove, olderMove, stroke]);
+assert.deepStrictEqual(snapshot(cancelMoveForward), snapshot(cancelMoveReverse));
+assert.deepStrictEqual(snapshot(cancelMoveForward)[0].transform, { dx: 5, dy: 7, sc: 1 });
+
+const cancelledStroke = { k: "x", id: "cancel-500-1", ts: 500, t: stroke.id };
+assert.deepStrictEqual(snapshot(replay([stroke, text, cancelledStroke])).map(function (item) {
+    return item.id;
+}), [text.id]);
+
+const cancelledClear = { k: "x", id: "cancel-600-1", ts: 600, t: clear.id };
+assert.deepStrictEqual(snapshot(replay([stroke, clear, cancelledClear])).map(function (item) {
+    return item.id;
+}), [stroke.id]);
+
+const pendingBoard = loadBoard();
+pendingBoard.cb_write_board_event(Object.assign({}, stroke, { id: "pending-stroke" }), true);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(
+    pendingBoard.cb_pending_ids("browser-preview")
+)), ["pending-stroke"]);
+pendingBoard.cb_board_event_acked("pending-stroke", "browser-preview");
+assert.deepStrictEqual(JSON.parse(JSON.stringify(
+    pendingBoard.cb_pending_ids("browser-preview")
+)), []);
 
 // Clear must work in the Android host even when window.confirm returns false.
 // A logical timestamp also makes it newer than content from a fast device clock.
@@ -1602,7 +1632,7 @@ migration.tremola.collabboard = {
     mode: "owned"
 };
 const migrated = migration.cb_state();
-assert.strictEqual(migrated.schema, 5);
+assert.strictEqual(migrated.schema, 6);
 assert.deepStrictEqual(migrated.objects.map(function (item) { return item.id; }), [stroke.id]);
 assert.deepStrictEqual(migrated.clears, []);
 assert.deepStrictEqual(migrated.mods, []);
@@ -1610,6 +1640,7 @@ assert.strictEqual(Object.prototype.hasOwnProperty.call(migrated, "mode"), false
 assert.strictEqual(Object.prototype.hasOwnProperty.call(migrated, "profiles"), false);
 assert.strictEqual(migrated.deletes.length, 0);
 assert.strictEqual(migrated.names.length, 0);
+assert.strictEqual(migrated.cancels.length, 0);
 
 const boardMarkup = fs.readFileSync(
     path.join(root, "miniApps/collabboard/resources/board.html"),

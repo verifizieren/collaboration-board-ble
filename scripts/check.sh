@@ -96,7 +96,11 @@ cp "$APK" "$INSTALL_APK"
 cp "$APK" "install/whiteboardlive.apk"
 (
   cd install
-  shasum -a 256 tremola-collaboration-board-debug.apk whiteboardlive.apk whiteboard5sek.apk > SHA256SUMS
+  APK_FILES=(tremola-collaboration-board-debug.apk whiteboardlive.apk whiteboard5sek.apk)
+  if [ -f tinyssb-collaboration-board-debug.apk ]; then
+    APK_FILES+=(tinyssb-collaboration-board-debug.apk)
+  fi
+  shasum -a 256 "${APK_FILES[@]}" > SHA256SUMS
 )
 
 TMP_DIR="$(mktemp -d)"

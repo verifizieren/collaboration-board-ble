@@ -27,6 +27,8 @@ phones should work without Internet and exchange changes over BLE.
 - Board state and membership survive closing the board or app.
 - Offline and late members recover missing operations.
 - Joining shows the merged current state instead of visibly replaying old steps.
+- Unconfirmed local edits can be loaded or canceled when a board opens.
+- A second experimental APK lists the board under tinySSB Productivity.
 
 ## Method
 
@@ -129,6 +131,8 @@ and mobile data off.
 - BLE is designed for the app foreground.
 - Member slots are not centrally revoked; create a new board to reset them.
 - The short code does not hide BLE addresses or handshake metadata.
+- The tinySSB variant uses public events. Its code is a board selector, not
+  encryption or a hard four-person access limit.
 
 ## Suggested Report Sections
 
