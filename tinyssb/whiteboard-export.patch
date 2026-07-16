@@ -89,10 +89,29 @@ diff --git a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/Web
 
 
  // pt 3 in https://betterprogramming.pub/5-android-webview-secrets-you-probably-didnt-know-b23f8a8b5a0c
-@@ -810,6 +818,55 @@ class WebAppInterface(val act: MainActivity, val webView: WebView) {
+@@ -810,6 +818,74 @@ class WebAppInterface(val act: MainActivity, val webView: WebView) {
          Bipf.encode(body)?.let { act.tinyNode.publish_public_content(it) }
      }
 
++    @JavascriptInterface
++    fun copyCollaborationBoardInvite(encoded: String): Boolean {
++        return try {
++            val code = String(Base64.decode(encoded, Base64.NO_WRAP), Charsets.UTF_8)
++            if (!code.matches(Regex("\\d{6}"))) return false
++            act.runOnUiThread {
++                val clipboard = act.getSystemService(ClipboardManager::class.java)
++                clipboard.setPrimaryClip(
++                    ClipData.newPlainText("Collaboration Board code", code)
++                )
++                Toast.makeText(act, "Code copied", Toast.LENGTH_SHORT).show()
++            }
++            true
++        } catch (error: Exception) {
++            Log.e("WhiteboardClipboard", "Could not copy board code", error)
++            false
++        }
++    }
++
 +    @JavascriptInterface
 +    fun exportWhiteboard(format: String, encodedImage: String) {
 +        try {

@@ -7,8 +7,8 @@ diff --git a/android/tinySSB/app/build.gradle b/android/tinySSB/app/build.gradle
          targetSdkVersion 30
 -        versionCode 2
 -        versionName "0.2"
-+        versionCode 8
-+        versionName "0.8"
++        versionCode 9
++        versionName "1.0"
 
          ndk {
              // abiFilters 'x86' // x86 needed for testing in the emulator

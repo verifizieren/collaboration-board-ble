@@ -1,7 +1,7 @@
 # tinySSB version
 
 - Based on official `ssbc/tinyssb` commit `39896b72`.
-- Version `0.8` (`versionCode 8`).
+- Version `1.0` (`versionCode 9`).
 - App name: Collaboration Board (dpi26.15).
 - The board is listed under Productivity.
 - Authors: Dehlen Thavarajah, Max Mendes Carvalho, Frédéric Weyssow, Simon Zeugin.

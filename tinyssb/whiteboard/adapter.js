@@ -886,9 +886,32 @@ cb_open_saved_board = function (roomId) {
     wb_publish_profile_if_needed();
 };
 
+function wb_copy_code(code) {
+    var finish = function () { cb_ble_status('Code copied', 0, 0); };
+    if (typeof Android !== 'undefined' &&
+        typeof Android.copyCollaborationBoardInvite === 'function') {
+        if (Android.copyCollaborationBoardInvite(cb_utf8_b64(code))) finish();
+        return;
+    }
+    var fallback = function () {
+        var input = document.getElementById('cb_invite_copy');
+        if (!input) return;
+        input.value = code;
+        input.style.display = 'block';
+        input.select();
+        try { document.execCommand('copy'); finish(); } catch (_error) {}
+        input.style.display = 'none';
+    };
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(finish, fallback);
+        return;
+    }
+    fallback();
+}
+
 cb_copy_invite = function () {
     var room = wb_current_room();
-    if (room && cb_valid_pairing_code(room.p)) cb_copy_text(room.p);
+    if (room && cb_valid_pairing_code(room.p)) wb_copy_code(room.p);
 };
 
 var wb_update_room_bar_base = cb_update_room_bar;
@@ -901,12 +924,45 @@ cb_update_room_bar = function () {
     if (chip) {
         chip.classList.add('wb_code_chip');
         chip.style.display = code ? null : 'none';
-        chip.textContent = code ? 'Code ' + code : '';
-        chip.setAttribute('aria-label', code ? 'Board code ' + code + '. Tap to copy.' : 'Board code');
+        chip.textContent = code ? 'Code' : '';
+        chip.setAttribute('aria-label', code ? 'Copy board code' : 'Board code');
         chip.title = code ? 'Tap to copy board code' : '';
     }
     if (oldCode) oldCode.style.display = 'none';
 };
+
+var wb_clear_board_base = cb_clear;
+
+function wb_close_clear_confirmation() {
+    var no = document.getElementById('toast-button-no');
+    if (no) no.textContent = 'No';
+    closeOverlay();
+}
+
+function whiteboard_clear_confirmed() {
+    wb_close_clear_confirmation();
+    wb_clear_board_base();
+}
+
+function whiteboard_confirm_clear() {
+    if (!wb_current_room()) return;
+    if (typeof launch_toast !== 'function') {
+        if (typeof confirm === 'function' &&
+            confirm('Are you sure you want to wipe the board?')) wb_clear_board_base();
+        return;
+    }
+    launch_toast('Clear board', 'Are you sure you want to wipe the board?',
+        whiteboard_clear_confirmed, wb_close_clear_confirmation);
+    var yes = document.getElementById('toast-button-yes');
+    var no = document.getElementById('toast-button-no');
+    if (yes) yes.textContent = 'Yes';
+    if (no) no.textContent = 'Cancel';
+    var background = document.getElementById('overlay-bg');
+    if (background) background.style.display = 'initial';
+    overlayIsActive = true;
+}
+
+cb_clear = whiteboard_confirm_clear;
 
 var wb_show_setup_base = cb_show_setup;
 cb_show_setup = function (show) {

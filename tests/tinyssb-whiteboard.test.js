@@ -27,6 +27,7 @@ function fakeElement() {
         focus: function () {},
         setAttribute: function () {},
         appendChild: function (child) { child.parentNode = this; },
+        select: function () {},
         innerHTML: "",
         textContent: "",
         value: "",
@@ -40,6 +41,7 @@ function loadAdapter(identity) {
     const commands = [];
     const snackbars = [];
     const timers = [];
+    const toasts = [];
     const context = {
         console: { log: function () {} },
         document: {
@@ -58,6 +60,9 @@ function loadAdapter(identity) {
         setScenario: function () {},
         closeOverlay: function () {},
         launch_snackbar: function (message) { snackbars.push(message); },
+        launch_toast: function (title, description, yes, no) {
+            toasts.push({ title: title, description: description, yes: yes, no: no });
+        },
         b2f_local_peer: function () {},
         b2f_ble_disabled: function () {},
         confirm: function () { return true; },
@@ -78,6 +83,7 @@ function loadAdapter(identity) {
     context.commands = commands;
     context.snackbars = snackbars;
     context.timers = timers;
+    context.toasts = toasts;
     context.elements = elements;
     return context;
 }
@@ -120,8 +126,37 @@ setupBoard.tremola.collabboardRoom = {
     r: roomId, p: "482913", b: "DPI Board", o: owner, u: "Owner"
 };
 setupBoard.cb_update_room_bar();
-assert.strictEqual(setupBoard.document.getElementById("cb_invite_btn").textContent, "Code 482913");
+assert.strictEqual(setupBoard.document.getElementById("cb_invite_btn").textContent, "Code");
 assert.notStrictEqual(setupBoard.document.getElementById("cb_invite_btn").style.display, "none");
+let copiedCode = "";
+setupBoard.Android = {
+    copyCollaborationBoardInvite: function (encoded) {
+        copiedCode = Buffer.from(encoded, "base64").toString("utf8");
+        return true;
+    }
+};
+setupBoard.cb_copy_invite();
+assert.strictEqual(copiedCode, "482913");
+
+// Clear is modal in tinySSB. Cancel writes nothing; Yes emits one clear event.
+const clearEvents = [];
+setupBoard.cb_write_board_event = function (event) {
+    clearEvents.push(event);
+    return true;
+};
+setupBoard.cb_clear();
+assert.strictEqual(setupBoard.toasts.length, 1);
+assert.strictEqual(setupBoard.toasts[0].title, "Clear board");
+assert.strictEqual(setupBoard.toasts[0].description,
+    "Are you sure you want to wipe the board?");
+assert.strictEqual(setupBoard.document.getElementById("toast-button-no").textContent, "Cancel");
+assert.strictEqual(clearEvents.length, 0);
+setupBoard.toasts[0].no();
+assert.strictEqual(clearEvents.length, 0);
+setupBoard.cb_clear();
+setupBoard.toasts[1].yes();
+assert.strictEqual(clearEvents.length, 1);
+assert.strictEqual(clearEvents[0].k, "c");
 
 // The upstream BLE callback reports "online" and may expose the same tinySSB
 // identity under more than one Android BLE address.
@@ -333,8 +368,8 @@ assert.strictEqual(published.length, 1);
 assert.strictEqual(activatedRoom.r, published[0].r);
 
 const integrationPatch = fs.readFileSync(path.join(root, "tinyssb/integration.patch"), "utf8");
-assert.strictEqual(integrationPatch.includes("versionCode 8"), true);
-assert.strictEqual(integrationPatch.includes("versionName \"0.8\""), true);
+assert.strictEqual(integrationPatch.includes("versionCode 9"), true);
+assert.strictEqual(integrationPatch.includes("versionName \"1.0\""), true);
 assert.strictEqual(integrationPatch.includes("Collaboration Board (dpi26.15)"), true);
 assert.strictEqual(integrationPatch.includes("move and resize objects.<br>"), true);
 assert.strictEqual(integrationPatch.includes("keep working offline while tinySSB"), false);
@@ -350,6 +385,7 @@ assert.strictEqual(adapterSource.includes("wb_official_invite_button"), true);
 assert.strictEqual(adapterSource.includes("var WB_META_DECLINE = 'wd';"), true);
 assert.strictEqual(adapterSource.includes("WB_INVITE_COOLDOWN_MS = 30000"), true);
 assert.strictEqual(adapterSource.includes("Collaboration Board (dpi26.15)"), true);
+assert.strictEqual(adapterSource.includes("Are you sure you want to wipe the board?"), true);
 assert.strictEqual(adapterSource.includes("wb_draft_invites"), false);
 assert.strictEqual(adapterSource.includes("wb_room_from_code"), false);
 assert.strictEqual(adapterSource.includes("No signed invitation for this code yet"), true);
@@ -376,11 +412,14 @@ assert.strictEqual(theme.includes("background: transparent"), true);
 assert.strictEqual(theme.includes("../../img/send.svg"), true);
 assert.strictEqual(theme.includes("#wb_export_btn"), true);
 assert.strictEqual(theme.includes(".wb_code_chip"), true);
+assert.strictEqual(theme.includes("min-width: 54px"), true);
 assert.strictEqual(theme.includes(".wb_invitation_section"), true);
 
 const exportPatch = fs.readFileSync(path.join(root, "tinyssb/whiteboard-export.patch"), "utf8");
 assert.strictEqual(exportPatch.includes("Intent.ACTION_CREATE_DOCUMENT"), true);
 assert.strictEqual(exportPatch.includes("PdfDocument"), true);
 assert.strictEqual(exportPatch.includes("exportWhiteboard"), true);
+assert.strictEqual(exportPatch.includes("copyCollaborationBoardInvite"), true);
+assert.strictEqual(exportPatch.includes("Regex(\"\\\\d{6}\")"), true);
 
 console.log("tinySSB whiteboard tests passed");
