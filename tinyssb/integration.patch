@@ -7,8 +7,8 @@ diff --git a/android/tinySSB/app/build.gradle b/android/tinySSB/app/build.gradle
          targetSdkVersion 30
 -        versionCode 2
 -        versionName "0.2"
-+        versionCode 6
-+        versionName "0.6"
++        versionCode 7
++        versionName "0.7"
 
          ndk {
              // abiFilters 'x86' // x86 needed for testing in the emulator
@@ -61,15 +61,6 @@ diff --git a/android/tinySSB/app/src/main/assets/web/tremola.js b/android/tinySS
 index fdec125..e8e608b 100644
 --- a/android/tinySSB/app/src/main/assets/web/tremola.js
 +++ b/android/tinySSB/app/src/main/assets/web/tremola.js
-@@ -160,6 +160,8 @@ function members_confirmed() {
-         new_conversation()
-     } else if (prev_scenario == 'kanban') {
-         menu_new_board_name()
-+    } else if (prev_scenario == 'whiteboard') {
-+        whiteboard_members_confirmed()
-     } else if (prev_scenario == 'tictactoe-list') {
-         ttt_new_game_confirmed()
-     }
 @@ -478,6 +478,9 @@ function b2f_new_in_order_event(e) {
      }
 
@@ -104,7 +95,7 @@ index af2b3e1..23ba7ba 100644
      'settings': ['div:back', 'core', 'div:settings'],
      'kanban': ['div:back', 'core', 'lst:kanban', 'plus'], // KANBAN
      'board': ['div:back', 'core', 'div:board'], // KANBAN
-+    'whiteboard': ['div:back', 'core', 'div:collabboard-main'],
++    'whiteboard': ['div:back', 'core', 'div:collabboard-main', 'plus'],
      'tictactoe-list': ['div:back', 'core', 'div:tictactoe_list', 'plus'],
      'tictactoe-board': ['div:back', 'core', 'div:tictactoe_board'],
  }
@@ -119,16 +110,7 @@ index af2b3e1..23ba7ba 100644
 
      'kanban': [
          // ['New Kanban board', 'menu_new_board'], // no redundant functionality
-@@ -103,6 +108,8 @@ function onBackPressed() {
-     // console.log('back ' + curr_scenario);
-     if (curr_scenario == 'chats')
-         backend("onBackPressed");
-+    else if (curr_scenario == 'members' && prev_scenario == 'whiteboard')
-+        whiteboard_members_cancelled()
-     else if (curr_scenario == 'members')
-         setScenario(prev_scenario)
-     else if (['productivity', 'games', 'contacts'].indexOf(curr_scenario) >= 0)
-@@ -114,6 +121,8 @@ function onBackPressed() {
+@@ -114,6 +119,8 @@ function onBackPressed() {
          setScenario('chats')
      else if (curr_scenario == 'board')
          setScenario('kanban')

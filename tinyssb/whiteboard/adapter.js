@@ -9,8 +9,10 @@ var WB_MAX_INVITES = 8;
 var WB_META_CREATE = 'wc';
 var WB_META_INVITE = 'wi';
 var WB_META_ACCEPT = 'wa';
+var WB_META_DECLINE = 'wd';
 var WB_META_PROFILE = 'wp';
-var wb_member_choices = [];
+var WB_INVITE_COOLDOWN_MS = 30000;
+var wb_announced_invites = Object.create(null);
 var wb_export_busy = false;
 
 function wb_hash(value, seed) {
@@ -121,7 +123,7 @@ function wb_valid_feed_id(fid) {
 
 function wb_is_meta_event(event) {
     return !!event && [WB_META_CREATE, WB_META_INVITE, WB_META_ACCEPT,
-        WB_META_PROFILE].indexOf(event.k) >= 0;
+        WB_META_DECLINE, WB_META_PROFILE].indexOf(event.k) >= 0;
 }
 
 function wb_is_valid_meta_event(event) {
@@ -137,7 +139,7 @@ function wb_is_valid_meta_event(event) {
     if (event.k === WB_META_INVITE) {
         return wb_valid_feed_id(event.to) && typeof event.invite === 'undefined';
     }
-    if (event.k === WB_META_ACCEPT) {
+    if (event.k === WB_META_ACCEPT || event.k === WB_META_DECLINE) {
         return typeof event.invite === 'string' && event.invite.length > 0 &&
             event.invite.length <= 96;
     }
@@ -201,48 +203,6 @@ function wb_current_room_id() {
     return room ? room.r : null;
 }
 
-function wb_draft_invites() {
-    var source = Array.isArray(tremola.collabboardTinyDraftInvites) ?
-        tremola.collabboardTinyDraftInvites : [];
-    var result = [];
-    source.forEach(function (fid) {
-        if (fid !== myId && wb_is_verified_contact(fid) && result.indexOf(fid) < 0 &&
-            result.length < WB_MAX_INVITES) result.push(fid);
-    });
-    return result;
-}
-
-function wb_set_draft_invites(invites) {
-    tremola.collabboardTinyDraftInvites = (invites || []).filter(function (fid, index, list) {
-        return fid !== myId && wb_is_verified_contact(fid) && list.indexOf(fid) === index;
-    }).slice(0, WB_MAX_INVITES);
-    persist();
-    wb_render_draft_invites();
-}
-
-function wb_install_draft_invites() {
-    if (document.getElementById('wb_draft_invites')) return;
-    var panel = document.getElementById('cb_create_panel');
-    if (!panel || !document.createElement) return;
-    var summary = document.createElement('button');
-    summary.id = 'wb_draft_invites';
-    summary.type = 'button';
-    summary.className = 'wb_draft_invites';
-    summary.onclick = whiteboard_select_contacts;
-    var create = panel.getElementsByTagName('button')[0];
-    panel.insertBefore(summary, create || null);
-    wb_render_draft_invites();
-}
-
-function wb_render_draft_invites() {
-    var summary = document.getElementById('wb_draft_invites');
-    if (!summary) return;
-    var count = wb_draft_invites().length;
-    summary.textContent = count ?
-        count + (count === 1 ? ' contact selected' : ' contacts selected') :
-        'Choose contacts with +';
-}
-
 function wb_set_title() {
     var tremolaTitle = document.getElementById('tremolaTitle');
     var title = document.getElementById('conversationTitle');
@@ -260,56 +220,10 @@ function wb_set_plus_visibility(visible) {
 
 function whiteboard_plus() {
     if (wb_current_room()) whiteboard_invite_contacts();
-    else whiteboard_select_contacts();
-}
-
-function whiteboard_select_contacts() {
-    closeOverlay();
-    var contacts = wb_verified_contacts();
-    var selected = wb_draft_invites();
-    wb_member_choices = contacts.slice(0);
-    var html = "<div class='wb_member_hint'>Choose up to eight verified contacts. Four people can edit.</div>" +
-        "<div class='wb_member_row wb_member_self'><input type='checkbox' checked disabled>" +
-        "<div><strong>" + wb_html(wb_contact_alias(myId) || 'You') +
-        "</strong><span>This device</span></div></div>";
-    if (!contacts.length) {
-        html += "<div class='wb_invite_empty'>Verify contacts in Contacts first.</div>";
+    else {
+        cb_set_setup_mode('create');
+        launch_snackbar('Create or open a board before inviting someone');
     }
-    contacts.forEach(function (fid, index) {
-        var checked = selected.indexOf(fid) >= 0 ? ' checked' : '';
-        html += "<label class='wb_member_row' for='wb_member_" + index + "'>" +
-            "<input id='wb_member_" + index + "' type='checkbox'" + checked + ">" +
-            "<div><strong>" + wb_html(wb_contact_alias(fid) || cb_short_author(fid)) +
-            "</strong><span>" + wb_html(wb_short_feed(fid)) + "</span></div></label>";
-    });
-    document.getElementById('lst:members').innerHTML = html;
-    prev_scenario = 'whiteboard';
-    setScenario('members');
-    document.getElementById('div:textarea').style.display = 'none';
-    document.getElementById('div:confirm-members').style.display = 'flex';
-    document.getElementById('tremolaTitle').style.display = 'none';
-    var title = document.getElementById('conversationTitle');
-    title.style.display = null;
-    title.innerHTML = '<strong>Invite contacts</strong><br>Select people for the new board';
-    wb_set_plus_visibility(false);
-}
-
-function whiteboard_members_confirmed() {
-    var selected = [];
-    wb_member_choices.forEach(function (fid, index) {
-        var checkbox = document.getElementById('wb_member_' + index);
-        if (checkbox && checkbox.checked && selected.length < WB_MAX_INVITES) selected.push(fid);
-    });
-    wb_set_draft_invites(selected);
-    whiteboard_members_cancelled();
-}
-
-function whiteboard_members_cancelled() {
-    setScenario('whiteboard');
-    wb_set_title();
-    cb_show_setup(true);
-    wb_set_plus_visibility(true);
-    wb_render_draft_invites();
 }
 
 function wb_meta_state(roomId) {
@@ -325,29 +239,47 @@ function wb_meta_state(roomId) {
     if (!created) {
         return {
             managed: false, owner: '', boardName: '', code: '', members: [],
-            aliases: {}, invitations: [], acceptances: [], protocol: 0, roomId: roomId
+            aliases: {}, invitations: [], latestInvitations: [], invitees: [],
+            acceptances: [], declines: [], responses: {}, protocol: 0, roomId: roomId
         };
     }
 
     var owner = created.h.fid;
     var invitations = [];
-    var invited = Object.create(null);
+    var invitees = [];
+    var latestByInvitee = Object.create(null);
     entries.forEach(function (entry) {
-        if (entry.e.k !== WB_META_INVITE || entry.h.fid !== owner || invited[entry.e.to] ||
-            invitations.length >= WB_MAX_INVITES) return;
-        invited[entry.e.to] = true;
+        if (entry.e.k !== WB_META_INVITE || entry.h.fid !== owner) return;
+        var previous = latestByInvitee[entry.e.to];
+        if (!previous && invitees.length >= WB_MAX_INVITES) return;
+        if (previous && cb_event_ts(entry.e) - cb_event_ts(previous.e) < WB_INVITE_COOLDOWN_MS) {
+            return;
+        }
+        if (!previous) invitees.push(entry.e.to);
         invitations.push(entry);
+        latestByInvitee[entry.e.to] = entry;
+    });
+
+    var invitationById = Object.create(null);
+    invitations.forEach(function (entry) { invitationById[entry.e.id] = entry; });
+    var responses = Object.create(null);
+    entries.forEach(function (entry) {
+        if ([WB_META_ACCEPT, WB_META_DECLINE].indexOf(entry.e.k) < 0 ||
+            responses[entry.e.invite]) return;
+        var invitation = invitationById[entry.e.invite];
+        if (!invitation || entry.h.fid !== invitation.e.to) return;
+        responses[entry.e.invite] = entry;
     });
 
     var acceptances = [];
-    invitations.forEach(function (invitation) {
-        var accepted = entries.filter(function (entry) {
-            return entry.e.k === WB_META_ACCEPT && entry.h.fid === invitation.e.to &&
-                entry.e.invite === invitation.e.id;
-        }).sort(function (a, b) { return cb_compare_events(a.e, b.e); })[0];
-        if (accepted) acceptances.push(accepted);
+    var declines = [];
+    Object.keys(responses).forEach(function (inviteId) {
+        var response = responses[inviteId];
+        if (response.e.k === WB_META_ACCEPT) acceptances.push(response);
+        else declines.push(response);
     });
     acceptances.sort(function (a, b) { return cb_compare_events(a.e, b.e); });
+    declines.sort(function (a, b) { return cb_compare_events(a.e, b.e); });
 
     var members = [owner];
     acceptances.forEach(function (entry) {
@@ -380,7 +312,11 @@ function wb_meta_state(roomId) {
         members: members,
         aliases: aliases,
         invitations: invitations,
+        latestInvitations: invitees.map(function (fid) { return latestByInvitee[fid]; }),
+        invitees: invitees,
         acceptances: acceptances,
+        declines: declines,
+        responses: responses,
         protocol: Number(created.e.v) >= 3 ? 3 : 2,
         roomId: roomId
     };
@@ -414,6 +350,27 @@ function wb_has_acceptance(state, fid) {
     return state.acceptances.some(function (entry) { return entry.h.fid === fid; });
 }
 
+function wb_invitation_status(state, invitation) {
+    if (!state || !invitation) return 'Waiting';
+    var response = state.responses[invitation.e.id];
+    if (!response) return state.members.indexOf(invitation.e.to) >= 0 ? 'Accepted' : 'Waiting';
+    if (response.e.k === WB_META_DECLINE) return 'Declined';
+    return state.members.indexOf(invitation.e.to) >= 0 ? 'Accepted' : 'Board full';
+}
+
+function wb_latest_invitation_for(state, fid) {
+    if (!state) return null;
+    return state.latestInvitations.filter(function (entry) {
+        return entry.e.to === fid;
+    })[0] || null;
+}
+
+function wb_invite_wait_seconds(invitation, now) {
+    if (!invitation) return 0;
+    var remaining = WB_INVITE_COOLDOWN_MS - ((Number(now) || Date.now()) - cb_event_ts(invitation.e));
+    return Math.max(0, Math.min(30, Math.ceil(remaining / 1000)));
+}
+
 function wb_declined() {
     if (!tremola.collabboardTinyDeclined ||
         typeof tremola.collabboardTinyDeclined !== 'object' ||
@@ -428,10 +385,29 @@ function wb_pending_invitations() {
     Object.keys(wb_cache()).forEach(function (roomId) {
         var state = wb_meta_state(roomId);
         if (!state.managed || !wb_is_verified_contact(state.owner)) return;
-        state.invitations.forEach(function (entry) {
-            if (entry.e.to !== myId || wb_declined()[entry.e.id] ||
-                wb_has_acceptance(state, myId)) return;
-            result.push({ roomId: roomId, state: state, invitation: entry });
+        var entry = wb_latest_invitation_for(state, myId);
+        if (!entry || wb_declined()[entry.e.id] || wb_has_acceptance(state, myId) ||
+            state.responses[entry.e.id]) return;
+        result.push({ roomId: roomId, state: state, invitation: entry });
+    });
+    result.sort(function (a, b) {
+        return cb_compare_events(b.invitation.e, a.invitation.e);
+    });
+    return result;
+}
+
+function wb_outgoing_invitations() {
+    var result = [];
+    Object.keys(wb_cache()).forEach(function (roomId) {
+        var state = wb_meta_state(roomId);
+        if (!state.managed || state.owner !== myId) return;
+        state.latestInvitations.forEach(function (invitation) {
+            result.push({
+                roomId: roomId,
+                state: state,
+                invitation: invitation,
+                status: wb_invitation_status(state, invitation)
+            });
         });
     });
     result.sort(function (a, b) {
@@ -515,6 +491,16 @@ function wb_rebuild_current_board() {
     cb_schedule_fit();
 }
 
+function wb_show_new_invitation(roomId) {
+    var pending = wb_pending_invitations().filter(function (item) {
+        return item.roomId === roomId && !wb_announced_invites[item.invitation.e.id];
+    });
+    if (!pending.length) return;
+    pending.forEach(function (item) { wb_announced_invites[item.invitation.e.id] = true; });
+    launch_snackbar('New whiteboard invitation');
+    setTimeout(whiteboard_show_invitations, 80);
+}
+
 function wb_after_meta_change(roomId, kind) {
     var state = wb_meta_state(roomId);
     if (wb_current_room_id() === roomId && state.managed) {
@@ -530,10 +516,7 @@ function wb_after_meta_change(roomId, kind) {
         wb_update_status();
     }
     if (kind === WB_META_INVITE) {
-        var pending = wb_pending_invitations();
-        if (pending.some(function (item) { return item.invitation.e.r === roomId; })) {
-            launch_snackbar('New whiteboard invitation');
-        }
+        wb_show_new_invitation(roomId);
     }
     if (document.getElementById('kanban-invitations-overlay').style.display !== 'none' &&
         curr_scenario === 'whiteboard') {
@@ -610,15 +593,10 @@ function cb_create_board() {
     }
     var code = cb_new_pairing_code();
     var room = wb_new_room(code, username, boardName);
-    var invitees = wb_draft_invites();
     tremola.collabboardLastUser = username;
     cb_pending_open_kind = 'create';
     cb_force_publish_name = true;
     wb_publish_meta(wb_make_meta(WB_META_CREATE, room, { b: boardName, p: code, v: 3 }));
-    invitees.forEach(function (fid) {
-        wb_publish_meta(wb_make_meta(WB_META_INVITE, room, { to: fid }));
-    });
-    wb_set_draft_invites([]);
     cb_activate_room(room);
 }
 
@@ -708,17 +686,18 @@ function whiteboard_invite_contacts() {
     if (header) header.innerHTML = '<b>Invite contacts</b>';
     var content = document.getElementById('menu_invite_content');
     var contacts = wb_verified_contacts();
-    var invited = Object.create(null);
-    state.invitations.forEach(function (entry) { invited[entry.e.to] = true; });
     var html = "<div class='wb_invite_intro'>Verified contacts only. Up to eight can be invited; four can join.</div>";
     if (!contacts.length) {
         html += "<div class='wb_invite_empty'>Verify a contact in Contacts first.</div>";
     }
     contacts.forEach(function (fid) {
         var member = state.members.indexOf(fid) >= 0;
-        var already = !!invited[fid];
-        var full = state.invitations.length >= WB_MAX_INVITES;
-        var status = member ? 'Member' : (already ? 'Invited' : (full ? 'Invite limit reached' : ''));
+        var latest = wb_latest_invitation_for(state, fid);
+        var wait = wb_invite_wait_seconds(latest, Date.now());
+        var full = !latest && state.invitees.length >= WB_MAX_INVITES;
+        var status = member ? 'Member' : (latest ? wb_invitation_status(state, latest) :
+            (full ? 'Invite limit reached' : ''));
+        if (!member && wait) status += (status ? ' - ' : '') + 'Wait ' + wait + 's';
         var arg = encodeURIComponent(fid);
         html += "<div class='kanban_invitation_container light wb_official_invite'>" +
             "<div class='kanban_invitation_text_container'>" +
@@ -727,7 +706,7 @@ function whiteboard_invite_contacts() {
             "<div class='wb_official_invite_detail'>" +
             wb_html(status || wb_short_feed(fid)) + "</div></div>" +
             "<div class='wb_official_invite_actions'>";
-        if (!status) {
+        if (!member && !full) {
             html += "<button class='flat passive buttontext wb_official_invite_button' type='button' " +
                 "aria-label='Invite contact' title='Invite contact' onclick=\"whiteboard_invite_contact(decodeURIComponent('" +
                 arg + "'))\">&nbsp;</button>";
@@ -747,9 +726,17 @@ function whiteboard_invite_contact(fid) {
         launch_snackbar('This contact cannot be invited');
         return;
     }
-    if (state.members.indexOf(fid) >= 0 ||
-        state.invitations.some(function (entry) { return entry.e.to === fid; })) return;
-    if (state.invitations.length >= WB_MAX_INVITES) {
+    if (state.members.indexOf(fid) >= 0) {
+        launch_snackbar('This contact is already a member');
+        return;
+    }
+    var latest = wb_latest_invitation_for(state, fid);
+    var wait = wb_invite_wait_seconds(latest, Date.now());
+    if (wait > 0) {
+        launch_snackbar('Wait ' + wait + ' seconds before inviting this contact again');
+        return;
+    }
+    if (!latest && state.invitees.length >= WB_MAX_INVITES) {
         launch_snackbar('Eight contacts are already invited');
         return;
     }
@@ -764,10 +751,15 @@ function whiteboard_show_invitations() {
     var list = document.getElementById('kanban_invitations_list');
     var username = cb_clean_username(tremola.collabboardLastUser) || wb_contact_alias(myId);
     var pending = wb_pending_invitations();
-    var html = "<label class='wb_invitation_name_label' for='wb_invitation_name'>Your whiteboard name</label>" +
-        "<input id='wb_invitation_name' class='wb_invitation_name' maxlength='24' value='" +
-        wb_html(username) + "' placeholder='Name'>";
-    if (!pending.length) html += "<div class='wb_invite_empty'>No whiteboard invitations.</div>";
+    var outgoing = wb_outgoing_invitations();
+    pending.forEach(function (item) { wb_announced_invites[item.invitation.e.id] = true; });
+    var html = '';
+    if (pending.length) {
+        html += "<div class='wb_invitation_section'>Received</div>" +
+            "<label class='wb_invitation_name_label' for='wb_invitation_name'>Your whiteboard name</label>" +
+            "<input id='wb_invitation_name' class='wb_invitation_name' maxlength='24' value='" +
+            wb_html(username) + "' placeholder='Name'>";
+    }
     pending.forEach(function (item) {
         var invitation = item.invitation;
         var state = item.state;
@@ -782,6 +774,21 @@ function whiteboard_show_invitations() {
         html += "<button class='wb_invitation_decline' type='button' onclick=\"whiteboard_decline_invite(decodeURIComponent('" +
             arg + "'))\">Decline</button></div></div>";
     });
+    if (outgoing.length) {
+        html += "<div class='wb_invitation_section'>Sent</div>";
+        outgoing.forEach(function (item) {
+            var invitation = item.invitation;
+            html += "<div class='wb_invitation_card'><div><strong>" +
+                wb_html(wb_contact_alias(invitation.e.to) || cb_short_author(invitation.e.to)) +
+                "</strong><span>" + wb_html(item.state.boardName) + "</span></div>" +
+                "<span class='wb_invite_status wb_invite_status_" +
+                item.status.toLowerCase().replace(/\s+/g, '_') + "'>" +
+                wb_html(item.status) + "</span></div>";
+        });
+    }
+    if (!pending.length && !outgoing.length) {
+        html = "<div class='wb_invite_empty'>No whiteboard invitations.</div>";
+    }
     list.innerHTML = html;
     overlay.style.display = 'initial';
     document.getElementById('overlay-bg').style.display = 'initial';
@@ -829,6 +836,7 @@ function wb_accept_pending_invitation(item, username) {
     tremola.collabboardLastUser = username;
     wb_publish_meta(wb_make_meta(WB_META_ACCEPT, room, { invite: item.invitation.e.id }));
     closeOverlay();
+    if (curr_scenario !== 'whiteboard') whiteboard_open(true);
     cb_pending_open_kind = 'join';
     cb_force_publish_name = false;
     cb_activate_room(room);
@@ -836,9 +844,30 @@ function wb_accept_pending_invitation(item, username) {
 }
 
 function whiteboard_decline_invite(inviteId) {
+    var item = wb_find_pending_invitation(inviteId);
+    if (!item) {
+        launch_snackbar('Invitation is no longer available');
+        return;
+    }
+    var room = {
+        v: item.state.protocol >= 3 ? 3 : 2,
+        r: item.roomId,
+        k: wb_room_key(item.roomId, item.state.code, item.state.protocol),
+        o: item.state.owner,
+        u: cb_clean_username(tremola.collabboardLastUser) || wb_contact_alias(myId) || 'Guest',
+        b: item.state.boardName,
+        p: item.state.code,
+        d: item.state.protocol >= 3 ? 3 : 2
+    };
+    wb_publish_meta(wb_make_meta(WB_META_DECLINE, room, { invite: item.invitation.e.id }));
     wb_declined()[inviteId] = true;
     persist();
-    whiteboard_show_invitations();
+    launch_snackbar('Invitation declined');
+    if (wb_pending_invitations().length || wb_outgoing_invitations().length) {
+        whiteboard_show_invitations();
+    } else {
+        closeOverlay();
+    }
 }
 
 function wb_publish_profile_if_needed() {
@@ -858,14 +887,31 @@ cb_open_saved_board = function (roomId) {
 };
 
 cb_copy_invite = function () {
-    whiteboard_invite_contacts();
+    var room = wb_current_room();
+    if (room && cb_valid_pairing_code(room.p)) cb_copy_text(room.p);
+};
+
+var wb_update_room_bar_base = cb_update_room_bar;
+cb_update_room_bar = function () {
+    wb_update_room_bar_base();
+    var room = wb_current_room();
+    var code = room && cb_valid_pairing_code(room.p) ? room.p : '';
+    var chip = document.getElementById('cb_invite_btn');
+    var oldCode = document.getElementById('cb_room_code');
+    if (chip) {
+        chip.classList.add('wb_code_chip');
+        chip.style.display = code ? null : 'none';
+        chip.textContent = code ? 'Code ' + code : '';
+        chip.setAttribute('aria-label', code ? 'Board code ' + code + '. Tap to copy.' : 'Board code');
+        chip.title = code ? 'Tap to copy board code' : '';
+    }
+    if (oldCode) oldCode.style.display = 'none';
 };
 
 var wb_show_setup_base = cb_show_setup;
 cb_show_setup = function (show) {
     wb_show_setup_base(show);
-    wb_set_plus_visibility(!!show && curr_scenario === 'whiteboard');
-    if (show) wb_render_draft_invites();
+    wb_set_plus_visibility(curr_scenario === 'whiteboard');
 };
 
 function wb_install_export_button() {
@@ -951,10 +997,9 @@ function whiteboard_export(format) {
     setTimeout(function () { wb_export_busy = false; }, 500);
 }
 
-function whiteboard_open() {
+function whiteboard_open(suppressInvitationPopup) {
     wb_install_sync_status_hooks();
     wb_mount_invite_menu();
-    wb_install_draft_invites();
     wb_install_export_button();
     setScenario('whiteboard');
     var core = document.getElementById('core');
@@ -987,7 +1032,7 @@ function whiteboard_open() {
     cb_set_setup_mode('create');
     cb_render_board_list();
     wb_update_status();
-    if (wb_pending_invitations().length) {
+    if (!suppressInvitationPopup && wb_pending_invitations().length) {
         setTimeout(whiteboard_show_invitations, 80);
     }
 }

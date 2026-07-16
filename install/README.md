@@ -61,17 +61,17 @@ joining once, tap **Boards** to close the board without deleting it. Tap
 
 1. Add and verify the contacts on both phones.
 2. Open **Productivity > Collaboration Board**.
-3. Before creating a board, tap `+` and select up to eight contacts.
-4. Create the board. You can also use **Invite** later.
-5. On the other phone, open the top-right menu, choose **Invitations**, enter a
-   display name, and tap **Accept**. The Join form also works after the signed
-   invitation has arrived.
+3. Create and open a board.
+4. Tap `+` and invite a verified contact.
+5. On the other phone, enter a display name in the popup and tap **Accept**.
+   The top-right **Invitations** menu keeps the invite and sender status.
 6. The creator and the first three contacts who accept can edit.
 
 The tinySSB version joins only through a signed invitation. Its six-digit code
 can select a received invitation, but it cannot create or discover a board by
 itself. **Export** saves the canvas as a JPEG or PDF. A JPEG follows the local
-dark canvas; a PDF is white.
+dark canvas; a PDF is white. A repeat invite to one contact is available after
+30 seconds.
 
 Returning from the Tremola MiniApps screen within 30 seconds reopens the active
 board. Returning later, or starting Tremola again, opens the Boards screen.

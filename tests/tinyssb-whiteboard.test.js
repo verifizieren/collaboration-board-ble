@@ -26,6 +26,7 @@ function fakeElement() {
         classList: { toggle: function () {}, add: function () {}, remove: function () {} },
         focus: function () {},
         setAttribute: function () {},
+        appendChild: function (child) { child.parentNode = this; },
         innerHTML: "",
         textContent: "",
         value: "",
@@ -37,6 +38,8 @@ function fakeElement() {
 function loadAdapter(identity) {
     const elements = Object.create(null);
     const commands = [];
+    const snackbars = [];
+    const timers = [];
     const context = {
         console: { log: function () {} },
         document: {
@@ -54,11 +57,11 @@ function loadAdapter(identity) {
         backend: function (command) { commands.push(command); },
         setScenario: function () {},
         closeOverlay: function () {},
-        launch_snackbar: function () {},
+        launch_snackbar: function (message) { snackbars.push(message); },
         b2f_local_peer: function () {},
         b2f_ble_disabled: function () {},
         confirm: function () { return true; },
-        setTimeout: function () {},
+        setTimeout: function (callback) { timers.push(callback); },
         clearTimeout: function () {},
         btoa: function (value) { return Buffer.from(value, "binary").toString("base64"); },
         atob: function (value) { return Buffer.from(value, "base64").toString("binary"); },
@@ -73,6 +76,9 @@ function loadAdapter(identity) {
     vm.runInContext(boardSource, context, { filename: "collabboard.js" });
     vm.runInContext(adapterSource, context, { filename: "adapter.js" });
     context.commands = commands;
+    context.snackbars = snackbars;
+    context.timers = timers;
+    context.elements = elements;
     return context;
 }
 
@@ -98,21 +104,24 @@ const extras = [feed("e1"), feed("e2"), feed("e3"), feed("e4"), feed("e5")];
 const roomId = "wbd-0123456789abcdef0123456789abcdef";
 const board = loadAdapter(owner);
 
-// tinySSB must not confuse the common browser-preview room with a real board.
-// The setup plus opens contact selection; an open board uses its Invite flow.
+// The setup plus explains that a board is needed. Inside a board it opens the
+// verified-contact invitation flow.
 const setupBoard = loadAdapter(owner);
-let selectedContacts = 0;
 let openedInvites = 0;
-setupBoard.whiteboard_select_contacts = function () { selectedContacts += 1; };
 setupBoard.whiteboard_invite_contacts = function () { openedInvites += 1; };
 assert.strictEqual(setupBoard.wb_current_room(), null);
 setupBoard.whiteboard_plus();
-assert.strictEqual(selectedContacts, 1);
 assert.strictEqual(openedInvites, 0);
+assert.strictEqual(setupBoard.snackbars.pop(), "Create or open a board before inviting someone");
 setupBoard.tremola.collabboardRoom = { r: roomId };
 setupBoard.whiteboard_plus();
-assert.strictEqual(selectedContacts, 1);
 assert.strictEqual(openedInvites, 1);
+setupBoard.tremola.collabboardRoom = {
+    r: roomId, p: "482913", b: "DPI Board", o: owner, u: "Owner"
+};
+setupBoard.cb_update_room_bar();
+assert.strictEqual(setupBoard.document.getElementById("cb_invite_btn").textContent, "Code 482913");
+assert.notStrictEqual(setupBoard.document.getElementById("cb_invite_btn").style.display, "none");
 
 // The upstream BLE callback reports "online" and may expose the same tinySSB
 // identity under more than one Android BLE address.
@@ -159,6 +168,19 @@ assert.strictEqual(board.wb_can_edit(roomId, guests[3]), false);
 assert.strictEqual(board.wb_can_edit(roomId, feed("outsider")), false);
 assert.strictEqual(board.wb_members(roomId).length, 4);
 
+// A repeat invite to one contact is ignored by the shared reducer until its
+// signed timestamp is at least 30 seconds newer.
+const repeatRoom = "wbd-repeat-0123456789abcdef0123456789";
+store(board, meta("wc", "repeat-create", repeatRoom, 100000, {
+    u: "Owner", b: "Repeat Board", p: "390122", v: 3
+}), owner);
+store(board, meta("wi", "repeat-first", repeatRoom, 100100, { to: guests[0] }), owner);
+store(board, meta("wi", "repeat-too-soon", repeatRoom, 110100, { to: guests[0] }), owner);
+store(board, meta("wi", "repeat-later", repeatRoom, 130101, { to: guests[0] }), owner);
+const repeatState = board.wb_meta_state(repeatRoom);
+assert.strictEqual(repeatState.invitations.length, 2);
+assert.strictEqual(repeatState.latestInvitations[0].e.id, "repeat-later");
+
 store(board, meta("wp", "profile-alice", roomId, 50, { u: "Alice New" }), guests[0]);
 state = board.wb_meta_state(roomId);
 assert.strictEqual(state.aliases[guests[0]], "Alice New");
@@ -179,6 +201,27 @@ assert.strictEqual(recipient.wb_pending_invitations().length, 1);
 recipient.tremola.contacts[owner].trusted = 1;
 assert.strictEqual(recipient.wb_pending_invitations().length, 0);
 recipient.tremola.contacts[owner].trusted = 2;
+
+// A newly received invitation schedules an Accept/Decline popup immediately.
+const popupRecipient = loadAdapter(guests[1]);
+popupRecipient.tremola.contacts[owner] = {
+    alias: "Verified Owner", trusted: 2, forgotten: false
+};
+popupRecipient.whiteboard_new_event({
+    header: { fid: owner, ref: "popup-create-ref", seq: 1 },
+    public: ["WBD", JSON.stringify(meta("wc", "popup-create", repeatRoom, 1, {
+        u: "Owner", b: "Popup Board", p: "390122", v: 3
+    }))]
+});
+const timersBeforeInvite = popupRecipient.timers.length;
+popupRecipient.whiteboard_new_event({
+    header: { fid: owner, ref: "popup-invite-ref", seq: 2 },
+    public: ["WBD", JSON.stringify(meta("wi", "popup-invite", repeatRoom, 2, {
+        to: guests[1]
+    }))]
+});
+assert.strictEqual(popupRecipient.snackbars.includes("New whiteboard invitation"), true);
+assert.strictEqual(popupRecipient.timers.length, timersBeforeInvite + 1);
 
 // The six-digit Join form may select an exact signed invitation, but it must
 // never derive or invent a room from the code alone.
@@ -204,6 +247,60 @@ noInvite.cb_join_board();
 assert.strictEqual(noInvite.commands.length, 0);
 assert.strictEqual(noInvite.wb_current_room(), null);
 
+// Decline is a signed event, so the sender can distinguish it from Waiting.
+const decliner = loadAdapter(guests[2]);
+decliner.tremola.contacts[owner] = {
+    alias: "Verified Owner", trusted: 2, forgotten: false
+};
+store(decliner, meta("wc", "decline-create", repeatRoom, 1, {
+    u: "Owner", b: "Decline Board", p: "390122", v: 3
+}), owner);
+store(decliner, meta("wi", "decline-invite", repeatRoom, 2, { to: guests[2] }), owner);
+decliner.whiteboard_decline_invite("decline-invite");
+const declinedEvent = JSON.parse(Buffer.from(
+    decliner.commands[decliner.commands.length - 1].slice("whiteboard ".length),
+    "base64"
+).toString("utf8"));
+assert.strictEqual(declinedEvent.k, "wd");
+assert.strictEqual(declinedEvent.invite, "decline-invite");
+
+const senderStatus = loadAdapter(owner);
+store(senderStatus, meta("wc", "status-create", repeatRoom, 1, {
+    u: "Owner", b: "Decline Board", p: "390122", v: 3
+}), owner);
+store(senderStatus, meta("wi", "status-invite", repeatRoom, 2, { to: guests[2] }), owner);
+store(senderStatus, meta("wd", "status-decline", repeatRoom, 3, {
+    u: "Carol", invite: "status-invite"
+}), guests[2]);
+assert.strictEqual(senderStatus.wb_outgoing_invitations()[0].status, "Declined");
+
+// The send action itself blocks immediate repeats and permits a retry after
+// 30 seconds without consuming another unique invite slot.
+const cooldown = loadAdapter(owner);
+cooldown.tremola.contacts[guests[0]] = {
+    alias: "Alice", trusted: 2, forgotten: false
+};
+const cooldownRoom = cooldown.wb_new_room("771204", "Owner", "Cooldown Board");
+cooldown.tremola.collabboardRoom = cooldownRoom;
+store(cooldown, meta("wc", "cooldown-create", cooldownRoom.r, Date.now() - 1000, {
+    u: "Owner", b: "Cooldown Board", p: "771204", v: 3
+}), owner);
+cooldown.whiteboard_invite_contact(guests[0]);
+assert.strictEqual(cooldown.commands.length, 1);
+assert.strictEqual(cooldown.document.getElementById("menu_invite_content").innerHTML.includes("Wait "), true);
+assert.strictEqual(cooldown.document.getElementById("menu_invite_content").innerHTML.includes("wb_official_invite_button"), true);
+cooldown.whiteboard_invite_contact(guests[0]);
+assert.strictEqual(cooldown.commands.length, 1);
+assert.strictEqual(cooldown.snackbars.some(function (message) {
+    return message.indexOf("Wait ") === 0;
+}), true);
+cooldown.wb_room_events(cooldownRoom.r).filter(function (entry) {
+    return entry.e.k === "wi";
+})[0].e.ts -= 31000;
+cooldown.whiteboard_invite_contact(guests[0]);
+assert.strictEqual(cooldown.commands.length, 2);
+assert.strictEqual(cooldown.wb_meta_state(cooldownRoom.r).invitees.length, 1);
+
 // New boards use random room IDs. A six-digit display code can never create
 // or select a tinySSB board by itself.
 const roomA = board.wb_new_room("123456", "Owner", "Board A");
@@ -213,8 +310,8 @@ assert.strictEqual(roomA.v, 3);
 assert.strictEqual(roomA.k, board.wb_room_key(roomA.r, "123456", 3));
 assert.notStrictEqual(roomA.k, board.wb_room_key(roomA.r, "123456", 2));
 
-// Creating publishes the signed create event first, followed by the selected
-// verified-contact invitations for that exact random room.
+// Creating publishes only the signed board event. Contacts are invited later
+// with the plus button inside that board.
 const creator = loadAdapter(owner);
 guests.concat(extras).forEach(function (fid, index) {
     creator.tremola.contacts[fid] = {
@@ -223,7 +320,6 @@ guests.concat(extras).forEach(function (fid, index) {
 });
 creator.document.getElementById("cb_username").value = "Owner";
 creator.document.getElementById("cb_board_name").value = "Shared board";
-creator.tremola.collabboardTinyDraftInvites = guests.concat(extras);
 let activatedRoom = null;
 creator.cb_activate_room = function (room) { activatedRoom = room; };
 creator.cb_create_board();
@@ -233,23 +329,22 @@ const published = creator.commands.map(function (command) {
 });
 assert.strictEqual(published[0].k, "wc");
 assert.strictEqual(published[0].v, 3);
-assert.strictEqual(published.length, 1 + creator.WB_MAX_INVITES);
-assert.strictEqual(published.slice(1).every(function (event) {
-    return event.k === "wi" && event.r === published[0].r;
-}), true);
+assert.strictEqual(published.length, 1);
 assert.strictEqual(activatedRoom.r, published[0].r);
-assert.strictEqual(creator.wb_draft_invites().length, 0);
 
 const integrationPatch = fs.readFileSync(path.join(root, "tinyssb/integration.patch"), "utf8");
 assert.strictEqual(integrationPatch.includes("'whiteboard_show_invitations'"), true);
 assert.strictEqual(integrationPatch.includes("whiteboard_plus();"), true);
-assert.strictEqual(integrationPatch.includes("whiteboard_members_confirmed()"), true);
-assert.strictEqual(integrationPatch.includes("whiteboard_members_cancelled()"), true);
-assert.strictEqual(integrationPatch.includes("'div:collabboard-main', 'plus'"), false);
+assert.strictEqual(integrationPatch.includes("whiteboard_members_confirmed()"), false);
+assert.strictEqual(integrationPatch.includes("whiteboard_members_cancelled()"), false);
+assert.strictEqual(integrationPatch.includes("'div:collabboard-main', 'plus'"), true);
 assert.strictEqual(integrationPatch.includes('else if (e.public[0] == "WBD")'), true);
 assert.strictEqual(adapterSource.includes("menu.parentNode !== core"), true);
 assert.strictEqual(adapterSource.includes("kanban_invitation_container light"), true);
 assert.strictEqual(adapterSource.includes("wb_official_invite_button"), true);
+assert.strictEqual(adapterSource.includes("var WB_META_DECLINE = 'wd';"), true);
+assert.strictEqual(adapterSource.includes("WB_INVITE_COOLDOWN_MS = 30000"), true);
+assert.strictEqual(adapterSource.includes("wb_draft_invites"), false);
 assert.strictEqual(adapterSource.includes("wb_room_from_code"), false);
 assert.strictEqual(adapterSource.includes("No signed invitation for this code yet"), true);
 assert.strictEqual(adapterSource.includes("Android.exportWhiteboard"), true);
@@ -274,7 +369,8 @@ assert.strictEqual(theme.includes(".cb_workspace.cb_dark_canvas #cb_canvas"), tr
 assert.strictEqual(theme.includes("background: transparent"), true);
 assert.strictEqual(theme.includes("../../img/send.svg"), true);
 assert.strictEqual(theme.includes("#wb_export_btn"), true);
-assert.strictEqual(theme.includes(".wb_member_row"), true);
+assert.strictEqual(theme.includes(".wb_code_chip"), true);
+assert.strictEqual(theme.includes(".wb_invitation_section"), true);
 
 const exportPatch = fs.readFileSync(path.join(root, "tinyssb/whiteboard-export.patch"), "utf8");
 assert.strictEqual(exportPatch.includes("Intent.ACTION_CREATE_DOCUMENT"), true);

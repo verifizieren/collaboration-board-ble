@@ -86,6 +86,8 @@ The separate tinySSB build uses a different access flow. A new board gets a
 random ID. The creator sends signed invitations to verified tinySSB contacts,
 and recipients can accept later from the Invitations menu. Up to eight contacts
 may be invited. The creator and the first three valid acceptances can edit.
+Accept and decline are signed feed events, so the creator can reproduce each
+status. Repeat invites to one contact are limited to one every 30 seconds.
 The short code can select an invitation already received on that phone, but it
 cannot derive or discover a room. Public `WBD` events are not encrypted.
 

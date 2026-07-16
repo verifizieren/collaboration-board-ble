@@ -37,7 +37,9 @@ contains that exact ID, so typing the same short code cannot create another
 board. The Join form may use the code only to select an invitation that has
 already arrived. The creator may invite eight verified contacts. The creator
 and the first three valid acceptances form the deterministic four-person editor
-list. tinySSB does not encrypt public `WBD` events.
+list. Signed accept and decline events give the sender a reproducible status.
+Repeat invites to one contact have a 30-second limit. tinySSB does not encrypt
+public `WBD` events.
 
 ## Main Data Flow
 
