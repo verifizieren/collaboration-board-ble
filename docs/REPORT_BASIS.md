@@ -17,7 +17,7 @@ phones should work without Internet and exchange changes over BLE.
 - Up to four Tremola identities can use a board.
 - Every member can edit every object.
 - Draw, text, move, resize, color, delete, and clear are supported.
-- The fixed board scales to different phone screens.
+- The large finite board scales to different phone screens.
 - Boards have names and can be reopened from a local list.
 - A board copy can be deleted locally after entering its code.
 - A full-screen view supports local pan, pinch zoom, and a dark canvas.
@@ -25,6 +25,7 @@ phones should work without Internet and exchange changes over BLE.
 - Android's keyboard Go button closes the keyboard before text placement.
 - Board state and membership survive closing the board or app.
 - Offline and late members recover missing operations.
+- Joining shows the merged current state instead of visibly replaying old steps.
 
 ## Method
 

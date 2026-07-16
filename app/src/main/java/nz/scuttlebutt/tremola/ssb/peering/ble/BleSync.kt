@@ -308,7 +308,23 @@ class BleSync(
         val username = BoardProtocol.cleanUsername(request.optString("u", ""))
         val boardName = BoardProtocol.cleanBoardName(request.optString("b", ""))
         val ownFeed = tremolaState.idStore.identity.toRef()
-        val config = BoardProtocol.directConfig(code, ownFeed, username, boardName) ?: return null
+        val directConfig = BoardProtocol.directConfig(code, ownFeed, username, boardName) ?: return null
+        val knownConfig = if (boardName.isBlank()) {
+            synchronized(boardConfigLock) {
+                boardConfig?.takeIf { it.roomId == directConfig.roomId }
+            } ?: loadBoardConfigFromProfile(directConfig.roomId)
+        } else {
+            null
+        }
+        val knownName = knownConfig?.boardName.orEmpty()
+        val config = if (
+            knownConfig != null && knownConfig.roomKey.contentEquals(directConfig.roomKey) &&
+            knownName.isNotBlank() && knownName != "Board" && knownName != "Board $code"
+        ) {
+            directConfig.copy(boardName = knownName)
+        } else {
+            directConfig
+        }
         if (!activateBoard(config)) return null
         return JSONObject(BoardProtocol.configJson(config))
             .put("p", code)
@@ -533,6 +549,13 @@ class BleSync(
                     }
                 }
             reportBoardRoomStatus()
+            try {
+                tremolaState.wai.eval(
+                    "if (typeof cb_board_replay_complete === 'function') " +
+                        "cb_board_replay_complete();"
+                )
+            } catch (_: Exception) {
+            }
         }
     }
 

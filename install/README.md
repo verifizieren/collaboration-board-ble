@@ -1,6 +1,6 @@
 # Install On Android
 
-Current live test build: **0.9.0** (`versionCode 22`).
+Current live test build: **0.9.1** (`versionCode 23`).
 
 Install the same variant on every test phone:
 
@@ -43,10 +43,17 @@ Anyone with the code can join until the board has four identities. After
 joining once, tap **Boards** to close the board without deleting it. Tap
 **Open** in the board list to return without entering the code again.
 
+Returning from the Tremola MiniApps screen within 30 seconds reopens the active
+board. Returning later, or starting Tremola again, opens the Boards screen.
+Only four saved board rows are shown at once; scroll that list for more.
+
 In **Text**, write the text and press the Android keyboard **Go** button. The
 keyboard closes but **Text** stays active. Tap the board to place it. The new
 text is selected so it can be moved or resized. In **Draw** and **Text**, use
 two fingers to move or zoom the board without creating an object.
+
+The drawing area is finite but larger than the first phone view. There is no
+visible page border. Use two fingers to reach the rest of the board.
 
 Use **View** for a full-screen read-only board. Drag to move the view and pinch
 to zoom. **Dark** changes only the canvas on the current phone. It does not
@@ -77,17 +84,19 @@ Use `tremola-collaboration-board-debug.apk` on both phones.
 4. Create a new board on phone A.
 5. Join from phone B with the same code.
 6. Wait until each phone shows one nearby peer.
-7. Draw a long stroke on A and check B.
-8. Add text on B and check A.
-9. Move, resize, recolor, and delete the other member's object.
-10. Use **Clear all** and check both phones.
-11. Turn Bluetooth off on B. Edit on both phones. Turn Bluetooth on again.
-12. Wait for both boards to converge.
-13. Tap **Boards**, reopen the named board, and confirm its content is present.
-14. Close and reopen Tremola and check the board again.
-15. Change your display name, reopen the board, and confirm the member count
+7. Wait for **Loading board...** to disappear. Only the merged current state
+   should appear.
+8. Draw a long stroke on A and check B.
+9. Add text on B and check A.
+10. Move, resize, recolor, and delete the other member's object.
+11. Use **Clear all** and check both phones.
+12. Turn Bluetooth off on B. Edit on both phones. Turn Bluetooth on again.
+13. Wait for both boards to converge.
+14. Tap **Boards**, reopen the named board, and confirm its content is present.
+15. Close and reopen Tremola and check the Boards screen opens first.
+16. Change your display name, reopen the board, and confirm the member count
     does not increase.
-16. Test **View**, pan, pinch zoom, **Dark**, and local board deletion.
+17. Test **View**, pan, pinch zoom, **Dark**, and local board deletion.
 
 Repeat with a third and fourth identity if available. A fifth identity must be
 rejected as **Board is full**.

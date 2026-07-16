@@ -32,12 +32,13 @@ The board sends one operation after a user finishes an action:
 - `k` - color change
 - `d` - delete one object
 - `c` - clear the board
+- `n` - board display name
 
-The board is fixed at 900 x 1200 logical units. CSS scales it to the available
-Tremola width. It does not shrink when Android opens the keyboard. Different
-phone sizes therefore use the same shared positions. The keyboard **Go** action
-hides the keyboard but keeps Text active. Two fingers pan or zoom in Draw and
-Text without creating an object.
+The board is a finite 1800 x 2400 logical units. The first view is the original
+900 x 1200 area, scaled to the available Tremola width. It does not shrink when
+Android opens the keyboard. Different phone sizes therefore use the same shared
+positions. The keyboard **Go** action hides the keyboard but keeps Text active.
+Two fingers pan or zoom in Draw and Text without creating an object.
 
 ## Storage And Identity
 
@@ -49,6 +50,8 @@ Text without creating an object.
 - Each local operation is also added to the local Tremola custom-app log.
 - Named board metadata and known member IDs are stored per board.
 - Closing and reopening a board replays its saved Room operations.
+- Replay is batched so the WebView first shows the merged current state instead
+  of painting old intermediate states.
 - A local dark canvas and full-screen pan/zoom view do not create shared events.
 
 ## Board Access
@@ -121,7 +124,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.9.0` (`versionCode 22`)
+- Version: `0.9.1` (`versionCode 23`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.
@@ -140,6 +143,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 - reverse-order replay and duplicate handling
 - draw, text, move, resize, color, delete, and clear
 - finite-board scaling on different display sizes
+- current-state replay, stable board names, board-list scrolling, and quick resume
 - stable text and canvas size while the Android keyboard opens
 - keyboard Go, immediate text resize, and two-finger edit navigation
 - named board catalogue, close, and reopen behavior

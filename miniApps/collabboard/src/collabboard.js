@@ -16,6 +16,7 @@
  *           absolute offset+scale relative to the original, last write wins
  *   recolor:{ k:'k', id, t:<targetId>, c:<color> } — last write wins
  *   delete: { k:'d', id, t:<targetId> } — removes one object
+ *   name:   { k:'n', id, b:<boardName> } — shared board display name
  *
  * Every peer may edit every object. Retired profile/owner events from
  * experimental builds are ignored.
@@ -39,7 +40,14 @@ cb_root.miniApps["collabboard"] = {
         switch (command) {
             case "onBackPressed":
                 if (cb_view_mode) cb_exit_view();
-                else quitApp();
+                else {
+                    var roomId = cb_current_room_id();
+                    if (roomId) {
+                        cb_resume_room_id = roomId;
+                        cb_resume_until = Date.now() + CB_QUICK_RESUME_MS;
+                    }
+                    quitApp();
+                }
                 break;
             case "incoming_notification":
                 var payload = args && args.args ? args.args[0] : args;
@@ -83,13 +91,19 @@ var CB_MAX_OBJECTS = 1500;
 var CB_MAX_CLEARS = 8;
 var CB_MAX_DELETES = 2000;
 var CB_MAX_SEEN = 4000;
-var CB_STATE_VERSION = 4;
-var CB_BOARD_WIDTH = 900;
-var CB_BOARD_HEIGHT = 1200;
-var CB_COORD_LIMIT = 2400;
+var CB_MAX_NAMES = 8;
+var CB_STATE_VERSION = 5;
+var CB_INITIAL_VIEW_WIDTH = 900;
+var CB_INITIAL_VIEW_HEIGHT = 1200;
+var CB_BOARD_WIDTH = 1800;
+var CB_BOARD_HEIGHT = 2400;
+var CB_COORD_LIMIT = 4800;
 var CB_MAX_MEMBERS = 4;
 var CB_TEXT_SIZE = 36;
 var CB_TEXT_LINE_HEIGHT = 42;
+var CB_QUICK_RESUME_MS = 30000;
+var CB_REPLAY_LOCAL_QUIET_MS = 100;
+var CB_REPLAY_REMOTE_QUIET_MS = 1800;
 var cb_native_config_pending = false;
 var cb_pending_pairing_code = '';
 var cb_pending_copy_code = '';
@@ -110,6 +124,15 @@ var cb_edit_pointers = Object.create(null);
 var cb_edit_gesture = null;
 var cb_edit_navigation = false;
 var cb_pending_text_point = null;
+var cb_pending_open_kind = '';
+var cb_force_publish_name = false;
+var cb_resume_room_id = '';
+var cb_resume_until = 0;
+var cb_replay_active = false;
+var cb_replay_native_done = false;
+var cb_replay_waiting_for_peer = false;
+var cb_replay_remote = false;
+var cb_replay_timer = null;
 
 function cb_is_android() {
     return typeof Android !== 'undefined' && typeof backend === 'function';
@@ -205,6 +228,52 @@ function cb_board_name(room) {
     return cb_clean_board_name(room && room.b) || 'Board';
 }
 
+function cb_is_default_board_name(name, code) {
+    var clean = cb_clean_board_name(name);
+    var cleanCode = cb_clean_pairing_code(code);
+    return !clean || clean === 'Board' || (cleanCode && clean === 'Board ' + cleanCode);
+}
+
+function cb_stable_board_name(incomingRoom, oldRoom) {
+    var incoming = cb_board_name(incomingRoom);
+    var old = cb_board_name(oldRoom);
+    if (cb_is_default_board_name(incoming, incomingRoom && incomingRoom.p) &&
+        !cb_is_default_board_name(old, oldRoom && oldRoom.p)) return old;
+    return incoming;
+}
+
+function cb_blur_setup_inputs() {
+    ['cb_username', 'cb_board_name', 'cb_join_code', 'cb_delete_code'].forEach(function (id) {
+        var input = document.getElementById(id);
+        if (input && input.blur) input.blur();
+    });
+}
+
+function cb_reset_page_scroll() {
+    if (typeof document === 'undefined') return;
+    var targets = [document.scrollingElement, document.documentElement, document.body,
+        document.getElementById('core'), document.getElementById('div:collabboard-main')];
+    targets.forEach(function (target) {
+        if (target && typeof target.scrollTop === 'number') target.scrollTop = 0;
+        if (target && typeof target.scrollLeft === 'number') target.scrollLeft = 0;
+    });
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+        try { window.scrollTo(0, 0); } catch (_e) {}
+    }
+}
+
+function cb_schedule_page_reset() {
+    cb_reset_page_scroll();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(cb_reset_page_scroll);
+    setTimeout(cb_reset_page_scroll, 80);
+    setTimeout(cb_reset_page_scroll, 260);
+}
+
+function cb_should_quick_resume(roomId, now) {
+    return !!roomId && roomId === cb_resume_room_id &&
+        Number(now) <= cb_resume_until;
+}
+
 function cb_board_catalog() {
     if (!tremola.collabboardBoards || typeof tremola.collabboardBoards !== 'object' ||
         Array.isArray(tremola.collabboardBoards)) {
@@ -216,9 +285,9 @@ function cb_board_catalog() {
 function cb_remember_room(room, touch) {
     if (!room || typeof room.r !== 'string' || room.r.length < 8 ||
         typeof room.k !== 'string' || room.k.length < 32 || typeof room.o !== 'string') return;
-    room.b = cb_board_name(room);
     var catalog = cb_board_catalog();
     var old = catalog[room.r];
+    room.b = cb_stable_board_name(room, old && old.room);
     var entry = {
         room: room,
         updated: touch || !old ? Date.now() : Number(old.updated) || Date.now()
@@ -270,6 +339,7 @@ function cb_render_board_list() {
     });
     if (empty) empty.style.display = entries.length ? 'none' : null;
     if (!container || typeof document.createElement !== 'function') return;
+    if (container.classList) container.classList.toggle('cb_saved_boards_scroll', entries.length > 4);
     container.textContent = '';
     entries.forEach(function (entry) {
         var row = document.createElement('div');
@@ -307,6 +377,10 @@ function cb_show_setup(show) {
     if (show) {
         if (cb_view_mode) cb_exit_view();
         cb_render_board_list();
+        cb_schedule_page_reset();
+    } else {
+        cb_blur_setup_inputs();
+        cb_schedule_page_reset();
     }
 }
 
@@ -326,6 +400,9 @@ function cb_create_board() {
         return;
     }
     var code = cb_new_pairing_code();
+    cb_blur_setup_inputs();
+    cb_pending_open_kind = 'create';
+    cb_force_publish_name = true;
     tremola.collabboardLastUser = username;
     persist();
     if (cb_is_android()) {
@@ -367,6 +444,9 @@ function cb_join_board() {
         cb_set_setup_error('Join is available in the Android app');
         return;
     }
+    cb_blur_setup_inputs();
+    cb_pending_open_kind = 'join';
+    cb_force_publish_name = false;
     tremola.collabboardLastUser = username;
     persist();
     cb_native_config_pending = true;
@@ -389,6 +469,8 @@ function cb_open_saved_board(roomId) {
         return;
     }
     entry.room.u = username;
+    cb_pending_open_kind = 'saved';
+    cb_force_publish_name = false;
     tremola.collabboardLastUser = username;
     cb_activate_room(entry.room, !cb_is_android() ? entry.state : null);
 }
@@ -484,12 +566,113 @@ function cb_board_deleted(roomId, success) {
     cb_set_setup_error('Board deleted from this phone');
 }
 
+function cb_set_replay_ui(loading) {
+    var workspace = document.getElementById('cb_workspace');
+    var overlay = document.getElementById('cb_board_loading');
+    if (workspace && workspace.classList) {
+        workspace.classList.toggle('cb_replay_loading', !!loading);
+    }
+    if (overlay) overlay.style.display = loading ? null : 'none';
+}
+
+function cb_clear_replay_timer() {
+    if (cb_replay_timer !== null) clearTimeout(cb_replay_timer);
+    cb_replay_timer = null;
+}
+
+function cb_begin_board_replay(kind) {
+    cb_clear_replay_timer();
+    cb_replay_active = true;
+    cb_replay_native_done = false;
+    cb_replay_waiting_for_peer = kind === 'join';
+    cb_replay_remote = kind === 'join' || kind === 'catchup';
+    cb_set_replay_ui(true);
+}
+
+function cb_schedule_replay_finish(delay) {
+    if (!cb_replay_active) return;
+    cb_clear_replay_timer();
+    cb_replay_timer = setTimeout(cb_finish_board_replay, Math.max(0, Number(delay) || 0));
+}
+
+function cb_finish_board_replay() {
+    if (!cb_replay_active) return;
+    cb_clear_replay_timer();
+    cb_replay_active = false;
+    cb_replay_native_done = false;
+    cb_replay_remote = false;
+    cb_pending_open_kind = '';
+    cb_set_replay_ui(false);
+    var room = cb_current_room();
+    if (!room) return;
+    var st = cb_state();
+    cb_apply_synced_board_name(st);
+    cb_remember_room(room, true);
+    persist();
+    cb_redraw();
+    cb_schedule_fit();
+}
+
+function cb_stop_board_replay() {
+    cb_clear_replay_timer();
+    cb_replay_active = false;
+    cb_replay_native_done = false;
+    cb_replay_waiting_for_peer = false;
+    cb_replay_remote = false;
+    cb_set_replay_ui(false);
+}
+
+function cb_latest_board_name_event(st) {
+    var best = null;
+    (st.names || []).forEach(function (event) {
+        if (!best || cb_compare_events(event, best) > 0) best = event;
+    });
+    return best;
+}
+
+function cb_apply_synced_board_name(st) {
+    var event = cb_latest_board_name_event(st);
+    var room = cb_current_room();
+    var name = cb_clean_board_name(event && event.b);
+    if (!room || !name || room.b === name) return;
+    room.b = name;
+    cb_remember_room(room, false);
+    cb_update_room_bar();
+    cb_render_board_list();
+}
+
+function cb_ensure_board_name_event() {
+    var room = cb_current_room();
+    if (!room) return;
+    var st = cb_state();
+    var existing = cb_latest_board_name_event(st);
+    if (existing) {
+        cb_apply_synced_board_name(st);
+        cb_force_publish_name = false;
+        return;
+    }
+    var name = cb_clean_board_name(room.b);
+    var shouldPublish = cb_force_publish_name || !cb_is_default_board_name(name, room.p);
+    cb_force_publish_name = false;
+    if (!name || !shouldPublish || cb_native_config_pending) return;
+    var ts = cb_next_ts();
+    cb_write_board_event({ k: 'n', id: cb_id(ts), ts: ts, b: name }, true);
+}
+
+function cb_board_replay_complete() {
+    if (!cb_current_room()) return;
+    cb_replay_native_done = true;
+    cb_ensure_board_name_event();
+    cb_schedule_replay_finish(cb_replay_remote ?
+        CB_REPLAY_REMOTE_QUIET_MS : CB_REPLAY_LOCAL_QUIET_MS);
+}
+
 function cb_activate_room(room, savedState) {
     cb_reset_edit_view();
     room.b = cb_board_name(room);
     tremola.collabboardRoom = room;
     tremola.collabboard = savedState && savedState.roomId === room.r ? savedState : {
-            roomId: room.r,
+            roomId: room.r, names: [],
             objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
             schema: CB_STATE_VERSION
         };
@@ -511,10 +694,12 @@ function cb_activate_room(room, savedState) {
 function cb_board_configured(accepted) {
     cb_native_config_pending = false;
     if (!accepted) {
+        cb_stop_board_replay();
         cb_show_setup(true);
         cb_set_setup_error('Could not open this board');
         return;
     }
+    cb_begin_board_replay(cb_pending_open_kind || 'saved');
     cb_set_setup_error('');
     cb_show_setup(false);
     cb_schedule_fit();
@@ -527,6 +712,8 @@ function cb_board_configured(accepted) {
         }
     } else {
         cb_ble_status('Browser preview', 0, 0);
+        cb_board_replay_complete();
+        cb_finish_board_replay();
     }
 }
 
@@ -553,17 +740,19 @@ function cb_board_joined(configJson) {
             throw new Error('bad board');
         }
         config.v = 1;
-        config.b = cb_board_name(config);
+        var oldEntry = cb_board_catalog()[config.r];
+        config.b = cb_stable_board_name(config, oldEntry && oldEntry.room);
         cb_reset_edit_view();
         cb_native_config_pending = cb_is_android() && config.d !== 1;
         tremola.collabboardRoom = config;
         tremola.collabboard = {
-            roomId: config.r,
+            roomId: config.r, names: [],
             objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
             schema: CB_STATE_VERSION
         };
         cb_remember_room(config, true);
         persist();
+        cb_begin_board_replay(cb_pending_open_kind || 'join');
         cb_set_setup_error('');
         cb_show_setup(false);
         cb_update_room_bar();
@@ -579,6 +768,7 @@ function cb_board_joined(configJson) {
 }
 
 function cb_board_join_failed(message) {
+    cb_stop_board_replay();
     cb_native_config_pending = false;
     cb_show_setup(true);
     cb_set_setup_error(message || 'Could not join this board');
@@ -590,6 +780,7 @@ function cb_board_access_rejected(message) {
     delete tremola.collabboardRoom;
     delete tremola.collabboard;
     cb_members = Object.create(null);
+    cb_stop_board_replay();
     cb_native_config_pending = false;
     persist();
     cb_show_setup(true);
@@ -664,6 +855,7 @@ function cb_copy_text(code) {
 
 function cb_close_board() {
     if (cb_view_mode) cb_exit_view();
+    cb_stop_board_replay();
     var room = tremola.collabboardRoom;
     if (room) cb_remember_room(room, true);
     if (cb_is_android()) backend('collabboard:close');
@@ -673,6 +865,10 @@ function cb_close_board() {
     cb_reset_edit_view();
     cb_pending_pairing_code = '';
     cb_pending_copy_code = '';
+    cb_pending_open_kind = '';
+    cb_force_publish_name = false;
+    cb_resume_room_id = '';
+    cb_resume_until = 0;
     persist();
     cb_show_setup(true);
     cb_set_setup_error('');
@@ -701,9 +897,14 @@ function cb_update_room_bar() {
 }
 
 function cb_room_status(count, maximum, members) {
+    var peerCount = Math.min(Number(count) || 1, maximum || CB_MAX_MEMBERS);
     var label = document.getElementById('cb_member_count');
-    if (label) label.textContent = Math.min(Number(count) || 1, maximum || CB_MAX_MEMBERS) + '/' +
-        (maximum || CB_MAX_MEMBERS);
+    if (label) label.textContent = peerCount + '/' + (maximum || CB_MAX_MEMBERS);
+    if (peerCount > 1 && cb_replay_waiting_for_peer) {
+        cb_begin_board_replay('catchup');
+        cb_replay_native_done = true;
+        cb_schedule_replay_finish(CB_REPLAY_REMOTE_QUIET_MS);
+    }
     if (Array.isArray(members)) {
         cb_members = Object.create(null);
         members.forEach(function (member) {
@@ -725,6 +926,11 @@ function cb_room_status(count, maximum, members) {
 function cb_receive_board_operation(payload, feedId, username) {
     var room = cb_current_room();
     if (!room) return;
+    if (cb_replay_waiting_for_peer && typeof feedId === 'string' &&
+        (typeof myId !== 'string' || feedId !== myId)) {
+        cb_begin_board_replay('catchup');
+        cb_replay_native_done = true;
+    }
     cb_apply(payload, { fid: feedId, tst: Date.now(), username: username });
 }
 
@@ -913,14 +1119,14 @@ function cb_state() {
     var roomId = cb_current_room_id() || 'closed';
     if (typeof tremola.collabboard == "undefined") {
         tremola.collabboard = {
-            roomId: roomId,
+            roomId: roomId, names: [],
             objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
             schema: CB_STATE_VERSION
         };
     }
     if (tremola.collabboard.roomId && tremola.collabboard.roomId !== roomId) {
         tremola.collabboard = {
-            roomId: roomId,
+            roomId: roomId, names: [],
             objects: [], clears: [], deletes: [], seen: [], mods: [], clock: 0, order: 0,
             schema: CB_STATE_VERSION
         };
@@ -931,6 +1137,7 @@ function cb_state() {
     if (!Array.isArray(tremola.collabboard.deletes)) tremola.collabboard.deletes = [];
     if (!Array.isArray(tremola.collabboard.seen)) tremola.collabboard.seen = [];
     if (!Array.isArray(tremola.collabboard.mods)) tremola.collabboard.mods = [];
+    if (!Array.isArray(tremola.collabboard.names)) tremola.collabboard.names = [];
     if (typeof tremola.collabboard.clock !== 'number' ||
         !isFinite(tremola.collabboard.clock) || tremola.collabboard.clock < 0) {
         tremola.collabboard.clock = 0;
@@ -944,6 +1151,7 @@ function cb_state() {
         tremola.collabboard.clears = tremola.collabboard.clears.filter(cb_is_shared_state_event);
         tremola.collabboard.deletes = tremola.collabboard.deletes.filter(cb_is_shared_state_event);
         tremola.collabboard.mods = tremola.collabboard.mods.filter(cb_is_shared_state_event);
+        tremola.collabboard.names = tremola.collabboard.names.filter(cb_is_shared_state_event);
         delete tremola.collabboard.profiles;
         delete tremola.collabboard.localProfile;
         delete tremola.collabboard.mode;
@@ -986,6 +1194,21 @@ function cb_open() {
         cb_ble_status('Board setup', 0, 0);
         return;
     }
+    if (!cb_should_quick_resume(room.r, Date.now())) {
+        cb_remember_room(room, false);
+        if (cb_is_android()) backend('collabboard:close');
+        delete tremola.collabboardRoom;
+        delete tremola.collabboard;
+        cb_stop_board_replay();
+        persist();
+        cb_show_setup(true);
+        cb_ble_status('Board setup', 0, 0);
+        return;
+    }
+    cb_resume_room_id = '';
+    cb_resume_until = 0;
+    cb_pending_open_kind = 'resume';
+    cb_force_publish_name = false;
     cb_show_setup(false);
     room.b = cb_board_name(room);
     cb_remember_room(room, false);
@@ -1217,13 +1440,14 @@ function cb_fit_canvas() {
     if (measuredWidth < 120 && typeof window !== 'undefined') {
         measuredWidth = Number(window.innerWidth) || measuredWidth;
     }
-    var maxWidth = Math.min(CB_BOARD_WIDTH, measuredWidth - 10);
+    var maxWidth = Math.min(CB_INITIAL_VIEW_WIDTH, measuredWidth - 10);
     if (maxWidth <= 0) return;
     // Android changes the available height when its keyboard opens. Width is
     // stable, so text entry no longer collapses the board to a tiny preview.
-    var scale = Math.max(0.05, maxWidth / CB_BOARD_WIDTH);
+    var scale = Math.max(0.05, maxWidth / CB_INITIAL_VIEW_WIDTH);
     var canvasWidth = Math.max(1, Math.floor(CB_BOARD_WIDTH * scale));
     var canvasHeight = Math.max(1, Math.floor(CB_BOARD_HEIGHT * scale));
+    var frameHeight = Math.max(1, Math.floor(CB_INITIAL_VIEW_HEIGHT * scale));
     var frame = document.getElementById('cb_canvas_frame');
     if (!frame) {
         cv.style.transform = 'none';
@@ -1234,20 +1458,20 @@ function cb_fit_canvas() {
         return;
     }
     if (frame.classList) frame.classList.add('cb_edit_navigation');
-    frame.style.height = canvasHeight + 'px';
-    frame.style.flexBasis = canvasHeight + 'px';
+    frame.style.height = frameHeight + 'px';
+    frame.style.flexBasis = frameHeight + 'px';
     if (!cb_edit_view.initialized || Math.abs(cb_edit_view.width - maxWidth) > 2) {
         cb_edit_view.scale = scale;
         cb_edit_view.fit = scale;
         cb_edit_view.minScale = Math.max(0.03, scale * 0.65);
         cb_edit_view.maxScale = Math.max(scale * 5, 2);
         cb_edit_view.width = maxWidth;
-        cb_edit_view.height = canvasHeight;
-        cb_edit_view.x = (maxWidth - CB_BOARD_WIDTH * scale) / 2;
+        cb_edit_view.height = frameHeight;
+        cb_edit_view.x = 0;
         cb_edit_view.y = 0;
         cb_edit_view.initialized = true;
     } else {
-        cb_edit_view.height = canvasHeight;
+        cb_edit_view.height = frameHeight;
     }
     cb_apply_edit_transform();
     cb_clamp_camera(cv);
@@ -1367,7 +1591,7 @@ function cb_finish_edit_pointer(e) {
 }
 
 function cb_down(e) {
-    if (cb_view_mode) return;
+    if (cb_view_mode || cb_replay_active) return;
     cb_edit_pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
     if (cb_edit_pointer_values().length >= 2) {
         if (e.preventDefault) e.preventDefault();
@@ -1679,6 +1903,8 @@ function cb_apply(raw, header) {
 
     if (obj.k === 'c') {
         st.clears.push(obj);
+    } else if (obj.k === 'n') {
+        st.names.push(obj);
     } else if (obj.k === 'm' || obj.k === 'k') {
         st.mods.push(obj);
     } else if (obj.k === 'd') {
@@ -1689,6 +1915,14 @@ function cb_apply(raw, header) {
         }
     }
     cb_prune_state(st);
+    if (cb_replay_active) {
+        if (cb_replay_native_done) {
+            cb_schedule_replay_finish(cb_replay_remote ?
+                CB_REPLAY_REMOTE_QUIET_MS : CB_REPLAY_LOCAL_QUIET_MS);
+        }
+        return;
+    }
+    cb_apply_synced_board_name(st);
     cb_remember_room(tremola.collabboardRoom, true);
     persist();
     cb_redraw();
@@ -2039,6 +2273,10 @@ function cb_is_valid_event(obj) {
     if (typeof obj.u !== 'undefined' &&
         (typeof obj.u !== 'string' || !cb_clean_username(obj.u) || obj.u.length > 24)) return false;
     if (obj.k === 'c') return true;
+    if (obj.k === 'n') {
+        return typeof obj.b === 'string' && obj.b.length <= 40 &&
+            !!cb_clean_board_name(obj.b);
+    }
     if (obj.k === 't') {
         return cb_is_board_coord(obj.x, CB_BOARD_WIDTH) &&
             cb_is_board_coord(obj.y, CB_BOARD_HEIGHT) &&
@@ -2071,6 +2309,7 @@ function cb_is_valid_event(obj) {
 function cb_prune_state(st) {
     var clear = cb_latest_clear(st);
     st.clears = st.clears.slice().sort(cb_compare_events).slice(-CB_MAX_CLEARS);
+    st.names = (st.names || []).slice().sort(cb_compare_events).slice(-CB_MAX_NAMES);
 
     var latestDeletes = Object.create(null);
     st.deletes.forEach(function (deletion) {

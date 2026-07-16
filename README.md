@@ -7,7 +7,7 @@ A shared whiteboard mini-app inside Tremola for Android.
 - Draw and add text.
 - Move, resize, recolor, and delete objects.
 - Clear the full board.
-- Use one fixed board that scales to the phone screen.
+- Use a large finite board that scales to the phone screen.
 - Name boards and reopen them from a saved-board list.
 - Delete a local board copy with its six-digit code.
 - Use a full-screen view with pan and pinch zoom.
@@ -17,6 +17,10 @@ A shared whiteboard mini-app inside Tremola for Android.
 - Sync nearby phones over Bluetooth Low Energy.
 - Join a board with its six-digit code, with up to four members.
 - Show the author's current name when an object is selected.
+- Open saved boards from the Boards screen and briefly resume the current board
+  when returning from Tremola.
+- Show the merged current state after joining, without replaying old steps on
+  the visible canvas.
 
 Every member can edit every object.
 
@@ -58,6 +62,10 @@ See [`install/README.md`](install/README.md) for the install and test steps.
    move or zoom while **Draw** or **Text** is active.
 10. Use **View** to pan and pinch zoom. **Dark** changes only this phone.
 11. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
+
+The first visible area matches the original board size. Use two fingers to move
+into the larger drawing area. More than four saved boards scroll inside the
+board list.
 
 The six-digit code directly selects the board. No owner has to stay nearby for
 joining. Anyone with the code can open the board until the four-member limit is

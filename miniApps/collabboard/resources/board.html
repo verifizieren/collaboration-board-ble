@@ -82,7 +82,9 @@
            placeholder='Write text' aria-label='Text to add' style='display: none;'
            onkeydown='cb_text_keydown(event)'>
     <div id='cb_canvas_frame' class='cb_canvas_frame'>
-      <canvas id='cb_canvas' width='900' height='1200' tabindex='-1'></canvas>
+      <canvas id='cb_canvas' width='1800' height='2400' tabindex='-1'></canvas>
+      <div id='cb_board_loading' class='cb_board_loading' style='display: none;'
+           role='status' aria-live='polite'>Loading board...</div>
       <button id='cb_view_exit' class='cb_view_exit' type='button'
               aria-label='Leave board view' onclick='cb_exit_view()'>&larr;</button>
     </div>

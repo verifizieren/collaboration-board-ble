@@ -112,6 +112,23 @@ const text = {
 const cleared = replay([winningMove, text, clear, stroke]);
 assert.deepStrictEqual(snapshot(cleared).map(function (item) { return item.id; }), [text.id]);
 
+function replayNames(events) {
+    const board = loadBoard();
+    board.tremola.collabboardRoom = {
+        r: "named-room", k: "n".repeat(43), o: board.myId,
+        u: "Alice", b: "Board", p: "482913"
+    };
+    events.forEach(function (event) { board.cb_apply(event); });
+    return board;
+}
+const firstName = { k: "n", id: "name-100", ts: 100, l: 100, b: "First name" };
+const finalName = { k: "n", id: "name-200", ts: 200, l: 200, b: "DPI Project" };
+const namesForward = replayNames([firstName, finalName]);
+const namesReverse = replayNames([finalName, firstName]);
+assert.strictEqual(namesForward.tremola.collabboardRoom.b, "DPI Project");
+assert.strictEqual(namesReverse.tremola.collabboardRoom.b, "DPI Project");
+assert.strictEqual(namesForward.cb_state().names.length, 2);
+
 // A per-object deletion converges even if it arrives before the object.
 const deletedForward = replay([stroke, deletion]);
 const deletedReverse = replay([deletion, stroke]);
@@ -783,6 +800,41 @@ assert.deepStrictEqual(paintCalls, [
 ]);
 assert.strictEqual(paintContext.fillStyle, "#ffffff");
 
+// Initial Room/BLE replay is reduced to current state before the canvas is
+// shown. Old objects hidden by Clear never flash on screen.
+const replayBatchBoard = loadBoard({ android: true });
+replayBatchBoard.tremola.collabboardRoom = {
+    r: "batch-room", k: "b".repeat(43), o: replayBatchBoard.myId,
+    u: "Alice", b: "Batch board", p: "482913"
+};
+const replayWorkspace = { classList: fakeClassList() };
+const replayOverlay = { style: { display: "none" } };
+replayBatchBoard.document.getElementById = function (id) {
+    if (id === "cb_workspace") return replayWorkspace;
+    if (id === "cb_board_loading") return replayOverlay;
+    return null;
+};
+let replayRedraws = 0;
+let replayPersists = 0;
+replayBatchBoard.cb_redraw = function () { replayRedraws += 1; };
+replayBatchBoard.persist = function () { replayPersists += 1; };
+replayBatchBoard.cb_begin_board_replay("join");
+replayBatchBoard.cb_replay_native_done = true;
+replayBatchBoard.cb_apply(stroke);
+replayBatchBoard.cb_apply({ k: "c", id: "batch-clear", ts: 150, l: 150 });
+replayBatchBoard.cb_apply(text);
+assert.strictEqual(replayRedraws, 0);
+assert.strictEqual(replayPersists, 0);
+assert.strictEqual(replayWorkspace.classList.contains("cb_replay_loading"), true);
+replayBatchBoard.cb_finish_board_replay();
+assert.strictEqual(replayRedraws, 1);
+assert.strictEqual(replayPersists, 1);
+assert.deepStrictEqual(snapshot(replayBatchBoard).map(function (item) {
+    return item.id;
+}), [text.id]);
+assert.strictEqual(replayWorkspace.classList.contains("cb_replay_loading"), false);
+assert.strictEqual(replayOverlay.style.display, "none");
+
 // Android's keyboard changes the available height, but not the width. The
 // canvas keeps a useful stable size instead of collapsing while typing.
 const fitBoard = loadBoard();
@@ -792,9 +844,11 @@ const fitCanvas = {
     style: {},
     getBoundingClientRect: function () { return { top: 182 }; }
 };
+const fitFrame = { style: {}, classList: fakeClassList() };
 let fitRedraws = 0;
 fitBoard.document.getElementById = function (id) {
     if (id === "cb_canvas") return fitCanvas;
+    if (id === "cb_canvas_frame") return fitFrame;
     if (id === "div:collabboard-main") return { clientWidth: 800 };
     if (id === "core") {
         return { getBoundingClientRect: function () { return { bottom: 293 }; } };
@@ -805,26 +859,27 @@ fitBoard.cb_redraw = function () { fitRedraws += 1; };
 fitBoard.cb_fit_canvas();
 assert.deepStrictEqual(
     { width: fitCanvas.width, height: fitCanvas.height },
-    { width: 900, height: 1200 }
+    { width: 1800, height: 2400 }
 );
-assert.strictEqual(fitCanvas.style.width, "790px");
-assert.strictEqual(fitCanvas.style.height, "1053px");
+assert.strictEqual(fitFrame.style.height, "1053px");
+assert.strictEqual(fitCanvas.style.width, "1800px");
+assert.strictEqual(fitCanvas.style.height, "2400px");
+assert.strictEqual(fitCanvas.style.transform.includes("scale(0.877"), true);
 assert.strictEqual(fitRedraws, 1);
 fitCanvas.getBoundingClientRect = function () { return { top: 250 }; };
 fitBoard.cb_fit_canvas();
-assert.strictEqual(fitCanvas.style.width, "790px");
-assert.strictEqual(fitCanvas.style.height, "1053px");
+assert.strictEqual(fitFrame.style.height, "1053px");
 
 // Two differently sized phones map the same relative touch to the same shared
 // finite-board coordinate.
 const scaleBoard = loadBoard();
 const smallCanvas = {
-    width: 900, height: 1200,
-    getBoundingClientRect: function () { return { left: 0, top: 0, width: 300, height: 400 }; }
+    width: 1800, height: 2400,
+    getBoundingClientRect: function () { return { left: 0, top: 0, width: 600, height: 800 }; }
 };
 const largeCanvas = {
-    width: 900, height: 1200,
-    getBoundingClientRect: function () { return { left: 0, top: 0, width: 450, height: 600 }; }
+    width: 1800, height: 2400,
+    getBoundingClientRect: function () { return { left: 0, top: 0, width: 900, height: 1200 }; }
 };
 assert.deepStrictEqual(
     JSON.parse(JSON.stringify(scaleBoard.cb_screen_pos(smallCanvas, { clientX: 150, clientY: 200 }))),
@@ -934,6 +989,71 @@ uniqueCodeBoard.cb_random_pairing_code = function () {
 };
 assert.strictEqual(uniqueCodeBoard.cb_new_pairing_code(), "654321");
 
+// Reopening through the six-digit code must not replace a known board name
+// with the generated direct-access fallback.
+const stableNameBoard = loadBoard();
+stableNameBoard.tremola.collabboardBoards = {
+    "code-482913-v1": {
+        room: {
+            r: "code-482913-v1", k: "k".repeat(43), o: stableNameBoard.myId,
+            u: "Alice", b: "DPI Project", p: "482913"
+        },
+        updated: 1
+    }
+};
+stableNameBoard.cb_remember_room({
+    r: "code-482913-v1", k: "k".repeat(43), o: stableNameBoard.myId,
+    u: "Alice", b: "Board 482913", p: "482913"
+}, true);
+assert.strictEqual(
+    stableNameBoard.tremola.collabboardBoards["code-482913-v1"].room.b,
+    "DPI Project"
+);
+
+// Only the saved-board rows scroll once a phone has more than four boards.
+const boardList = loadBoard();
+const listClass = fakeClassList();
+const listElement = {
+    classList: listClass,
+    children: [],
+    appendChild: function (child) { this.children.push(child); }
+};
+Object.defineProperty(listElement, "textContent", {
+    set: function () { this.children = []; }
+});
+boardList.tremola.collabboardBoards = {};
+for (let boardIndex = 0; boardIndex < 5; boardIndex += 1) {
+    const roomId = "saved-room-" + boardIndex;
+    boardList.tremola.collabboardBoards[roomId] = {
+        room: { r: roomId, b: "Board " + boardIndex }, updated: boardIndex
+    };
+}
+boardList.document.getElementById = function (id) {
+    return id === "cb_saved_boards" ? listElement : null;
+};
+boardList.document.createElement = function () {
+    return {
+        appendChild: function () {},
+        className: "",
+        textContent: "",
+        type: "",
+        onclick: null
+    };
+};
+boardList.cb_render_board_list();
+assert.strictEqual(listClass.contains("cb_saved_boards_scroll"), true);
+assert.strictEqual(listElement.children.length, 5);
+delete boardList.tremola.collabboardBoards["saved-room-4"];
+boardList.cb_render_board_list();
+assert.strictEqual(listClass.contains("cb_saved_boards_scroll"), false);
+
+const resumeBoard = loadBoard();
+resumeBoard.cb_resume_room_id = "resume-room";
+resumeBoard.cb_resume_until = 31000;
+assert.strictEqual(resumeBoard.cb_should_quick_resume("resume-room", 1000), true);
+assert.strictEqual(resumeBoard.cb_should_quick_resume("resume-room", 31001), false);
+assert.strictEqual(resumeBoard.cb_should_quick_resume("another-room", 1000), false);
+
 // Creating generates a six-digit code and asks Android to open its deterministic
 // room directly. There is no owner-pairing wait.
 const createBoard = loadBoard({ android: true });
@@ -969,6 +1089,16 @@ assert.strictEqual(createBoard.commands.includes("collabboard:read"), true);
 assert.strictEqual(createBoard.commands.some(function (command) {
     return command.startsWith("collabboard:pairing ");
 }), false);
+createBoard.cb_board_replay_complete();
+createBoard.cb_finish_board_replay();
+const nameWrite = createBoard.commands.find(function (command) {
+    return command.startsWith("collabboard:write ");
+});
+assert.ok(nameWrite);
+assert.strictEqual(JSON.parse(Buffer.from(
+    nameWrite.slice("collabboard:write ".length), "base64"
+).toString("utf8")).b, "DPI Project");
+assert.strictEqual(createBoard.cb_state().names.length, 1);
 createBoard.cb_close_board();
 assert.strictEqual(createBoard.tremola.collabboardRoom, undefined);
 assert.strictEqual(createBoard.tremola.collabboard, undefined);
@@ -1085,6 +1215,16 @@ assert.strictEqual(joinBoard.tremola.collabboardBoards["code-482913-v1"].room.b,
 assert.strictEqual(joinBoard.tremola.collabboardRoom.p, "482913");
 assert.strictEqual(joinBoard.commands.includes("collabboard:read"), true);
 assert.strictEqual(joinBoard.cb_native_config_pending, false);
+joinBoard.cb_board_replay_complete();
+joinBoard.cb_receive_board_operation(JSON.stringify({
+    k: "n", id: "owner-name-1", ts: 40, l: 40, b: "DPI Project"
+}), "@alice.ed25519", "Alice");
+joinBoard.cb_finish_board_replay();
+assert.strictEqual(joinBoard.tremola.collabboardRoom.b, "DPI Project");
+assert.strictEqual(
+    joinBoard.tremola.collabboardBoards["code-482913-v1"].room.b,
+    "DPI Project"
+);
 joinBoard.cb_board_access_rejected("Board is full");
 assert.strictEqual(joinBoard.tremola.collabboardRoom, undefined);
 assert.strictEqual(joinBoard.tremola.collabboard, undefined);
@@ -1295,13 +1435,14 @@ migration.tremola.collabboard = {
     mode: "owned"
 };
 const migrated = migration.cb_state();
-assert.strictEqual(migrated.schema, 4);
+assert.strictEqual(migrated.schema, 5);
 assert.deepStrictEqual(migrated.objects.map(function (item) { return item.id; }), [stroke.id]);
 assert.deepStrictEqual(migrated.clears, []);
 assert.deepStrictEqual(migrated.mods, []);
 assert.strictEqual(Object.prototype.hasOwnProperty.call(migrated, "mode"), false);
 assert.strictEqual(Object.prototype.hasOwnProperty.call(migrated, "profiles"), false);
 assert.strictEqual(migrated.deletes.length, 0);
+assert.strictEqual(migrated.names.length, 0);
 
 const boardMarkup = fs.readFileSync(
     path.join(root, "miniApps/collabboard/resources/board.html"),
@@ -1324,7 +1465,8 @@ assert.strictEqual(boardMarkup.includes("cb_dark_btn"), true);
 assert.strictEqual(boardMarkup.includes("cb_view_exit"), true);
 assert.strictEqual(boardMarkup.includes("cb_invite_input"), false);
 assert.strictEqual(boardMarkup.includes("cb_selection_info"), true);
-assert.strictEqual(boardMarkup.includes("width='900' height='1200'"), true);
+assert.strictEqual(boardMarkup.includes("cb_board_loading"), true);
+assert.strictEqual(boardMarkup.includes("width='1800' height='2400'"), true);
 
 [
     "manifest.json",
