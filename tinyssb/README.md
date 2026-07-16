@@ -7,13 +7,22 @@
 - Whiteboard events use the tinySSB `WBD` app type.
 - tinySSB retries missing packets and chunks over BLE.
 - The build fixes tinySSB's first-start BLE permission callback.
-- The 6-digit code selects a board. It is not encryption.
-- The four-member label is not a hard tinySSB access limit.
-- The Tremola APK is the main four-person version.
+- The board creator can invite up to eight verified contacts.
+- The creator and the first three contacts who accept can edit the board.
+- A name is only a label. The signed tinySSB feed ID is the identity.
+- Invitations limit the app UI. Public tinySSB events are not encrypted.
 
-On first start, allow Nearby devices and Location. Keep Bluetooth and Location
-enabled, and keep both apps open during a BLE test. Some gray apps in the
-official tinySSB Productivity and Games lists are disabled demo placeholders.
+## Test
+
+1. Install the same APK on all phones.
+2. Allow Nearby devices and Location.
+3. Add and verify each contact in tinySSB.
+4. Open Productivity > Collaboration Board.
+5. Create a board and use `+` or Invite.
+6. On the other phone, open the top-right menu > Invitations and accept.
+7. Keep Bluetooth and Location on and both apps open while testing.
+
+Sync can take a little time. This is also normal in the other tinySSB apps.
 
 Build with:
 

@@ -88,19 +88,22 @@ index af2b3e1..23ba7ba 100644
      'settings': ['div:back', 'core', 'div:settings'],
      'kanban': ['div:back', 'core', 'lst:kanban', 'plus'], // KANBAN
      'board': ['div:back', 'core', 'div:board'], // KANBAN
-+    'whiteboard': ['div:back', 'core', 'div:collabboard-main'],
++    'whiteboard': ['div:back', 'core', 'div:collabboard-main', 'plus'],
      'tictactoe-list': ['div:back', 'core', 'div:tictactoe_list', 'plus'],
      'tictactoe-board': ['div:back', 'core', 'div:tictactoe_board'],
  }
-@@ -56,6 +57,7 @@ var scenarioMenu = {
+@@ -56,6 +57,10 @@ var scenarioMenu = {
          ['About', 'menu_about']],
 
      'settings': [],
-+    'whiteboard': [],
++    'whiteboard': [
++        ['Invitations', 'whiteboard_show_invitations'],
++        ['Settings', 'menu_settings'],
++        ['About', 'menu_about']],
 
      'kanban': [
          // ['New Kanban board', 'menu_new_board'], // no redundant functionality
-@@ -114,6 +116,8 @@ function onBackPressed() {
+@@ -114,6 +119,8 @@ function onBackPressed() {
          setScenario('chats')
      else if (curr_scenario == 'board')
          setScenario('kanban')
@@ -109,6 +112,15 @@ index af2b3e1..23ba7ba 100644
      else if (curr_scenario == 'tictactoe-list')
          setScenario('games')
      else if (curr_scenario == 'tictactoe-board')
+@@ -363,6 +370,8 @@ function plus_button() {
+         menu_new_contact();
+     } else if (curr_scenario == 'kanban') {
+         menu_new_board();
++    } else if (curr_scenario == 'whiteboard') {
++        whiteboard_invite_contacts();
+     } else if (curr_scenario == 'tictactoe-list') {
+         ttt_new_game();
+     }
 diff --git a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt
 index a3e2402..60152c7 100644
 --- a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/WebAppInterface.kt

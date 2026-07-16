@@ -67,6 +67,7 @@ cp "$ROOT/tinyssb/whiteboard/whiteboard.svg" "$WEB_DIR/prod/whiteboard/whiteboar
 echo "[3/5] Checking JavaScript"
 "$NODE_BIN" --check "$WEB_DIR/prod/whiteboard/collabboard.js"
 "$NODE_BIN" --check "$WEB_DIR/prod/whiteboard/adapter.js"
+"$NODE_BIN" "$ROOT/tests/tinyssb-whiteboard.test.js"
 
 echo "[4/5] Building tinySSB APK"
 export ANDROID_HOME ANDROID_SDK_ROOT="$ANDROID_HOME" JAVA_HOME
@@ -82,8 +83,14 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 unzip -p "$OUTPUT" assets/web/prod/whiteboard/collabboard.js > "$TMP_DIR/collabboard.js"
 unzip -p "$OUTPUT" assets/web/prod/whiteboard/adapter.js > "$TMP_DIR/adapter.js"
+unzip -p "$OUTPUT" assets/web/prod/whiteboard/theme.css > "$TMP_DIR/theme.css"
+unzip -p "$OUTPUT" assets/web/tremola_ui.js > "$TMP_DIR/tremola_ui.js"
 cmp -s "$ROOT/miniApps/collabboard/src/collabboard.js" "$TMP_DIR/collabboard.js"
 cmp -s "$ROOT/tinyssb/whiteboard/adapter.js" "$TMP_DIR/adapter.js"
+cmp -s "$ROOT/tinyssb/whiteboard/theme.css" "$TMP_DIR/theme.css"
+grep -Fq "['Invitations', 'whiteboard_show_invitations']" "$TMP_DIR/tremola_ui.js"
+grep -Fq "whiteboard_invite_contacts();" "$TMP_DIR/tremola_ui.js"
+cmp -s "$OUTPUT" "$NAMED_OUTPUT"
 
 BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1)"
 if [ -x "$BUILD_TOOLS/apksigner" ]; then
