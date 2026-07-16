@@ -38,7 +38,8 @@ cb_root.miniApps["collabboard"] = {
     handleRequest: function (command, args) {
         switch (command) {
             case "onBackPressed":
-                quitApp();
+                if (cb_view_mode) cb_exit_view();
+                else quitApp();
                 break;
             case "incoming_notification":
                 var payload = args && args.args ? args.args[0] : args;
@@ -93,6 +94,14 @@ var cb_native_config_pending = false;
 var cb_pending_pairing_code = '';
 var cb_pending_copy_code = '';
 var cb_setup_mode = 'create';
+var cb_delete_room_id = '';
+var cb_delete_busy = false;
+var cb_view_mode = false;
+var cb_dark_canvas = false;
+var cb_view = { scale: 1, x: 0, y: 0, minScale: 0.05, maxScale: 4 };
+var cb_view_pointers = Object.create(null);
+var cb_view_gesture = null;
+var cb_view_bound = false;
 
 function cb_is_android() {
     return typeof Android !== 'undefined' && typeof backend === 'function';
@@ -157,6 +166,27 @@ function cb_random_pairing_code() {
         value = Math.floor(Math.random() * 1000000);
     }
     return ('000000' + value).slice(-6);
+}
+
+function cb_new_pairing_code() {
+    var used = Object.create(null);
+    var catalog = cb_board_catalog();
+    Object.keys(catalog).forEach(function (roomId) {
+        var entry = catalog[roomId];
+        var code = entry && entry.room ? entry.room.p : '';
+        if (cb_valid_pairing_code(code)) used[code] = true;
+    });
+    var code = '';
+    for (var attempt = 0; attempt < 32; attempt++) {
+        code = cb_random_pairing_code();
+        if (!used[code]) return code;
+    }
+    var number = parseInt(code || '0', 10);
+    do {
+        number = (number + 1) % 1000000;
+        code = ('000000' + number).slice(-6);
+    } while (used[code]);
+    return code;
 }
 
 function cb_clean_board_name(value) {
@@ -244,8 +274,14 @@ function cb_render_board_list() {
         open.type = 'button';
         open.textContent = 'Open';
         open.onclick = function () { cb_open_saved_board(entry.room.r); };
+        var remove = document.createElement('button');
+        remove.className = 'cb_saved_delete';
+        remove.type = 'button';
+        remove.textContent = 'Delete';
+        remove.onclick = function () { cb_request_delete_board(entry.room.r); };
         row.appendChild(name);
         row.appendChild(open);
+        row.appendChild(remove);
         container.appendChild(row);
     });
 }
@@ -260,16 +296,17 @@ function cb_show_setup(show) {
     var workspace = document.getElementById('cb_workspace');
     if (setup) setup.style.display = show ? null : 'none';
     if (workspace) workspace.style.display = show ? 'none' : null;
-    if (show) cb_render_board_list();
+    if (show) {
+        if (cb_view_mode) cb_exit_view();
+        cb_render_board_list();
+    }
 }
 
 function cb_create_board() {
     var usernameInput = document.getElementById('cb_username');
     var nameInput = document.getElementById('cb_board_name');
-    var codeInput = document.getElementById('cb_create_code');
     var username = cb_clean_username(usernameInput && usernameInput.value);
     var boardName = cb_clean_board_name(nameInput && nameInput.value);
-    var code = cb_clean_pairing_code(codeInput && codeInput.value);
     if (!username) {
         cb_set_setup_error('Enter a name');
         if (usernameInput) usernameInput.focus();
@@ -280,11 +317,7 @@ function cb_create_board() {
         if (nameInput) nameInput.focus();
         return;
     }
-    if (!cb_valid_pairing_code(code)) {
-        cb_set_setup_error('Enter a 6-digit code');
-        if (codeInput) codeInput.focus();
-        return;
-    }
+    var code = cb_new_pairing_code();
     cb_pending_pairing_code = code;
     tremola.collabboardLastUser = username;
     cb_activate_room({
@@ -329,7 +362,108 @@ function cb_open_saved_board(roomId) {
         cb_set_setup_error('Board is not available');
         return;
     }
+    var usernameInput = document.getElementById('cb_username');
+    var username = cb_clean_username(usernameInput && usernameInput.value) ||
+        cb_clean_username(tremola.collabboardLastUser) || cb_clean_username(entry.room.u);
+    if (!username) {
+        cb_set_setup_error('Enter a name');
+        if (usernameInput) usernameInput.focus();
+        return;
+    }
+    entry.room.u = username;
+    tremola.collabboardLastUser = username;
     cb_activate_room(entry.room, !cb_is_android() ? entry.state : null);
+}
+
+function cb_request_delete_board(roomId) {
+    var entry = cb_board_catalog()[roomId];
+    if (!entry || !entry.room) return;
+    cb_delete_room_id = roomId;
+    cb_delete_busy = false;
+    var panel = document.getElementById('cb_delete_panel');
+    var name = document.getElementById('cb_delete_name');
+    var code = document.getElementById('cb_delete_code');
+    var button = document.getElementById('cb_delete_board_btn');
+    var error = document.getElementById('cb_delete_error');
+    if (panel) panel.style.display = null;
+    if (name) name.textContent = cb_board_name(entry.room);
+    if (code) {
+        code.value = '';
+        code.focus();
+    }
+    if (button) button.disabled = false;
+    if (error) error.textContent = '';
+}
+
+function cb_cancel_delete_board() {
+    cb_delete_room_id = '';
+    cb_delete_busy = false;
+    var panel = document.getElementById('cb_delete_panel');
+    var code = document.getElementById('cb_delete_code');
+    var button = document.getElementById('cb_delete_board_btn');
+    var error = document.getElementById('cb_delete_error');
+    if (panel) panel.style.display = 'none';
+    if (code) code.value = '';
+    if (button) button.disabled = false;
+    if (error) error.textContent = '';
+}
+
+function cb_set_delete_error(message) {
+    var error = document.getElementById('cb_delete_error');
+    if (error) error.textContent = message || '';
+}
+
+function cb_confirm_delete_board() {
+    if (cb_delete_busy || !cb_delete_room_id) return;
+    var entry = cb_board_catalog()[cb_delete_room_id];
+    var input = document.getElementById('cb_delete_code');
+    var code = cb_clean_pairing_code(input && input.value);
+    if (!entry || !entry.room) {
+        cb_cancel_delete_board();
+        return;
+    }
+    if (!cb_valid_pairing_code(code)) {
+        cb_set_delete_error('Enter the 6-digit code');
+        if (input) input.focus();
+        return;
+    }
+    if (!cb_is_android()) {
+        if (entry.room.p !== code) {
+            cb_set_delete_error('Wrong code');
+            return;
+        }
+        cb_board_deleted(cb_delete_room_id, true);
+        return;
+    }
+    cb_delete_busy = true;
+    var button = document.getElementById('cb_delete_board_btn');
+    if (button) button.disabled = true;
+    cb_set_delete_error('Deleting...');
+    backend('collabboard:delete ' + cb_utf8_b64(JSON.stringify({
+        r: cb_delete_room_id,
+        c: code,
+        config: entry.room
+    })));
+}
+
+function cb_board_delete_started(accepted) {
+    if (accepted) return;
+    cb_delete_busy = false;
+    var button = document.getElementById('cb_delete_board_btn');
+    if (button) button.disabled = false;
+    cb_set_delete_error('Wrong code or board is open');
+}
+
+function cb_board_deleted(roomId, success) {
+    if (!success) {
+        cb_board_delete_started(false);
+        return;
+    }
+    cb_forget_catalog_room(roomId);
+    persist();
+    cb_cancel_delete_board();
+    cb_render_board_list();
+    cb_set_setup_error('Board deleted from this phone');
 }
 
 function cb_activate_room(room, savedState) {
@@ -492,6 +626,7 @@ function cb_copy_text(code) {
 }
 
 function cb_close_board() {
+    if (cb_view_mode) cb_exit_view();
     var room = tremola.collabboardRoom;
     if (room) cb_remember_room(room, true);
     if (cb_is_android()) backend('collabboard:close');
@@ -513,10 +648,18 @@ function cb_update_room_bar() {
     var room = cb_current_room();
     var label = document.getElementById('cb_room_label');
     var invite = document.getElementById('cb_invite_btn');
+    var code = document.getElementById('cb_room_code');
     if (label) label.textContent = room ? cb_board_name(room) : '';
     if (invite) {
         invite.style.display = room && typeof myId === 'string' && room.o === myId ? null : 'none';
     }
+    if (code) {
+        var showCode = room && typeof myId === 'string' && room.o === myId &&
+            cb_valid_pairing_code(room.p);
+        code.textContent = showCode ? 'Code ' + room.p : '';
+        code.style.display = showCode ? null : 'none';
+    }
+    cb_apply_dark_state();
 }
 
 function cb_room_status(count, maximum, members) {
@@ -545,6 +688,180 @@ function cb_receive_board_operation(payload, feedId, username) {
     var room = cb_current_room();
     if (!room) return;
     cb_apply(payload, { fid: feedId, tst: Date.now(), username: username });
+}
+
+// --- local board view ------------------------------------------------------
+
+function cb_apply_dark_state() {
+    var workspace = document.getElementById('cb_workspace');
+    var button = document.getElementById('cb_dark_btn');
+    if (workspace) workspace.classList.toggle('cb_dark_canvas', cb_dark_canvas);
+    if (button) {
+        button.classList.toggle('cb_active', cb_dark_canvas);
+        button.setAttribute('aria-pressed', cb_dark_canvas ? 'true' : 'false');
+    }
+}
+
+function cb_toggle_dark() {
+    cb_dark_canvas = !cb_dark_canvas;
+    tremola.collabboardDark = cb_dark_canvas;
+    persist();
+    cb_apply_dark_state();
+    cb_redraw();
+}
+
+function cb_enter_view() {
+    if (!cb_current_room() || cb_view_mode) return;
+    cb_view_mode = true;
+    cb_sel = null;
+    cb_drag = null;
+    cb_draft = null;
+    cb_pointer_id = null;
+    cb_view_pointers = Object.create(null);
+    cb_view_gesture = null;
+    cb_set_tool('select');
+    var workspace = document.getElementById('cb_workspace');
+    if (workspace) workspace.classList.add('cb_view_mode');
+    cb_apply_dark_state();
+    cb_redraw();
+    setTimeout(cb_reset_view, 0);
+}
+
+function cb_exit_view() {
+    if (!cb_view_mode) return;
+    cb_view_mode = false;
+    cb_view_pointers = Object.create(null);
+    cb_view_gesture = null;
+    var workspace = document.getElementById('cb_workspace');
+    var cv = document.getElementById('cb_canvas');
+    if (workspace) workspace.classList.remove('cb_view_mode');
+    if (cv) cv.style.transform = 'none';
+    setTimeout(cb_fit_canvas, 0);
+}
+
+function cb_reset_view() {
+    if (!cb_view_mode) return;
+    var frame = document.getElementById('cb_canvas_frame');
+    if (!frame) return;
+    var width = frame.clientWidth || (frame.getBoundingClientRect && frame.getBoundingClientRect().width) || 1;
+    var height = frame.clientHeight || (frame.getBoundingClientRect && frame.getBoundingClientRect().height) || 1;
+    var fit = Math.max(0.05, Math.min(width / CB_BOARD_WIDTH, height / CB_BOARD_HEIGHT));
+    cb_view.minScale = Math.max(0.03, fit * 0.5);
+    cb_view.maxScale = Math.max(4, fit * 8);
+    cb_view.scale = fit;
+    cb_view.x = (width - CB_BOARD_WIDTH * fit) / 2;
+    cb_view.y = (height - CB_BOARD_HEIGHT * fit) / 2;
+    cb_apply_view_transform();
+}
+
+function cb_apply_view_transform() {
+    if (!cb_view_mode) return;
+    var cv = document.getElementById('cb_canvas');
+    if (!cv) return;
+    cb_clamp_view();
+    cv.style.width = CB_BOARD_WIDTH + 'px';
+    cv.style.height = CB_BOARD_HEIGHT + 'px';
+    cv.style.transform = 'translate3d(' + Math.round(cb_view.x) + 'px,' +
+        Math.round(cb_view.y) + 'px,0) scale(' + cb_view.scale + ')';
+}
+
+function cb_clamp_view() {
+    var frame = document.getElementById('cb_canvas_frame');
+    if (!frame) return;
+    var width = frame.clientWidth || (frame.getBoundingClientRect && frame.getBoundingClientRect().width) || 1;
+    var height = frame.clientHeight || (frame.getBoundingClientRect && frame.getBoundingClientRect().height) || 1;
+    cb_view.scale = Math.max(cb_view.minScale, Math.min(cb_view.maxScale, cb_view.scale));
+    cb_view.x = cb_clamp_view_axis(cb_view.x, width, CB_BOARD_WIDTH * cb_view.scale);
+    cb_view.y = cb_clamp_view_axis(cb_view.y, height, CB_BOARD_HEIGHT * cb_view.scale);
+}
+
+function cb_clamp_view_axis(value, viewport, content) {
+    if (content <= viewport) return (viewport - content) / 2;
+    var visible = Math.min(48, viewport / 3);
+    return Math.max(visible - content, Math.min(viewport - visible, value));
+}
+
+function cb_view_pointer_values() {
+    return Object.keys(cb_view_pointers).map(function (id) { return cb_view_pointers[id]; });
+}
+
+function cb_begin_view_gesture() {
+    var points = cb_view_pointer_values();
+    if (!points.length) {
+        cb_view_gesture = null;
+        return;
+    }
+    if (points.length === 1) {
+        cb_view_gesture = {
+            mode: 'pan', startX: points[0].x, startY: points[0].y,
+            baseX: cb_view.x, baseY: cb_view.y
+        };
+        return;
+    }
+    var midX = (points[0].x + points[1].x) / 2;
+    var midY = (points[0].y + points[1].y) / 2;
+    var distance = Math.max(1, Math.hypot(points[1].x - points[0].x,
+        points[1].y - points[0].y));
+    cb_view_gesture = {
+        mode: 'pinch', distance: distance, scale: cb_view.scale,
+        worldX: (midX - cb_view.x) / cb_view.scale,
+        worldY: (midY - cb_view.y) / cb_view.scale
+    };
+}
+
+function cb_view_down(e) {
+    if (!cb_view_mode || (e.target && e.target.id === 'cb_view_exit')) return;
+    if (e.preventDefault) e.preventDefault();
+    cb_view_pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (e.currentTarget && e.currentTarget.setPointerCapture) {
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_e) {}
+    }
+    cb_begin_view_gesture();
+}
+
+function cb_view_move(e) {
+    if (!cb_view_mode || !cb_view_pointers[e.pointerId]) return;
+    if (e.preventDefault) e.preventDefault();
+    cb_view_pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    var points = cb_view_pointer_values();
+    var gesture = cb_view_gesture;
+    if (!gesture) return;
+    if (gesture.mode === 'pan' && points.length === 1) {
+        cb_view.x = gesture.baseX + points[0].x - gesture.startX;
+        cb_view.y = gesture.baseY + points[0].y - gesture.startY;
+    } else if (gesture.mode === 'pinch' && points.length >= 2) {
+        var midX = (points[0].x + points[1].x) / 2;
+        var midY = (points[0].y + points[1].y) / 2;
+        var distance = Math.max(1, Math.hypot(points[1].x - points[0].x,
+            points[1].y - points[0].y));
+        cb_view.scale = Math.max(cb_view.minScale,
+            Math.min(cb_view.maxScale, gesture.scale * distance / gesture.distance));
+        cb_view.x = midX - gesture.worldX * cb_view.scale;
+        cb_view.y = midY - gesture.worldY * cb_view.scale;
+    } else {
+        cb_begin_view_gesture();
+    }
+    cb_apply_view_transform();
+}
+
+function cb_view_up(e) {
+    if (!cb_view_mode || !Object.prototype.hasOwnProperty.call(cb_view_pointers, e.pointerId)) return;
+    if (e.preventDefault) e.preventDefault();
+    delete cb_view_pointers[e.pointerId];
+    cb_begin_view_gesture();
+}
+
+function cb_view_wheel(e) {
+    if (!cb_view_mode) return;
+    if (e.preventDefault) e.preventDefault();
+    var before = cb_view.scale;
+    var factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    cb_view.scale = Math.max(cb_view.minScale, Math.min(cb_view.maxScale, before * factor));
+    var worldX = (e.clientX - cb_view.x) / before;
+    var worldY = (e.clientY - cb_view.y) / before;
+    cb_view.x = e.clientX - worldX * cb_view.scale;
+    cb_view.y = e.clientY - worldY * cb_view.scale;
+    cb_apply_view_transform();
 }
 
 // --- persisted state -------------------------------------------------------
@@ -613,7 +930,9 @@ function cb_open() {
     c.style.display = null;
     c.innerHTML = "<font size=+1><strong>Collaboration Board</strong></font>";
 
+    cb_dark_canvas = tremola.collabboardDark === true;
     cb_bind_canvas();
+    cb_apply_dark_state();
     var lastUser = cb_clean_username(tremola.collabboardLastUser);
     var usernameInput = document.getElementById('cb_username');
     if (usernameInput && !usernameInput.value && lastUser) usernameInput.value = lastUser;
@@ -762,7 +1081,7 @@ function cb_update_selection_controls() {
         info.title = '';
         return;
     }
-    var name = selected._name || cb_members[selected._fid] || cb_short_author(selected._fid);
+    var name = cb_members[selected._fid] || selected._name || cb_short_author(selected._fid);
     info.textContent = 'By ' + name;
     info.title = selected._fid || '';
     info.hidden = false;
@@ -780,6 +1099,16 @@ function cb_bind_canvas() {
     cv.addEventListener('pointerleave', cb_leave);
     cv.addEventListener('pointercancel', cb_cancel);
     cv.addEventListener('lostpointercapture', cb_lost_capture);
+    var frame = document.getElementById('cb_canvas_frame');
+    if (frame && !cb_view_bound) {
+        cb_view_bound = true;
+        frame.addEventListener('pointerdown', cb_view_down);
+        frame.addEventListener('pointermove', cb_view_move);
+        frame.addEventListener('pointerup', cb_view_up);
+        frame.addEventListener('pointercancel', cb_view_up);
+        frame.addEventListener('lostpointercapture', cb_view_up);
+        frame.addEventListener('wheel', cb_view_wheel, { passive: false });
+    }
     var col = document.getElementById('cb_color');
     if (col) {
         // picking a color while an object is selected recolors that object
@@ -803,6 +1132,16 @@ function cb_fit_canvas() {
     var cv = document.getElementById('cb_canvas');
     var main = document.getElementById('div:collabboard-main');
     if (!cv || !main) return;
+    var changed = cv.width !== CB_BOARD_WIDTH || cv.height !== CB_BOARD_HEIGHT;
+    if (changed) {
+        cv.width = CB_BOARD_WIDTH;
+        cv.height = CB_BOARD_HEIGHT;
+    }
+    if (cb_view_mode) {
+        cb_apply_view_transform();
+        if (changed) cb_redraw();
+        return;
+    }
     var maxWidth = main.clientWidth - 10;
     if (maxWidth <= 0) return;
     // Android changes the available height when its keyboard opens. Width is
@@ -811,11 +1150,7 @@ function cb_fit_canvas() {
     scale = Math.max(0.05, scale);
     var canvasWidth = Math.max(1, Math.floor(CB_BOARD_WIDTH * scale));
     var canvasHeight = Math.max(1, Math.floor(CB_BOARD_HEIGHT * scale));
-    var changed = cv.width !== CB_BOARD_WIDTH || cv.height !== CB_BOARD_HEIGHT;
-    if (changed) {
-        cv.width = CB_BOARD_WIDTH;
-        cv.height = CB_BOARD_HEIGHT;
-    }
+    cv.style.transform = 'none';
     cv.style.width = canvasWidth + 'px';
     cv.style.height = canvasHeight + 'px';
     cb_clamp_camera(cv);
@@ -840,6 +1175,7 @@ function cb_pos(cv, e) {
 }
 
 function cb_down(e) {
+    if (cb_view_mode) return;
     if (e.isPrimary === false || cb_pointer_id !== null) return;
     cb_pointer_id = e.pointerId;
     if (e.preventDefault) e.preventDefault();
@@ -1110,7 +1446,7 @@ function cb_redraw() {
     if (!cv) return;
     var ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, cv.width, cv.height);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = cb_dark_canvas ? '#0f1115' : '#ffffff';
     ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.save();
     var st = cb_state();
@@ -1152,14 +1488,14 @@ function cb_visible_objects(st) {
 function cb_draw_selection(ctx, st, o) {
     var b = cb_bbox(ctx, st, o);
     ctx.save();
-    ctx.strokeStyle = '#2563eb';
+    ctx.strokeStyle = cb_dark_canvas ? '#ffffff' : '#2563eb';
     ctx.lineWidth = 1;
     ctx.setLineDash([5, 4]);
     ctx.strokeRect(b.x - CB_SEL_PAD, b.y - CB_SEL_PAD,
                    b.w + 2 * CB_SEL_PAD, b.h + 2 * CB_SEL_PAD);
     ctx.setLineDash([]);
     var h = cb_handle_rect(b);
-    ctx.fillStyle = '#2563eb';
+    ctx.fillStyle = cb_dark_canvas ? '#ffffff' : '#2563eb';
     ctx.fillRect(h.x, h.y, h.w, h.h);
     ctx.restore();
 }
@@ -1175,7 +1511,7 @@ function cb_draw_stroke(ctx, o, xf, col) {
     if (!o.p || o.p.length === 0) return;
     xf = xf || { dx: 0, dy: 0, sc: 1 };
     var org = cb_origin(o);
-    var strokeColor = col || o.c || '#000000';
+    var strokeColor = cb_display_color(col || o.c || '#000000');
     ctx.strokeStyle = strokeColor;
     ctx.lineWidth = (o.w || 2) * xf.sc;
     ctx.lineJoin = 'round';
@@ -1198,7 +1534,7 @@ function cb_draw_stroke(ctx, o, xf, col) {
 
 function cb_draw_text(ctx, o, xf, col) {
     xf = xf || { dx: 0, dy: 0, sc: 1 };
-    ctx.fillStyle = col || o.c || '#000000';
+    ctx.fillStyle = cb_display_color(col || o.c || '#000000');
     ctx.font = Math.round(CB_TEXT_SIZE * xf.sc) + 'px sans-serif';
     ctx.textBaseline = 'middle';
     ctx.fillText(cb_dec(o.s).slice(0, 160), o.x + xf.dx, o.y + xf.dy);
@@ -1418,6 +1754,15 @@ function cb_sync_color_picker(st, o) {
 
 function cb_is_picker_color(c) {
     return typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
+}
+
+function cb_display_color(color) {
+    if (!cb_dark_canvas || !cb_is_picker_color(color)) return color;
+    var red = parseInt(color.slice(1, 3), 16);
+    var green = parseInt(color.slice(3, 5), 16);
+    var blue = parseInt(color.slice(5, 7), 16);
+    var luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    return luminance < 105 ? '#ffffff' : color;
 }
 
 function cb_simplify_points(points, maxPoints) {

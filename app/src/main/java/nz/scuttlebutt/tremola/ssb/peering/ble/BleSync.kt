@@ -314,10 +314,10 @@ class BleSync(
                 clearBoardPairingSessionLocked()
             }
             loadBoardProfile()
-            val admittedName = if (ownFeed == requested.ownerId) null else {
-                verifiedBoardAdmission(ownFeed)?.username
-            }
-            val next = if (admittedName == null) requested else requested.copy(username = admittedName)
+            val loadedVerifier = boardConfig?.codeVerifier.orEmpty()
+            val next = requested.copy(
+                codeVerifier = requested.codeVerifier.ifBlank { loadedVerifier }
+            )
             boardConfig = next
             boardPrefs.edit().putString(BOARD_CONFIG_KEY, BoardProtocol.configJson(next)).apply()
             boardMembers[next.ownerId] = boardMembers[next.ownerId] ?: "Owner"
@@ -338,6 +338,12 @@ class BleSync(
         val ownFeed = tremolaState.idStore.identity.toRef()
         if (ownFeed != config.ownerId || !BoardProtocol.isValidPairingCode(cleanCode)) return false
         synchronized(boardConfigLock) {
+            val next = config.copy(
+                codeVerifier = BoardProtocol.pairingCodeVerifier(config.roomId, cleanCode)
+            )
+            boardConfig = next
+            boardPrefs.edit().putString(BOARD_CONFIG_KEY, BoardProtocol.configJson(next)).apply()
+            persistBoardProfile()
             boardPairingSession = BoardPairingSession(
                 config.roomId,
                 cleanCode,
@@ -404,6 +410,65 @@ class BleSync(
 
     fun leaveBoard() {
         closeBoard()
+    }
+
+    fun deleteBoard(requestJson: String): Boolean {
+        val request = try {
+            JSONObject(requestJson)
+        } catch (_: Exception) {
+            return false
+        }
+        val roomId = request.optString("r", "")
+        val code = request.optString("c", "").trim()
+        if (!BoardProtocol.isValidPairingCode(code)) return false
+
+        val accepted = synchronized(boardConfigLock) {
+            if (boardConfig?.roomId == roomId) return@synchronized false
+            val stored = loadBoardConfigFromProfile(roomId) ?: return@synchronized false
+            val supplied = request.optJSONObject("config")?.toString()
+                ?.let { BoardProtocol.parseConfig(it) }
+                ?.takeIf {
+                    it.roomId == stored.roomId && it.ownerId == stored.ownerId &&
+                        it.roomKey.contentEquals(stored.roomKey)
+                }
+            val checked = if (stored.codeVerifier.isNotBlank()) stored else supplied
+            if (checked == null || !BoardProtocol.matchesPairingCode(checked, code)) {
+                return@synchronized false
+            }
+            val editor = boardPrefs.edit().remove(boardProfileKey(roomId))
+            if (boardPrefs.getString(BOARD_MEMBERS_ROOM_KEY, "") == roomId) {
+                editor.remove(BOARD_MEMBERS_KEY).remove(BOARD_MEMBERS_ROOM_KEY)
+            }
+            if (boardPrefs.getString(BOARD_ADMISSIONS_ROOM_KEY, "") == roomId) {
+                editor.remove(BOARD_ADMISSIONS_KEY).remove(BOARD_ADMISSIONS_ROOM_KEY)
+            }
+            if (boardPrefs.getString(BOARD_PAIRING_ROOM_KEY, "") == roomId) {
+                editor.remove(BOARD_PAIRING_ROOM_KEY)
+                    .remove(BOARD_PAIRING_CODE_KEY)
+                    .remove(BOARD_PAIRING_EXPIRES_KEY)
+            }
+            editor.apply()
+            true
+        }
+        if (!accepted) return false
+
+        executeWorker {
+            val deleted = try {
+                tremolaState.boardOperationDAO.deleteRoom(roomId)
+                true
+            } catch (_: Exception) {
+                false
+            }
+            val quotedRoom = JSONObject.quote(roomId)
+            try {
+                tremolaState.wai.eval(
+                    "if (typeof cb_board_deleted === 'function') " +
+                        "cb_board_deleted($quotedRoom, $deleted);"
+                )
+            } catch (_: Exception) {
+            }
+        }
+        return true
     }
 
     fun writeBoardEvent(payloadJson: String): Boolean {
@@ -1588,6 +1653,9 @@ class BleSync(
                     it.roomKey.contentEquals(config.roomKey)
             }
         if (storedConfig != null) {
+            if (config.codeVerifier.isBlank() && storedConfig.codeVerifier.isNotBlank()) {
+                boardConfig = config.copy(codeVerifier = storedConfig.codeVerifier)
+            }
             loadBoardMembersFrom(profile.optJSONObject("members"))
             loadBoardAdmissionsFrom(profile.optJSONObject("admissions"), config)
             return
@@ -1630,7 +1698,7 @@ class BleSync(
             val admission = BoardProtocol.verifyAdmission(config, saved.optString(feedId, ""))
             if (admission != null && admission.memberId == feedId) {
                 boardAdmissions[feedId] = admission.wireJson
-                boardMembers[feedId] = admission.username
+                boardMembers.putIfAbsent(feedId, admission.username)
             }
         }
     }
@@ -1660,6 +1728,17 @@ class BleSync(
 
     private fun boardProfileKey(roomId: String): String {
         return BOARD_PROFILE_PREFIX + roomId
+    }
+
+    private fun loadBoardConfigFromProfile(roomId: String): BoardRoomConfig? {
+        return try {
+            val raw = boardPrefs.getString(boardProfileKey(roomId), "") ?: ""
+            if (raw.isBlank()) null else JSONObject(raw).optJSONObject("config")?.toString()
+                ?.let { BoardProtocol.parseConfig(it) }
+                ?.takeIf { it.roomId == roomId }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun verifiedBoardAdmission(feedId: String): BoardAdmission? {
@@ -1746,7 +1825,7 @@ class BleSync(
             if (hello.feedId == config.ownerId || admission != null) {
                 if (admission != null) {
                     boardAdmissions[hello.feedId] = admission.wireJson
-                    boardMembers[hello.feedId] = admission.username
+                    boardMembers[hello.feedId] = hello.username
                     pairingReservations.remove(hello.feedId)
                 } else {
                     boardMembers[hello.feedId] = hello.username
@@ -1820,7 +1899,7 @@ class BleSync(
         val inserted = synchronized(boardConfigLock) {
             val isNew = boardAdmissions[admission.memberId] != admission.wireJson
             boardAdmissions[admission.memberId] = admission.wireJson
-            boardMembers[admission.memberId] = admission.username
+            boardMembers.putIfAbsent(admission.memberId, admission.username)
             persistBoardAdmissions()
             persistBoardMembers()
             isNew

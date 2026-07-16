@@ -138,8 +138,20 @@ class BoardProtocolInstrumentedTest {
             ),
             ownerId = owner.toRef(),
             username = "Alice",
-            boardName = "DPI Project"
+            boardName = "DPI Project",
+            codeVerifier = BoardProtocol.pairingCodeVerifier("pairing-test-room", "123456")
         )
+        assertTrue(BoardProtocol.matchesPairingCode(ownerConfig, "123456"))
+        assertFalse(BoardProtocol.matchesPairingCode(ownerConfig, "654321"))
+        val persistedConfig = BoardProtocol.configJson(ownerConfig)
+        assertFalse(JSONObject(persistedConfig).has("p"))
+        assertTrue(JSONObject(persistedConfig).has("h"))
+        val plainConfig = JSONObject(persistedConfig).apply {
+            remove("h")
+            put("p", "123456")
+        }
+        val parsedFromPlainCode = BoardProtocol.parseConfig(plainConfig.toString())!!
+        assertTrue(BoardProtocol.matchesPairingCode(parsedFromPlainCode, "123456"))
 
         val joinNonce = BoardProtocol.newPairingNonce()
         val probeWire = BoardProtocol.createPairingProbe(member, "Bob", joinNonce)!!
@@ -179,6 +191,7 @@ class BoardProtocolInstrumentedTest {
         assertTrue(result.config.roomKey.contentEquals(roomKey))
         assertEquals(owner.toRef(), result.config.ownerId)
         assertEquals("DPI Project", result.config.boardName)
+        assertTrue(BoardProtocol.matchesPairingCode(result.config, "123456"))
         assertNull(BoardProtocol.verifyPairingOffer(offer, "654321", challenge, "Bob"))
 
         val tampered = JSONObject(offer.toString()).put("f", owner.toRef())

@@ -1,6 +1,6 @@
 # Install On Android
 
-Current live test build: **0.7.0** (`versionCode 20`).
+Current live test build: **0.8.0** (`versionCode 21`).
 
 Install the same variant on every test phone:
 
@@ -28,8 +28,8 @@ account or central login.
 
 1. Enter your name.
 2. Enter a board name.
-3. Choose any six-digit code.
-4. Tap **Create board**.
+3. Tap **Create board**.
+4. The app shows a new six-digit code.
 5. Tap **Invite** and send the copied code privately.
 6. Keep the owner's phone nearby while each new member joins for the first time.
 
@@ -45,6 +45,13 @@ The code stays open for 10 minutes. Tap **Invite** again to reopen it.
 The board allows one owner and three other identities. After joining once, tap
 **Boards** to close the board without deleting it. Tap **Open** in the board
 list to return without entering the code again.
+
+Use **View** for a full-screen read-only board. Drag to move the view and pinch
+to zoom. **Dark** changes only the canvas on the current phone. It does not
+change shared board data.
+
+To remove a saved board from one phone, tap **Delete** in the board list and
+enter its six-digit code. This does not delete another member's copy.
 
 Each phone stores its own copy. The board survives when everyone closes it. It
 is lost on a phone only if the app is uninstalled or its app data is cleared.
@@ -76,6 +83,9 @@ Use `tremola-collaboration-board-debug.apk` on both phones.
 12. Wait for both boards to converge.
 13. Tap **Boards**, reopen the named board, and confirm its content is present.
 14. Close and reopen Tremola and check the board again.
+15. Change your display name, reopen the board, and confirm the member count
+    does not increase.
+16. Test **View**, pan, pinch zoom, **Dark**, and local board deletion.
 
 Repeat with a third and fourth identity if available. A fifth identity must be
 rejected as **Board is full**.

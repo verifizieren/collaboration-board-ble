@@ -12,13 +12,15 @@ phones should work without Internet and exchange changes over BLE.
 
 - The board is integrated as a Tremola mini-app.
 - It runs in the full Tremola Android APK.
-- A user creates a private board and shares a six-digit pairing code.
+- The app creates a six-digit pairing code for each private board.
 - Each member chooses a display name.
 - The owner admits at most three other Tremola identities.
 - Every admitted member can edit every object.
 - Draw, text, move, resize, color, delete, and clear are supported.
 - The fixed board scales to different phone screens.
 - Boards have names and can be reopened from a local list.
+- A board copy can be deleted locally after entering its code.
+- A full-screen view supports local pan, pinch zoom, and a dark canvas.
 - Board state and membership survive closing the board or app.
 - Offline and late members recover missing operations.
 
@@ -90,6 +92,9 @@ merged with the same deterministic rules on every phone.
 The six-digit code is temporary and is not the board key. PBKDF2 derives a
 pairing key, and the random board key is transferred in an encrypted,
 owner-signed BLE message.
+
+The feed ID remains the identity when a user changes the display name. Android
+stores only a verifier for the code. Local deletion does not erase other phones.
 
 The pairing code should be shared privately. BLE radio metadata is not
 encrypted. A six-digit code is convenient, but weaker than a long random code.

@@ -24,7 +24,8 @@ internal data class BoardRoomConfig(
     val roomKeyText: String,
     val ownerId: String,
     val username: String,
-    val boardName: String = "Board"
+    val boardName: String = "Board",
+    val codeVerifier: String = ""
 )
 
 internal data class BoardHello(
@@ -94,17 +95,25 @@ internal object BoardProtocol {
             val ownerId = obj.optString("o", "")
             val username = cleanUsername(obj.optString("u", ""))
             val boardName = cleanBoardName(obj.optString("b", ""))
+            val pairingCode = obj.optString("p", "").trim()
+            val storedVerifier = obj.optString("h", "")
             val roomKey = decodeUrlBase64(keyText) ?: return null
             if (!isValidRoomId(roomId) || roomKey.size != ROOM_KEY_BYTES ||
                 !isValidFeedId(ownerId) || username.isBlank()
             ) return null
+            val codeVerifier = when {
+                isValidPairingCode(pairingCode) -> pairingCodeVerifier(roomId, pairingCode)
+                isValidCodeVerifier(storedVerifier) -> storedVerifier
+                else -> ""
+            }
             BoardRoomConfig(
                 roomId,
                 roomKey,
                 keyText,
                 ownerId,
                 username,
-                boardName.ifBlank { "Board" }
+                boardName.ifBlank { "Board" },
+                codeVerifier
             )
         } catch (_: Exception) {
             null
@@ -112,13 +121,14 @@ internal object BoardProtocol {
     }
 
     fun configJson(config: BoardRoomConfig): String {
-        return JSONObject()
+        val result = JSONObject()
             .put("r", config.roomId)
             .put("k", config.roomKeyText)
             .put("o", config.ownerId)
             .put("u", config.username)
             .put("b", config.boardName)
-            .toString()
+        if (isValidCodeVerifier(config.codeVerifier)) result.put("h", config.codeVerifier)
+        return result.toString()
     }
 
     fun createOperation(
@@ -365,6 +375,19 @@ internal object BoardProtocol {
 
     fun isValidPairingCode(value: String): Boolean {
         return value.length == PAIRING_CODE_LENGTH && value.all { it in '0'..'9' }
+    }
+
+    fun pairingCodeVerifier(roomId: String, code: String): String {
+        if (!isValidRoomId(roomId) || !isValidPairingCode(code)) return ""
+        val input = "$PAIRING_CODE_VERIFIER_DOMAIN|$roomId|$code".encodeToByteArray()
+        return encodeUrlBase64(MessageDigest.getInstance("SHA-256").digest(input))
+    }
+
+    fun matchesPairingCode(config: BoardRoomConfig, code: String): Boolean {
+        if (!isValidPairingCode(code) || !isValidCodeVerifier(config.codeVerifier)) return false
+        val actual = pairingCodeVerifier(config.roomId, code).encodeToByteArray()
+        val expected = config.codeVerifier.encodeToByteArray()
+        return MessageDigest.isEqual(actual, expected)
     }
 
     fun newPairingNonce(): String {
@@ -880,6 +903,10 @@ internal object BoardProtocol {
         }
     }
 
+    private fun isValidCodeVerifier(value: String): Boolean {
+        return decodeUrlBase64(value)?.size == 32
+    }
+
     private const val VERSION = 2
     private const val PAIRING_VERSION = 1
     private const val ROOM_KEY_BYTES = 32
@@ -888,6 +915,7 @@ internal object BoardProtocol {
     private const val PAIRING_NONCE_BYTES = 16
     private const val PAIRING_SALT_BYTES = 16
     private const val PAIRING_CODE_LENGTH = 6
+    private const val PAIRING_CODE_VERIFIER_DOMAIN = "collabboard-delete-v1"
     private const val PAIRING_KDF_ITERATIONS = 120_000
     private const val MAX_PAIRING_TTL_SECONDS = 600
     private const val MAX_PAIRING_OFFER_BYTES = 4096

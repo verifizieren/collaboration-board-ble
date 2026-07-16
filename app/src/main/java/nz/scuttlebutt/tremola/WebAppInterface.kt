@@ -272,6 +272,15 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
                     eval("if (typeof cb_board_write_failed === 'function') cb_board_write_failed();")
                 }
             }
+            s.startsWith("collabboard:delete ") -> {
+                val encoded = s.substringAfter("collabboard:delete ")
+                val request = decodeFrontendBase64(encoded)
+                val accepted = request != null && tremolaState.bleSync?.deleteBoard(request) == true
+                eval(
+                    "if (typeof cb_board_delete_started === 'function') " +
+                        "cb_board_delete_started($accepted);"
+                )
+            }
             s == "collabboard:read" -> tremolaState.bleSync?.replayBoardOperations()
             s == "collabboard:close" -> tremolaState.bleSync?.closeBoard()
             s == "collabboard:leave" -> tremolaState.bleSync?.leaveBoard()

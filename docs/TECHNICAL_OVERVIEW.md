@@ -47,11 +47,12 @@ phone sizes therefore use the same shared positions.
 - Each local operation is also added to the local Tremola custom-app log.
 - Named board metadata and signed admissions are stored per board.
 - Closing and reopening a board replays its saved Room operations.
+- A local dark canvas and full-screen pan/zoom view do not create shared events.
 
 ## Invite-Only Boards
 
 - A random board ID and 256-bit board key are created on the owner's phone.
-- The owner chooses a six-digit pairing code.
+- The mini-app generates a new six-digit pairing code for each board.
 - The code is active for 10 minutes and never becomes the board key.
 - Signed BLE pairing proves the code and transfers the board setup with
   AES-GCM.
@@ -61,6 +62,10 @@ phone sizes therefore use the same shared positions.
 - An admitted member keeps the signed admission after restarting the app.
 - A new member needs the owner nearby for the first admission.
 - Usernames are display names; the cryptographic feed ID is the real identity.
+- Renaming the same feed changes its signed display name, not its member slot.
+- The native board profile stores a hash for local code checks. Only the owner
+  keeps the code in the mini-app list so **Invite** can show it again.
+- Deleting removes the local board profile and Room operations only.
 
 The board content is private from nearby devices that do not complete pairing.
 The short code should still be shared privately. BLE addresses and some
@@ -122,7 +127,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.7.0` (`versionCode 20`)
+- Version: `0.8.0` (`versionCode 21`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.
@@ -143,6 +148,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 - finite-board scaling on different display sizes
 - stable text and canvas size while the Android keyboard opens
 - named board catalogue, close, and reopen behavior
+- generated codes, stable identity rename, local deletion, dark view, pan, and pinch zoom
 - saved board-state migration from the previous UI format
 - frontiers, missing ranges, queues, retries, and frame limits
 - real Android pairing, Ed25519, AES-GCM, compression, and tamper rejection

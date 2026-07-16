@@ -43,6 +43,19 @@ function loadBoard(options) {
     return context;
 }
 
+function fakeClassList() {
+    const values = new Set();
+    return {
+        add: function (name) { values.add(name); },
+        remove: function (name) { values.delete(name); },
+        toggle: function (name, enabled) {
+            if (enabled) values.add(name);
+            else values.delete(name);
+        },
+        contains: function (name) { return values.has(name); }
+    };
+}
+
 function replay(events) {
     const board = loadBoard();
     events.forEach(function (event) { board.cb_apply(event); });
@@ -809,20 +822,30 @@ assert.strictEqual(Buffer.from(
 inviteBoard.cb_pairing_started(true, 600);
 assert.strictEqual(copiedInvite, "123456");
 
-// Creating and joining use a self-chosen six-digit code. The real board key
-// is created separately and is only returned by the native pairing protocol.
+const uniqueCodeBoard = loadBoard();
+uniqueCodeBoard.tremola.collabboardBoards = {
+    one: { room: { p: "123456" }, updated: 1 }
+};
+let codeAttempt = 0;
+uniqueCodeBoard.cb_random_pairing_code = function () {
+    codeAttempt += 1;
+    return codeAttempt === 1 ? "123456" : "654321";
+};
+assert.strictEqual(uniqueCodeBoard.cb_new_pairing_code(), "654321");
+
+// Creating generates a six-digit code. The real board key is separate and is
+// only returned by the native pairing protocol.
 const createBoard = loadBoard({ android: true });
 const createName = { value: "Alice", focus: function () {} };
 const createBoardName = { value: "DPI Project", focus: function () {} };
-const createCode = { value: "482913", focus: function () {} };
 createBoard.document.getElementById = function (id) {
     if (id === "cb_username") return createName;
     if (id === "cb_board_name") return createBoardName;
-    if (id === "cb_create_code") return createCode;
     return null;
 };
 createBoard.cb_create_board();
-assert.strictEqual(createBoard.tremola.collabboardRoom.p, "482913");
+const generatedCode = createBoard.tremola.collabboardRoom.p;
+assert.strictEqual(/^\d{6}$/.test(generatedCode), true);
 assert.strictEqual(createBoard.tremola.collabboardRoom.b, "DPI Project");
 assert.strictEqual(createBoard.tremola.collabboardRoom.k.length >= 32, true);
 const createdRoomId = createBoard.tremola.collabboardRoom.r;
@@ -838,7 +861,7 @@ const pairingCommand = createBoard.commands.find(function (command) {
 });
 assert.strictEqual(Buffer.from(
     pairingCommand.slice("collabboard:pairing ".length), "base64"
-).toString("utf8"), "482913");
+).toString("utf8"), generatedCode);
 createBoard.cb_close_board();
 assert.strictEqual(createBoard.tremola.collabboardRoom, undefined);
 assert.strictEqual(createBoard.tremola.collabboard, undefined);
@@ -847,6 +870,70 @@ assert.strictEqual(createBoard.tremola.collabboardBoards[createdRoomId].room.b, 
 createBoard.cb_open_saved_board(createdRoomId);
 assert.strictEqual(createBoard.tremola.collabboardRoom.r, createdRoomId);
 assert.strictEqual(createBoard.tremola.collabboardRoom.b, "DPI Project");
+const createdOwner = createBoard.tremola.collabboardRoom.o;
+const createdKey = createBoard.tremola.collabboardRoom.k;
+createBoard.cb_close_board();
+createName.value = "Alicia";
+createBoard.cb_open_saved_board(createdRoomId);
+assert.strictEqual(createBoard.tremola.collabboardRoom.u, "Alicia");
+assert.strictEqual(createBoard.tremola.collabboardRoom.o, createdOwner);
+assert.strictEqual(createBoard.tremola.collabboardRoom.k, createdKey);
+const renamedConfig = JSON.parse(Buffer.from(
+    createBoard.commands.filter(function (command) {
+        return command.startsWith("collabboard:configure ");
+    }).slice(-1)[0].slice("collabboard:configure ".length),
+    "base64"
+).toString("utf8"));
+assert.strictEqual(renamedConfig.u, "Alicia");
+
+// Deleting a saved board is local and requires the code used for pairing.
+const deleteBoard = loadBoard();
+deleteBoard.cb_activate_room({
+    v: 1, r: "delete-room-1", k: "d".repeat(43),
+    o: deleteBoard.myId, u: "Alice", b: "Delete me", p: "135790"
+});
+deleteBoard.cb_close_board();
+const deletePanel = { style: {} };
+const deleteName = { textContent: "" };
+const deleteCode = { value: "", focus: function () {} };
+const deleteButton = { disabled: false };
+const deleteError = { textContent: "" };
+deleteBoard.document.getElementById = function (id) {
+    if (id === "cb_delete_panel") return deletePanel;
+    if (id === "cb_delete_name") return deleteName;
+    if (id === "cb_delete_code") return deleteCode;
+    if (id === "cb_delete_board_btn") return deleteButton;
+    if (id === "cb_delete_error") return deleteError;
+    return null;
+};
+deleteBoard.cb_request_delete_board("delete-room-1");
+deleteCode.value = "000000";
+deleteBoard.cb_confirm_delete_board();
+assert.strictEqual(deleteError.textContent, "Wrong code");
+assert.ok(deleteBoard.tremola.collabboardBoards["delete-room-1"]);
+deleteCode.value = "135790";
+deleteBoard.cb_confirm_delete_board();
+assert.strictEqual(deleteBoard.tremola.collabboardBoards["delete-room-1"], undefined);
+
+const nativeDeleteBoard = loadBoard({ android: true });
+nativeDeleteBoard.tremola.collabboardBoards = {
+    "native-delete-room": {
+        room: {
+            v: 1, r: "native-delete-room", k: "n".repeat(43),
+            o: nativeDeleteBoard.myId, u: "Alice", b: "Native", p: "246802"
+        },
+        updated: 1
+    }
+};
+nativeDeleteBoard.document.getElementById = deleteBoard.document.getElementById;
+nativeDeleteBoard.cb_request_delete_board("native-delete-room");
+deleteCode.value = "246802";
+nativeDeleteBoard.cb_confirm_delete_board();
+const deleteCommand = nativeDeleteBoard.commands[0];
+assert.strictEqual(deleteCommand.startsWith("collabboard:delete "), true);
+assert.deepStrictEqual(JSON.parse(Buffer.from(
+    deleteCommand.slice("collabboard:delete ".length), "base64"
+).toString("utf8")).c, "246802");
 
 // The browser preview has no Android Room database, so it keeps each board's
 // state in the local board catalog and restores it when the board is reopened.
@@ -1013,6 +1100,63 @@ assert.strictEqual(authorInfo.hidden, false);
 assert.strictEqual(authorInfo.textContent, "By Alice");
 assert.strictEqual(authorInfo.title, alice);
 assert.strictEqual(authorDelete.disabled, false);
+authorBoard.cb_members[alice] = "Alicia";
+authorBoard.cb_update_selection_controls();
+assert.strictEqual(authorInfo.textContent, "By Alicia");
+
+// Dark canvas is local. Very dark ink becomes white so it remains visible.
+const darkBoard = loadBoard();
+const darkWorkspace = { classList: fakeClassList() };
+const darkButton = {
+    classList: fakeClassList(),
+    setAttribute: function (name, value) { this[name] = value; }
+};
+darkBoard.document.getElementById = function (id) {
+    if (id === "cb_workspace") return darkWorkspace;
+    if (id === "cb_dark_btn") return darkButton;
+    return null;
+};
+darkBoard.cb_redraw = function () {};
+darkBoard.cb_toggle_dark();
+assert.strictEqual(darkBoard.tremola.collabboardDark, true);
+assert.strictEqual(darkWorkspace.classList.contains("cb_dark_canvas"), true);
+assert.strictEqual(darkButton["aria-pressed"], "true");
+assert.strictEqual(darkBoard.cb_display_color("#000000"), "#ffffff");
+assert.strictEqual(darkBoard.cb_display_color("#f5d90a"), "#f5d90a");
+
+// Full-board view fits the finite canvas and supports local two-finger zoom.
+const viewBoard = loadBoard();
+const viewCanvas = { style: {} };
+const viewFrame = {
+    id: "cb_canvas_frame",
+    clientWidth: 390,
+    clientHeight: 780,
+    setPointerCapture: function () {},
+    getBoundingClientRect: function () { return { width: 390, height: 780 }; }
+};
+viewBoard.document.getElementById = function (id) {
+    if (id === "cb_canvas") return viewCanvas;
+    if (id === "cb_canvas_frame") return viewFrame;
+    return null;
+};
+viewBoard.cb_view_mode = true;
+viewBoard.cb_reset_view();
+const fittedScale = viewBoard.cb_view.scale;
+assert.ok(fittedScale > 0);
+viewBoard.cb_view_down({
+    pointerId: 1, clientX: 100, clientY: 200, currentTarget: viewFrame,
+    target: viewFrame, preventDefault: function () {}
+});
+viewBoard.cb_view_down({
+    pointerId: 2, clientX: 200, clientY: 200, currentTarget: viewFrame,
+    target: viewFrame, preventDefault: function () {}
+});
+viewBoard.cb_view_move({
+    pointerId: 2, clientX: 300, clientY: 200, currentTarget: viewFrame,
+    preventDefault: function () {}
+});
+assert.ok(viewBoard.cb_view.scale > fittedScale);
+assert.ok(viewCanvas.style.transform.includes("scale("));
 
 // Events from the removed owner/profile experiment no longer enter the board.
 const legacy = loadBoard();
@@ -1067,9 +1211,13 @@ assert.strictEqual(boardMarkup.includes("cb_delete_btn"), true);
 assert.strictEqual(boardMarkup.includes("cb_room_setup"), true);
 assert.strictEqual(boardMarkup.includes("cb_saved_boards"), true);
 assert.strictEqual(boardMarkup.includes("cb_board_name"), true);
-assert.strictEqual(boardMarkup.includes("cb_create_code"), true);
+assert.strictEqual(boardMarkup.includes("cb_create_code"), false);
 assert.strictEqual(boardMarkup.includes("cb_join_code"), true);
 assert.strictEqual(boardMarkup.includes("maxlength='6'"), true);
+assert.strictEqual(boardMarkup.includes("cb_delete_panel"), true);
+assert.strictEqual(boardMarkup.includes("cb_view_btn"), true);
+assert.strictEqual(boardMarkup.includes("cb_dark_btn"), true);
+assert.strictEqual(boardMarkup.includes("cb_view_exit"), true);
 assert.strictEqual(boardMarkup.includes("cb_invite_input"), false);
 assert.strictEqual(boardMarkup.includes("cb_selection_info"), true);
 assert.strictEqual(boardMarkup.includes("width='900' height='1200'"), true);

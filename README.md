@@ -9,11 +9,14 @@ A shared whiteboard mini-app inside Tremola for Android.
 - Clear the full board.
 - Use one fixed board that scales to the phone screen.
 - Name boards and reopen them from a saved-board list.
+- Delete a local board copy with its six-digit code.
+- Use a full-screen view with pan and pinch zoom.
+- Switch the canvas to a local dark view.
 - Keep board data and membership after closing the board or app.
 - Work offline and catch up later.
 - Sync nearby phones over Bluetooth Low Energy.
 - Use invite-only boards with up to four members.
-- Show the creator name when an object is selected.
+- Show the author's current name when an object is selected.
 
 Every admitted member can edit every object.
 
@@ -47,18 +50,23 @@ See [`install/README.md`](install/README.md) for the install and test steps.
 2. Allow Bluetooth and location access when Android asks.
 3. Open **MiniApps > Collaboration Board**.
 4. Enter a name.
-5. Enter a board name and six-digit code, then create the board.
-6. Other members use **Join** and enter the same code.
-7. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, or **Clear all**.
-8. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
+5. Enter a board name and create the board.
+6. The app shows a new six-digit code. Share it with the other members.
+7. Other members use **Join** and enter the code.
+8. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, or **Clear all**.
+9. Use **View** to pan and pinch zoom. **Dark** changes only this phone.
+10. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
 
 The board owner must be nearby the first time a new member joins. After that,
 the member keeps a signed admission and can reconnect through any admitted
 member. A board has one owner and at most three other members.
 
-The owner chooses the six-digit code. It stays open for 10 minutes. The real
-256-bit board key is created separately and sent only through encrypted BLE
-pairing.
+The app creates a new six-digit code for each board. Pairing stays open for 10
+minutes. The real 256-bit board key is created separately and sent only through
+encrypted BLE pairing.
+
+Changing the display name does not create another member. The Tremola feed ID
+stays the same. Deleting a board removes only its copy on that phone.
 
 ## Sync
 

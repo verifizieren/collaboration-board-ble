@@ -3,6 +3,20 @@
     <h2>Boards</h2>
     <div id='cb_saved_boards' class='cb_saved_boards'></div>
     <p id='cb_saved_empty' class='cb_saved_empty'>No saved boards</p>
+    <div id='cb_delete_panel' class='cb_delete_panel' style='display: none;'>
+      <strong id='cb_delete_name'></strong>
+      <p>Enter the board code to delete it from this phone.</p>
+      <label for='cb_delete_code'>6-digit code</label>
+      <input id='cb_delete_code' class='cb_room_input cb_code_input' type='text'
+             inputmode='numeric' pattern='[0-9]*' maxlength='6' autocomplete='one-time-code'
+             placeholder='123456' oninput='this.value=cb_clean_pairing_code(this.value)'>
+      <div class='cb_delete_actions'>
+        <button class='cb_secondary' type='button' onclick='cb_cancel_delete_board()'>Cancel</button>
+        <button id='cb_delete_board_btn' class='cb_danger' type='button'
+                onclick='cb_confirm_delete_board()'>Delete</button>
+      </div>
+      <p id='cb_delete_error' class='cb_delete_error' aria-live='polite'></p>
+    </div>
     <label for='cb_username'>Your name</label>
     <input id='cb_username' class='cb_room_input' type='text' maxlength='24'
            autocomplete='nickname' placeholder='Name'>
@@ -16,10 +30,6 @@
       <label for='cb_board_name'>Board name</label>
       <input id='cb_board_name' class='cb_room_input' type='text' maxlength='40'
              placeholder='Project board'>
-      <label for='cb_create_code'>6-digit code</label>
-      <input id='cb_create_code' class='cb_room_input cb_code_input' type='text'
-             inputmode='numeric' pattern='[0-9]*' maxlength='6' autocomplete='one-time-code'
-             placeholder='123456' oninput='this.value=cb_clean_pairing_code(this.value)'>
       <button class='cb_primary' type='button' onclick='cb_create_board()'>Create board</button>
     </div>
     <div id='cb_join_panel' class='cb_setup_panel' role='tabpanel' style='display: none;'>
@@ -37,9 +47,14 @@
       <div class='cb_room_identity'>
         <strong id='cb_room_label'></strong>
         <span id='cb_member_count'>1/4</span>
+        <span id='cb_room_code'></span>
       </div>
       <button id='cb_invite_btn' class='cb_room_action' type='button'
               onclick='cb_copy_invite()'>Invite</button>
+      <button id='cb_view_btn' class='cb_room_action' type='button'
+              onclick='cb_enter_view()'>View</button>
+      <button id='cb_dark_btn' class='cb_room_action' type='button' aria-pressed='false'
+              onclick='cb_toggle_dark()'>Dark</button>
       <button class='cb_room_action' type='button' onclick='cb_close_board()'>Boards</button>
       <input id='cb_invite_copy' class='cb_hidden_copy' aria-hidden='true' tabindex='-1'>
     </div>
@@ -64,8 +79,10 @@
     <div id='cb_selection_info' class='cb_selection_info' hidden></div>
     <input id='cb_text' class='cb_textinput' type='text' maxlength='120'
            placeholder='Write text' aria-label='Text to add' style='display: none;'>
-    <div class='cb_canvas_frame'>
+    <div id='cb_canvas_frame' class='cb_canvas_frame'>
       <canvas id='cb_canvas' width='900' height='1200'></canvas>
+      <button id='cb_view_exit' class='cb_view_exit' type='button'
+              aria-label='Leave board view' onclick='cb_exit_view()'>&larr;</button>
     </div>
   </div>
 </div>
