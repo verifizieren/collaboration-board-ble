@@ -844,7 +844,10 @@ const fitCanvas = {
     style: {},
     getBoundingClientRect: function () { return { top: 182 }; }
 };
-const fitFrame = { style: {}, classList: fakeClassList() };
+const fitFrame = {
+    style: {}, classList: fakeClassList(), clientWidth: 790, clientHeight: 620,
+    getBoundingClientRect: function () { return { width: 790, height: 620 }; }
+};
 let fitRedraws = 0;
 fitBoard.document.getElementById = function (id) {
     if (id === "cb_canvas") return fitCanvas;
@@ -861,14 +864,23 @@ assert.deepStrictEqual(
     { width: fitCanvas.width, height: fitCanvas.height },
     { width: 1800, height: 2400 }
 );
-assert.strictEqual(fitFrame.style.height, "1053px");
+assert.strictEqual(fitFrame.style.height, "");
+assert.strictEqual(fitFrame.style.flexBasis, "");
+assert.strictEqual(fitBoard.cb_edit_view.height, 620);
 assert.strictEqual(fitCanvas.style.width, "1800px");
 assert.strictEqual(fitCanvas.style.height, "2400px");
 assert.strictEqual(fitCanvas.style.transform.includes("scale(0.877"), true);
 assert.strictEqual(fitRedraws, 1);
 fitCanvas.getBoundingClientRect = function () { return { top: 250 }; };
 fitBoard.cb_fit_canvas();
-assert.strictEqual(fitFrame.style.height, "1053px");
+assert.strictEqual(fitFrame.style.height, "");
+
+// Panning stops exactly at the finite canvas edge. No dead strip outside the
+// drawable area can be exposed in edit or full-board view.
+assert.strictEqual(fitBoard.cb_clamp_view_axis(20, 300, 600), 0);
+assert.strictEqual(fitBoard.cb_clamp_view_axis(-500, 300, 600), -300);
+assert.strictEqual(fitBoard.cb_clamp_view_axis(-120, 300, 600), -120);
+assert.strictEqual(fitBoard.cb_clamp_view_axis(0, 600, 300), 150);
 
 // Two differently sized phones map the same relative touch to the same shared
 // finite-board coordinate.
@@ -1010,26 +1022,37 @@ assert.strictEqual(
     "DPI Project"
 );
 
-// Only the saved-board rows scroll once a phone has more than four boards.
+// Three saved boards remain fixed. The fourth enables a visible scroll area.
 const boardList = loadBoard();
 const listClass = fakeClassList();
+const listShellClass = fakeClassList();
 const listElement = {
     classList: listClass,
+    clientHeight: 180,
+    scrollHeight: 366,
+    scrollTop: 0,
     children: [],
     appendChild: function (child) { this.children.push(child); }
 };
+const listShell = { classList: listShellClass };
+const listTrack = { clientHeight: 166, style: {} };
+const listThumb = { style: {} };
 Object.defineProperty(listElement, "textContent", {
     set: function () { this.children = []; }
 });
 boardList.tremola.collabboardBoards = {};
-for (let boardIndex = 0; boardIndex < 5; boardIndex += 1) {
+for (let boardIndex = 0; boardIndex < 4; boardIndex += 1) {
     const roomId = "saved-room-" + boardIndex;
     boardList.tremola.collabboardBoards[roomId] = {
         room: { r: roomId, b: "Board " + boardIndex }, updated: boardIndex
     };
 }
 boardList.document.getElementById = function (id) {
-    return id === "cb_saved_boards" ? listElement : null;
+    if (id === "cb_saved_boards") return listElement;
+    if (id === "cb_saved_boards_shell") return listShell;
+    if (id === "cb_saved_scrollbar") return listTrack;
+    if (id === "cb_saved_scroll_thumb") return listThumb;
+    return null;
 };
 boardList.document.createElement = function () {
     return {
@@ -1042,10 +1065,19 @@ boardList.document.createElement = function () {
 };
 boardList.cb_render_board_list();
 assert.strictEqual(listClass.contains("cb_saved_boards_scroll"), true);
-assert.strictEqual(listElement.children.length, 5);
-delete boardList.tremola.collabboardBoards["saved-room-4"];
+assert.strictEqual(listShellClass.contains("cb_saved_boards_has_scroll"), true);
+assert.strictEqual(listElement.children.length, 4);
+assert.strictEqual(listTrack.style.display, "block");
+assert.strictEqual(listThumb.style.height, "82px");
+assert.strictEqual(listThumb.style.transform, "translateY(0px)");
+listElement.scrollTop = 186;
+boardList.cb_update_board_scrollbar();
+assert.strictEqual(listThumb.style.transform, "translateY(84px)");
+delete boardList.tremola.collabboardBoards["saved-room-3"];
 boardList.cb_render_board_list();
 assert.strictEqual(listClass.contains("cb_saved_boards_scroll"), false);
+assert.strictEqual(listShellClass.contains("cb_saved_boards_has_scroll"), false);
+assert.strictEqual(listTrack.style.display, "none");
 
 // Equal board names ignore surrounding and collapsed whitespace. Their
 // local labels receive all eight palette colors once before creation is full.
@@ -1357,6 +1389,43 @@ assert.deepStrictEqual(
 apply(sharedBoard, { k: "c", id: "bob-clear-1", ts: 430 }, bob);
 assert.deepStrictEqual(snapshot(sharedBoard), []);
 
+// Four participants converge even when their drawing, move, recolor and text
+// operations arrive in different orders on every phone.
+const fourPeerEvents = [
+    { event: {
+        k: "s", id: "alice-four-stroke", ts: 500, l: 500,
+        c: "#2563eb", w: 2, p: [[20, 20], [60, 70]]
+    }, fid: alice },
+    { event: {
+        k: "m", id: "bob-four-move", ts: 510, l: 510,
+        t: "alice-four-stroke", dx: 30, dy: 15, sc: 1.2
+    }, fid: bob },
+    { event: {
+        k: "k", id: "carol-four-color", ts: 520, l: 520,
+        t: "alice-four-stroke", c: "#16a34a"
+    }, fid: "@carol.ed25519" },
+    { event: {
+        k: "t", id: "dave-four-text", ts: 530, l: 530,
+        c: "#7c3aed", x: 100, y: 120, s: "Rm91ciBwZWVycyE="
+    }, fid: "@dave.ed25519" }
+];
+const fourPeerOrders = [
+    [0, 1, 2, 3], [3, 2, 1, 0], [1, 3, 0, 2], [2, 0, 3, 1]
+];
+const fourPeerSnapshots = fourPeerOrders.map(function (order) {
+    const board = loadBoard();
+    order.forEach(function (index) {
+        const item = fourPeerEvents[index];
+        apply(board, item.event, item.fid);
+    });
+    return snapshot(board);
+});
+fourPeerSnapshots.slice(1).forEach(function (value) {
+    assert.deepStrictEqual(value, fourPeerSnapshots[0]);
+});
+assert.deepStrictEqual(fourPeerSnapshots[0][0].transform, { dx: 30, dy: 15, sc: 1.2 });
+assert.strictEqual(fourPeerSnapshots[0][0].color, "#16a34a");
+
 // The Android color picker stays unrestricted to valid six-digit hex colors.
 const colorBoard = loadBoard();
 colorBoard.document.getElementById = function (id) {
@@ -1478,11 +1547,13 @@ const earlyViewFrame = {
     style: {}, clientWidth: 0, clientHeight: 0,
     getBoundingClientRect: function () { return { width: 0, height: 0 }; }
 };
-const earlyViewWorkspace = { classList: fakeClassList() };
+const earlyViewWorkspace = { classList: fakeClassList(), style: {} };
+const earlyViewExit = { style: {} };
 earlyViewBoard.document.getElementById = function (id) {
     if (id === "cb_canvas") return earlyViewCanvas;
     if (id === "cb_canvas_frame") return earlyViewFrame;
     if (id === "cb_workspace") return earlyViewWorkspace;
+    if (id === "cb_view_exit") return earlyViewExit;
     return null;
 };
 earlyViewBoard.cb_redraw = function () {};
@@ -1490,6 +1561,13 @@ earlyViewBoard.cb_enter_view();
 assert.strictEqual(earlyViewWorkspace.classList.contains("cb_view_mode"), true);
 assert.ok(earlyViewBoard.cb_view.scale > 0);
 assert.ok(earlyViewCanvas.style.transform.includes("scale("));
+assert.strictEqual(earlyViewWorkspace.style.top, "0");
+assert.strictEqual(earlyViewFrame.style.bottom, "0");
+assert.strictEqual(earlyViewExit.style.display, "block");
+assert.strictEqual(earlyViewExit.style.right, "14px");
+earlyViewBoard.cb_exit_view();
+assert.strictEqual(earlyViewWorkspace.style.position, "");
+assert.strictEqual(earlyViewExit.style.display, "");
 
 // Events from the removed owner/profile experiment no longer enter the board.
 const legacy = loadBoard();

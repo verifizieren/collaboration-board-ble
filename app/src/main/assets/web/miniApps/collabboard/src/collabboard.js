@@ -416,6 +416,7 @@ function cb_set_setup_mode(mode) {
 
 function cb_render_board_list() {
     var container = document.getElementById('cb_saved_boards');
+    var shell = document.getElementById('cb_saved_boards_shell');
     var empty = document.getElementById('cb_saved_empty');
     var catalog = cb_board_catalog();
     if (cb_reconcile_board_colors()) persist();
@@ -428,7 +429,9 @@ function cb_render_board_list() {
     });
     if (empty) empty.style.display = entries.length ? 'none' : null;
     if (!container || typeof document.createElement !== 'function') return;
-    if (container.classList) container.classList.toggle('cb_saved_boards_scroll', entries.length > 4);
+    var scroll = entries.length > 3;
+    if (container.classList) container.classList.toggle('cb_saved_boards_scroll', scroll);
+    if (shell && shell.classList) shell.classList.toggle('cb_saved_boards_has_scroll', scroll);
     container.textContent = '';
     entries.forEach(function (entry) {
         var row = document.createElement('div');
@@ -452,6 +455,27 @@ function cb_render_board_list() {
         row.appendChild(remove);
         container.appendChild(row);
     });
+    cb_update_board_scrollbar();
+    setTimeout(cb_update_board_scrollbar, 0);
+}
+
+function cb_update_board_scrollbar() {
+    var container = document.getElementById('cb_saved_boards');
+    var track = document.getElementById('cb_saved_scrollbar');
+    var thumb = document.getElementById('cb_saved_scroll_thumb');
+    if (!container || !track || !thumb) return;
+    var scrollRange = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (!container.classList.contains('cb_saved_boards_scroll') || scrollRange < 1) {
+        track.style.display = 'none';
+        return;
+    }
+    track.style.display = 'block';
+    var trackHeight = track.clientHeight || 168;
+    var thumbHeight = Math.max(32, Math.round(trackHeight * container.clientHeight / container.scrollHeight));
+    var thumbRange = Math.max(0, trackHeight - thumbHeight);
+    var top = scrollRange ? Math.round(thumbRange * container.scrollTop / scrollRange) : 0;
+    thumb.style.height = thumbHeight + 'px';
+    thumb.style.transform = 'translateY(' + top + 'px)';
 }
 
 function cb_set_setup_error(message) {
@@ -858,7 +882,7 @@ function cb_board_joined(configJson) {
         cb_redraw();
         if (cb_is_android()) {
             backend('collabboard:read');
-            if (config.d === 1) cb_ble_status('Board ready', 1, 0);
+            if (config.d === 1) cb_ble_status('Board ready', 0, 0);
         }
     } catch (e) {
         cb_board_join_failed('Could not open this board');
@@ -1000,11 +1024,6 @@ function cb_room_status(count, maximum, members) {
     var peerCount = Math.min(Number(count) || 1, maximum || CB_MAX_MEMBERS);
     var label = document.getElementById('cb_member_count');
     if (label) label.textContent = peerCount + '/' + (maximum || CB_MAX_MEMBERS);
-    if (peerCount > 1 && cb_replay_waiting_for_peer) {
-        cb_begin_board_replay('catchup');
-        cb_replay_native_done = true;
-        cb_schedule_replay_finish(CB_REPLAY_REMOTE_QUIET_MS);
-    }
     if (Array.isArray(members)) {
         cb_members = Object.create(null);
         members.forEach(function (member) {
@@ -1071,6 +1090,7 @@ function cb_enter_view() {
         frame.style.height = '';
         frame.style.flexBasis = '';
     }
+    cb_apply_view_shell();
     cb_apply_dark_state();
     cb_redraw();
     cb_schedule_view_reset();
@@ -1084,8 +1104,63 @@ function cb_exit_view() {
     var workspace = document.getElementById('cb_workspace');
     var cv = document.getElementById('cb_canvas');
     if (workspace) workspace.classList.remove('cb_view_mode');
+    cb_clear_view_shell();
     if (cv) cv.style.transform = 'none';
     cb_schedule_fit();
+}
+
+function cb_apply_view_shell() {
+    if (!cb_view_mode) return;
+    var workspace = document.getElementById('cb_workspace');
+    var frame = document.getElementById('cb_canvas_frame');
+    var exit = document.getElementById('cb_view_exit');
+    if (workspace && workspace.style) {
+        workspace.style.position = 'fixed';
+        workspace.style.top = '0';
+        workspace.style.right = '0';
+        workspace.style.bottom = '0';
+        workspace.style.left = '0';
+        workspace.style.width = '100%';
+        workspace.style.height = '100%';
+        workspace.style.zIndex = '10000';
+    }
+    if (frame && frame.style) {
+        frame.style.position = 'absolute';
+        frame.style.top = '0';
+        frame.style.right = '0';
+        frame.style.bottom = '0';
+        frame.style.left = '0';
+        frame.style.width = '100%';
+        frame.style.height = '100%';
+        frame.style.display = 'block';
+        frame.style.overflow = 'hidden';
+    }
+    if (exit && exit.style) {
+        exit.style.position = 'absolute';
+        exit.style.right = '14px';
+        exit.style.bottom = '14px';
+        exit.style.zIndex = '3';
+        exit.style.display = 'block';
+    }
+    cb_reset_page_scroll();
+}
+
+function cb_clear_view_shell() {
+    var workspace = document.getElementById('cb_workspace');
+    var frame = document.getElementById('cb_canvas_frame');
+    var exit = document.getElementById('cb_view_exit');
+    if (workspace && workspace.style) {
+        ['position', 'top', 'right', 'bottom', 'left', 'width', 'height', 'zIndex']
+            .forEach(function (key) { workspace.style[key] = ''; });
+    }
+    if (frame && frame.style) {
+        ['position', 'top', 'right', 'bottom', 'left', 'width', 'height', 'display',
+            'overflow', 'flexBasis'].forEach(function (key) { frame.style[key] = ''; });
+    }
+    if (exit && exit.style) {
+        ['position', 'right', 'bottom', 'zIndex', 'display']
+            .forEach(function (key) { exit.style[key] = ''; });
+    }
 }
 
 function cb_view_frame_size(frame) {
@@ -1100,6 +1175,7 @@ function cb_view_frame_size(frame) {
 
 function cb_reset_view() {
     if (!cb_view_mode) return;
+    cb_apply_view_shell();
     var frame = document.getElementById('cb_canvas_frame');
     if (!frame) return;
     var size = cb_view_frame_size(frame);
@@ -1150,8 +1226,7 @@ function cb_clamp_view() {
 
 function cb_clamp_view_axis(value, viewport, content) {
     if (content <= viewport) return (viewport - content) / 2;
-    var visible = Math.min(48, viewport / 3);
-    return Math.max(visible - content, Math.min(viewport - visible, value));
+    return Math.max(viewport - content, Math.min(0, value));
 }
 
 function cb_view_pointer_values() {
@@ -1299,6 +1374,11 @@ function cb_open() {
             el.style.display = (lst.indexOf(d) < 0) ? 'none' : null;
         }
     });
+
+    // Tremola normally reserves space for its bottom navigation. Miniapps hide
+    // that navigation, so reclaim the space for the finite drawing surface.
+    var core = document.getElementById('core');
+    if (core) core.style.height = 'calc(100% - 50px)';
 
     document.getElementById("tremolaTitle").style.display = 'none';
     var c = document.getElementById("conversationTitle");
@@ -1512,8 +1592,10 @@ function cb_bind_canvas() {
     if (!cb_resize_bound) {
         cb_resize_bound = true;
         window.addEventListener('resize', cb_fit_canvas);
+        window.addEventListener('resize', cb_update_board_scrollbar);
         window.addEventListener('orientationchange', function () {
             setTimeout(cb_fit_canvas, 150);
+            setTimeout(cb_update_board_scrollbar, 150);
         });
     }
 }
@@ -1553,6 +1635,7 @@ function cb_fit_canvas() {
         cv.height = CB_BOARD_HEIGHT;
     }
     if (cb_view_mode) {
+        cb_apply_view_shell();
         cb_apply_view_transform();
         if (changed) cb_redraw();
         return;
@@ -1571,7 +1654,7 @@ function cb_fit_canvas() {
     var scale = Math.max(0.05, maxWidth / CB_INITIAL_VIEW_WIDTH);
     var canvasWidth = Math.max(1, Math.floor(CB_BOARD_WIDTH * scale));
     var canvasHeight = Math.max(1, Math.floor(CB_BOARD_HEIGHT * scale));
-    var frameHeight = Math.max(1, Math.floor(CB_INITIAL_VIEW_HEIGHT * scale));
+    var fallbackFrameHeight = Math.max(1, Math.floor(CB_INITIAL_VIEW_HEIGHT * scale));
     var frame = document.getElementById('cb_canvas_frame');
     if (!frame) {
         cv.style.transform = 'none';
@@ -1582,14 +1665,21 @@ function cb_fit_canvas() {
         return;
     }
     if (frame.classList) frame.classList.add('cb_edit_navigation');
-    frame.style.height = frameHeight + 'px';
-    frame.style.flexBasis = frameHeight + 'px';
-    if (!cb_edit_view.initialized || Math.abs(cb_edit_view.width - maxWidth) > 2) {
+    frame.style.height = '';
+    frame.style.flexBasis = '';
+    var frameWidth = Number(frame.clientWidth) || maxWidth;
+    var frameHeight = Number(frame.clientHeight) || fallbackFrameHeight;
+    if (frame.getBoundingClientRect) {
+        var frameRect = frame.getBoundingClientRect();
+        frameWidth = Number(frameRect.width) || frameWidth;
+        frameHeight = Number(frameRect.height) || frameHeight;
+    }
+    if (!cb_edit_view.initialized || Math.abs(cb_edit_view.width - frameWidth) > 2) {
         cb_edit_view.scale = scale;
         cb_edit_view.fit = scale;
         cb_edit_view.minScale = Math.max(0.03, scale * 0.65);
         cb_edit_view.maxScale = Math.max(scale * 5, 2);
-        cb_edit_view.width = maxWidth;
+        cb_edit_view.width = frameWidth;
         cb_edit_view.height = frameHeight;
         cb_edit_view.x = 0;
         cb_edit_view.y = 0;

@@ -6,14 +6,16 @@
   --cb-soft-hover: #e8ebee;
   --cb-accent: #245fbd;
   --cb-accent-soft: #eaf1fb;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   text-align: left;
-  padding: 5px 5px 10px;
+  padding: 5px 5px 0;
   box-sizing: border-box;
+  overflow: hidden;
   color: var(--cb-text);
   background: #ffffff;
   font-family: inherit;
@@ -26,6 +28,7 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  overflow: hidden;
 }
 
 .cb_room_setup {
@@ -102,12 +105,47 @@
   margin: 0 0 10px;
 }
 
+.cb_saved_boards_shell {
+  position: relative;
+}
+
 .cb_saved_boards.cb_saved_boards_scroll {
-  max-height: 252px;
-  padding-right: 2px;
+  max-height: 180px;
+  padding-right: 14px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+}
+
+.cb_saved_boards.cb_saved_boards_scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.cb_saved_scrollbar {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  bottom: 12px;
+  display: none;
+  width: 8px;
+  border-radius: 4px;
+  background: #e2e6ea;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.cb_saved_scroll_thumb {
+  position: absolute;
+  top: 0;
+  left: 1px;
+  display: block;
+  width: 6px;
+  min-height: 28px;
+  border-radius: 4px;
+  background: #7d8792;
+  transform: translateY(0);
 }
 
 .cb_saved_board {
@@ -452,7 +490,7 @@
 }
 
 .cb_canvas_frame.cb_edit_navigation {
-  flex: 0 0 auto;
+  flex: 1 1 0;
   display: block;
   overflow: hidden;
   touch-action: none;
@@ -474,6 +512,10 @@
 
 .cb_board_loading {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 1;
   display: flex;
@@ -499,9 +541,14 @@
 
 .cb_workspace.cb_view_mode {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 10000;
-  width: auto;
+  width: 100vw;
+  height: 100vh;
   min-height: 0;
   padding: 0;
   overflow: hidden;
@@ -518,6 +565,10 @@
 
 .cb_workspace.cb_view_mode .cb_canvas_frame {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   display: block;
   overflow: hidden;
@@ -540,9 +591,11 @@
 
 .cb_workspace.cb_view_mode .cb_view_exit {
   position: absolute;
+  right: 14px;
   right: max(14px, env(safe-area-inset-right));
+  bottom: 14px;
   bottom: max(14px, env(safe-area-inset-bottom));
-  z-index: 2;
+  z-index: 3;
   display: block;
   width: 46px;
   height: 46px;

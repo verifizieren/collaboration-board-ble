@@ -1,7 +1,13 @@
 <div id='div:collabboard-main' style='display: none;'>
   <section id='cb_room_setup' class='cb_room_setup' style='display: none;'>
     <h2>Boards</h2>
-    <div id='cb_saved_boards' class='cb_saved_boards'></div>
+    <div id='cb_saved_boards_shell' class='cb_saved_boards_shell'>
+      <div id='cb_saved_boards' class='cb_saved_boards'
+           onscroll='cb_update_board_scrollbar()'></div>
+      <span id='cb_saved_scrollbar' class='cb_saved_scrollbar' aria-hidden='true'>
+        <span id='cb_saved_scroll_thumb' class='cb_saved_scroll_thumb'></span>
+      </span>
+    </div>
     <p id='cb_saved_empty' class='cb_saved_empty'>No saved boards</p>
     <div id='cb_delete_panel' class='cb_delete_panel' style='display: none;'>
       <strong id='cb_delete_name'></strong>
