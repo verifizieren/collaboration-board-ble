@@ -1,7 +1,8 @@
 # tinySSB version
 
 - Based on official `ssbc/tinyssb` commit `39896b72`.
-- Version `0.7` (`versionCode 7`).
+- Version `0.8` (`versionCode 8`).
+- App name: Collaboration Board (dpi26.15).
 - The board is listed under Productivity.
 - Authors: Dehlen Thavarajah, Max Mendes Carvalho, Frédéric Weyssow, Simon Zeugin.
 - Whiteboard events use the tinySSB `WBD` app type.
@@ -23,7 +24,7 @@
 1. Install the same APK on all phones.
 2. Allow Nearby devices and Location.
 3. Add and verify each contact in tinySSB.
-4. Open Productivity > Collaboration Board.
+4. Open Productivity > Collaboration Board (dpi26.15).
 5. Create and open a board, then tap `+` and invite a verified contact.
 6. The other phone shows an Accept/Decline popup. Invitations are also in the
    top-right menu. After accepting, the board stays in the board list.

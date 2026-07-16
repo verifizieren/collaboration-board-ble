@@ -333,6 +333,11 @@ assert.strictEqual(published.length, 1);
 assert.strictEqual(activatedRoom.r, published[0].r);
 
 const integrationPatch = fs.readFileSync(path.join(root, "tinyssb/integration.patch"), "utf8");
+assert.strictEqual(integrationPatch.includes("versionCode 8"), true);
+assert.strictEqual(integrationPatch.includes("versionName \"0.8\""), true);
+assert.strictEqual(integrationPatch.includes("Collaboration Board (dpi26.15)"), true);
+assert.strictEqual(integrationPatch.includes("move and resize objects.<br>"), true);
+assert.strictEqual(integrationPatch.includes("keep working offline while tinySSB"), false);
 assert.strictEqual(integrationPatch.includes("'whiteboard_show_invitations'"), true);
 assert.strictEqual(integrationPatch.includes("whiteboard_plus();"), true);
 assert.strictEqual(integrationPatch.includes("whiteboard_members_confirmed()"), false);
@@ -344,6 +349,7 @@ assert.strictEqual(adapterSource.includes("kanban_invitation_container light"), 
 assert.strictEqual(adapterSource.includes("wb_official_invite_button"), true);
 assert.strictEqual(adapterSource.includes("var WB_META_DECLINE = 'wd';"), true);
 assert.strictEqual(adapterSource.includes("WB_INVITE_COOLDOWN_MS = 30000"), true);
+assert.strictEqual(adapterSource.includes("Collaboration Board (dpi26.15)"), true);
 assert.strictEqual(adapterSource.includes("wb_draft_invites"), false);
 assert.strictEqual(adapterSource.includes("wb_room_from_code"), false);
 assert.strictEqual(adapterSource.includes("No signed invitation for this code yet"), true);

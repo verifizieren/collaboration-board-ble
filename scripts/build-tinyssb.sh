@@ -87,6 +87,7 @@ unzip -p "$OUTPUT" assets/web/prod/whiteboard/adapter.js > "$TMP_DIR/adapter.js"
 unzip -p "$OUTPUT" assets/web/prod/whiteboard/theme.css > "$TMP_DIR/theme.css"
 unzip -p "$OUTPUT" assets/web/tremola.js > "$TMP_DIR/tremola.js"
 unzip -p "$OUTPUT" assets/web/tremola_ui.js > "$TMP_DIR/tremola_ui.js"
+unzip -p "$OUTPUT" assets/web/prod/tools.js > "$TMP_DIR/tools.js"
 cmp -s "$ROOT/miniApps/collabboard/src/collabboard.js" "$TMP_DIR/collabboard.js"
 cmp -s "$ROOT/tinyssb/whiteboard/adapter.js" "$TMP_DIR/adapter.js"
 cmp -s "$ROOT/tinyssb/whiteboard/theme.css" "$TMP_DIR/theme.css"
@@ -96,6 +97,12 @@ grep -Fq "'whiteboard': ['div:back', 'core', 'div:collabboard-main', 'plus']" "$
 grep -Fq 'else if (e.public[0] == "WBD")' "$TMP_DIR/tremola.js"
 grep -Fq 'Android.exportWhiteboard' "$TMP_DIR/adapter.js"
 grep -Fq "var WB_META_DECLINE = 'wd';" "$TMP_DIR/adapter.js"
+grep -Fq "Collaboration Board (dpi26.15)" "$TMP_DIR/tools.js"
+grep -Fq "move and resize objects.<br>" "$TMP_DIR/tools.js"
+if grep -Fq "keep working offline while tinySSB" "$TMP_DIR/tools.js"; then
+  echo "Old tinySSB whiteboard description is still present." >&2
+  exit 1
+fi
 cmp -s "$OUTPUT" "$NAMED_OUTPUT"
 
 BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1)"

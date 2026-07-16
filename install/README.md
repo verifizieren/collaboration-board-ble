@@ -33,7 +33,7 @@ next to Tremola.
 5. Allow Bluetooth and location access.
 6. In Tremola, open **MiniApps > Collaboration Board**.
 
-In the tinySSB APK, open **Productivity > Collaboration Board**.
+In the tinySSB APK, open **Productivity > Collaboration Board (dpi26.15)**.
 
 Tremola creates a cryptographic identity automatically. There is no server
 account or central login.
@@ -60,7 +60,7 @@ joining once, tap **Boards** to close the board without deleting it. Tap
 ## tinySSB: Invite And Join
 
 1. Add and verify the contacts on both phones.
-2. Open **Productivity > Collaboration Board**.
+2. Open **Productivity > Collaboration Board (dpi26.15)**.
 3. Create and open a board.
 4. Tap `+` and invite a verified contact.
 5. On the other phone, enter a display name in the popup and tap **Accept**.

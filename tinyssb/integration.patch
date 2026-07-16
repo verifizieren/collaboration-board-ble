@@ -7,8 +7,8 @@ diff --git a/android/tinySSB/app/build.gradle b/android/tinySSB/app/build.gradle
          targetSdkVersion 30
 -        versionCode 2
 -        versionName "0.2"
-+        versionCode 7
-+        versionName "0.7"
++        versionCode 8
++        versionName "0.8"
 
          ndk {
              // abiFilters 'x86' // x86 needed for testing in the emulator
@@ -20,8 +20,8 @@ index 7bed6ef..24091fe 100644
 
  function load_prod_list() {
      document.getElementById("lst:prod").innerHTML = '';
-+    load_prod_item('Collaboration Board', 'prod/whiteboard/whiteboard.svg', 'whiteboard_open()',
-+                   'Create shared whiteboards for up to four nearby participants. Draw, add text, move and resize objects, and keep working offline while tinySSB exchanges updates over BLE.<br><em>Authors: Dehlen Thavarajah, Max Mendes Carvalho, Frédéric Weyssow, Simon Zeugin</em>');
++    load_prod_item('Collaboration Board (dpi26.15)', 'prod/whiteboard/whiteboard.svg', 'whiteboard_open()',
++                   'Create shared whiteboards for up to four nearby participants. Draw, add text, move and resize objects.<br><em>Authors: Dehlen Thavarajah, Max Mendes Carvalho, Frédéric Weyssow, Simon Zeugin</em>');
      load_prod_item('Kanban', 'prod/kanban/kanban.svg', 'setScenario("kanban")',
                     'Collaboratively visualize your work items and give participants a view of progress and process, from start to finish.<br><em>Author: Jannick Heisch</em>');
      load_prod_item('Event Scheduler (dpi24.14)', 'prod/dpi24-14-sched/schedule.svg', null /* 'setScenario("scheduling")' */,

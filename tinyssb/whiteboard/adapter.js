@@ -209,7 +209,7 @@ function wb_set_title() {
     if (tremolaTitle) tremolaTitle.style.display = 'none';
     if (title) {
         title.style.display = null;
-        title.innerHTML = '<strong>Collaboration Board</strong>';
+        title.innerHTML = '<strong>Collaboration Board (dpi26.15)</strong>';
     }
 }
 

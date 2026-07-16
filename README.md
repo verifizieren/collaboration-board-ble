@@ -84,7 +84,7 @@ The six-digit code directly selects the board. No owner has to stay nearby for
 joining. Anyone with the code can open the board until the four-member limit is
 reached. Treat the code like a simple shared password.
 
-In the tinySSB APK, open **Productivity > Collaboration Board**. Add and verify
+In the tinySSB APK, open **Productivity > Collaboration Board (dpi26.15)**. Add and verify
 contacts first. Create a board, open it, and use `+` to invite a contact. The
 other phone shows an Accept/Decline popup. The top-right **Invitations** screen
 also shows received invites and the sender's Waiting, Accepted, or Declined
