@@ -61,6 +61,7 @@ Two fingers pan or zoom in Draw and Text without creating an object.
 - Replay is batched so the WebView first shows the merged current state instead
   of painting old intermediate states.
 - A local dark canvas and full-screen pan/zoom view do not create shared events.
+- JPEG/PDF export is local and does not create a shared event.
 - A peer ACK removes an operation from the local pending list. Unconfirmed
   local edits stay available and are retried automatically.
 
@@ -145,7 +146,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.9.6` (`versionCode 28`)
+- Version: `1.0` (`versionCode 29`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.
@@ -171,6 +172,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 - named board catalogue, close, and reopen behavior
 - direct six-digit codes, stable identity rename, local deletion, dark view,
   pan, and pinch zoom
+- immediate Clear and local JPEG/PDF export
 - saved board-state migration from the previous UI format
 - frontiers, missing ranges, queues, retries, and frame limits
 - Android direct-code handshakes, Ed25519, AES-GCM, compression, and tamper rejection
@@ -189,6 +191,7 @@ required for the final acceptance test.
 - `BleSync.kt` - BLE links, frames, ACK, retry, WANT, and relay
 - `BoardOperation.kt` and `BoardOperationDAO.kt` - persistent board log
 - `WebAppInterface.kt` - WebView bridge
+- `MainActivity.kt` - Android file picker and export writer
 - `tests/collabboard.test.js` - board behavior tests
 - `BoardProtocolTest.kt` - protocol unit tests
 - `BoardProtocolInstrumentedTest.kt` - Android crypto tests

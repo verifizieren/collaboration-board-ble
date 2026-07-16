@@ -62,7 +62,7 @@ do
 done
 
 echo "[2/6] Running JavaScript and board checks"
-bash -n scripts/check.sh scripts/android.sh
+bash -n scripts/check.sh scripts/android.sh scripts/build-tinyssb.sh
 sh -n start.sh
 for file in \
   src/*.js \

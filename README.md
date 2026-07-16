@@ -7,6 +7,7 @@ A shared whiteboard mini-app inside Tremola for Android.
 - Draw and add text.
 - Move, resize, recolor, and delete objects.
 - Clear the full board.
+- Export the canvas as JPEG or PDF.
 - Use a large finite board that scales to the phone screen.
 - Name boards and reopen them from a saved-board list.
 - Distinguish equal board names with eight local label colors.
@@ -67,7 +68,7 @@ See [`install/README.md`](install/README.md) for the install and test steps.
 5. Enter a board name and create the board.
 6. The app shows a new six-digit code. Share it with the other members.
 7. Other members use **Join** and enter the code.
-8. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, or **Clear all**.
+8. Use **Draw**, **Text**, **Edit**, the color picker, **Delete**, **Clear all**, or **Export**.
 9. Press the keyboard **Go** button before placing text. Use two fingers to
    move or zoom while **Draw** or **Text** is active.
 10. Use **View** to pan and pinch zoom. **Dark** changes only this phone.
@@ -94,6 +95,9 @@ board. After that invitation arrives, the Join form can also select it by its
 six-digit code. The creator and the first three contacts who accept can edit.
 Up to eight contacts may be invited. A repeat invite to the same contact is
 allowed after 30 seconds. tinySSB `WBD` events are public and not encrypted.
+
+Both variants export only the finite canvas. JPEG follows the local dark canvas;
+PDF always uses a white background. **Clear all** is immediate and has no undo.
 
 Changing the display name does not create another member. The Tremola feed ID
 stays the same. Deleting a board removes only its copy on that phone.

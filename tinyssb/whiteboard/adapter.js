@@ -931,39 +931,6 @@ cb_update_room_bar = function () {
     if (oldCode) oldCode.style.display = 'none';
 };
 
-var wb_clear_board_base = cb_clear;
-
-function wb_close_clear_confirmation() {
-    var no = document.getElementById('toast-button-no');
-    if (no) no.textContent = 'No';
-    closeOverlay();
-}
-
-function whiteboard_clear_confirmed() {
-    wb_close_clear_confirmation();
-    wb_clear_board_base();
-}
-
-function whiteboard_confirm_clear() {
-    if (!wb_current_room()) return;
-    if (typeof launch_toast !== 'function') {
-        if (typeof confirm === 'function' &&
-            confirm('Are you sure you want to wipe the board?')) wb_clear_board_base();
-        return;
-    }
-    launch_toast('Clear board', 'Are you sure you want to wipe the board?',
-        whiteboard_clear_confirmed, wb_close_clear_confirmation);
-    var yes = document.getElementById('toast-button-yes');
-    var no = document.getElementById('toast-button-no');
-    if (yes) yes.textContent = 'Yes';
-    if (no) no.textContent = 'Cancel';
-    var background = document.getElementById('overlay-bg');
-    if (background) background.style.display = 'initial';
-    overlayIsActive = true;
-}
-
-cb_clear = whiteboard_confirm_clear;
-
 var wb_show_setup_base = cb_show_setup;
 cb_show_setup = function (show) {
     wb_show_setup_base(show);

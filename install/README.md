@@ -1,6 +1,7 @@
 # Install On Android
 
-Current Tremola test build: **0.9.6** (`versionCode 28`).
+Current Tremola build: **1.0** (`versionCode 29`).
+Current tinySSB build: **1.0** (`versionCode 9`).
 
 Both main downloads use the same simple file name in separate folders:
 
@@ -69,9 +70,11 @@ joining once, tap **Boards** to close the board without deleting it. Tap
 
 The tinySSB version joins only through a signed invitation. Its six-digit code
 can select a received invitation, but it cannot create or discover a board by
-itself. **Export** saves the canvas as a JPEG or PDF. A JPEG follows the local
-dark canvas; a PDF is white. A repeat invite to one contact is available after
-30 seconds.
+itself. A repeat invite to one contact is available after 30 seconds.
+
+In both variants, **Export** saves only the canvas as JPEG or PDF. JPEG follows
+the local dark canvas; PDF is white. **Clear all** takes effect immediately and
+has no undo.
 
 Returning from the Tremola MiniApps screen within 30 seconds reopens the active
 board. Returning later, or starting Tremola again, opens the Boards screen.
@@ -122,14 +125,15 @@ Use `tremola-collaboration-board-debug.apk` on both phones.
 9. Add text on B and check A.
 10. Move, resize, recolor, and delete the other member's object.
 11. Use **Clear all** and check both phones.
-12. Turn Bluetooth off on B. Edit on both phones. Turn Bluetooth on again.
-13. Wait for both boards to converge.
-14. Tap **Boards**, reopen the named board, and confirm its content is present.
-15. Close and reopen Tremola and check the Boards screen opens first.
-16. Change your display name, reopen the board, and confirm the member count
+12. Export one JPEG and one PDF and open both files.
+13. Turn Bluetooth off on B. Edit on both phones. Turn Bluetooth on again.
+14. Wait for both boards to converge.
+15. Tap **Boards**, reopen the named board, and confirm its content is present.
+16. Close and reopen Tremola and check the Boards screen opens first.
+17. Change your display name, reopen the board, and confirm the member count
     does not increase.
-17. Test **View** on its first tap, pan, pinch zoom, **Dark**, and local board deletion.
-18. Create two boards with the same name and confirm their labels use different colors.
+18. Test **View** on its first tap, pan, pinch zoom, **Dark**, and local board deletion.
+19. Create two boards with the same name and confirm their labels use different colors.
 
 Repeat with a third and fourth identity if available. A fifth identity must be
 rejected as **Board is full**.

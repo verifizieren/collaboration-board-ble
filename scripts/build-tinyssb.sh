@@ -99,7 +99,10 @@ grep -Fq "'whiteboard': ['div:back', 'core', 'div:collabboard-main', 'plus']" "$
 grep -Fq 'else if (e.public[0] == "WBD")' "$TMP_DIR/tremola.js"
 grep -Fq 'Android.exportWhiteboard' "$TMP_DIR/adapter.js"
 grep -Fq "var WB_META_DECLINE = 'wd';" "$TMP_DIR/adapter.js"
-grep -Fq "Are you sure you want to wipe the board?" "$TMP_DIR/adapter.js"
+if grep -Fq "Are you sure you want to wipe the board?" "$TMP_DIR/adapter.js"; then
+  echo "Clear confirmation is still present in the tinySSB whiteboard." >&2
+  exit 1
+fi
 grep -Fq "Collaboration Board (dpi26.15)" "$TMP_DIR/tools.js"
 grep -Fq "move and resize objects.<br>" "$TMP_DIR/tools.js"
 if grep -Fq "keep working offline while tinySSB" "$TMP_DIR/tools.js"; then

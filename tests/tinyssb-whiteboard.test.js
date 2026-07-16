@@ -138,23 +138,13 @@ setupBoard.Android = {
 setupBoard.cb_copy_invite();
 assert.strictEqual(copiedCode, "482913");
 
-// Clear is modal in tinySSB. Cancel writes nothing; Yes emits one clear event.
+// Clear is immediate in both hosts and emits one shared clear event.
 const clearEvents = [];
 setupBoard.cb_write_board_event = function (event) {
     clearEvents.push(event);
     return true;
 };
 setupBoard.cb_clear();
-assert.strictEqual(setupBoard.toasts.length, 1);
-assert.strictEqual(setupBoard.toasts[0].title, "Clear board");
-assert.strictEqual(setupBoard.toasts[0].description,
-    "Are you sure you want to wipe the board?");
-assert.strictEqual(setupBoard.document.getElementById("toast-button-no").textContent, "Cancel");
-assert.strictEqual(clearEvents.length, 0);
-setupBoard.toasts[0].no();
-assert.strictEqual(clearEvents.length, 0);
-setupBoard.cb_clear();
-setupBoard.toasts[1].yes();
 assert.strictEqual(clearEvents.length, 1);
 assert.strictEqual(clearEvents[0].k, "c");
 
@@ -385,7 +375,7 @@ assert.strictEqual(adapterSource.includes("wb_official_invite_button"), true);
 assert.strictEqual(adapterSource.includes("var WB_META_DECLINE = 'wd';"), true);
 assert.strictEqual(adapterSource.includes("WB_INVITE_COOLDOWN_MS = 30000"), true);
 assert.strictEqual(adapterSource.includes("Collaboration Board (dpi26.15)"), true);
-assert.strictEqual(adapterSource.includes("Are you sure you want to wipe the board?"), true);
+assert.strictEqual(adapterSource.includes("Are you sure you want to wipe the board?"), false);
 assert.strictEqual(adapterSource.includes("wb_draft_invites"), false);
 assert.strictEqual(adapterSource.includes("wb_room_from_code"), false);
 assert.strictEqual(adapterSource.includes("No signed invitation for this code yet"), true);

@@ -17,6 +17,7 @@
 - A signed invitation carries the exact random board ID. Its code can select
   that received invitation, but cannot create or discover a board.
 - Export saves the canvas as JPEG or PDF through Android's file picker.
+- Clear is immediate and has no undo.
 - Invitations limit the app UI. Public tinySSB events are not encrypted.
 
 ## Test

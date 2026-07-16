@@ -184,6 +184,56 @@ assert.deepStrictEqual(snapshot(clearSender), []);
 apply(clearReceiver, clearSender.writes[0], "@alice.ed25519");
 assert.deepStrictEqual(snapshot(clearReceiver), []);
 
+// Export is local: PDF uses white, JPEG follows the local dark canvas, and
+// neither format writes a shared board event.
+const exportBoard = loadBoard();
+const exportCalls = [];
+const exportFills = [];
+const exportCanvases = [];
+exportBoard.tremola.collabboardRoom = {
+    r: "export-room", k: "e".repeat(43), o: exportBoard.myId, n: "Export"
+};
+exportBoard.Android = {
+    exportWhiteboard: function (format, payload) {
+        exportCalls.push({ format: format, payload: payload });
+    }
+};
+exportBoard.document.createElement = function (kind) {
+    assert.strictEqual(kind, "canvas");
+    const context = {
+        fillStyle: "",
+        fillRect: function () { exportFills.push(this.fillStyle); },
+        save: function () {},
+        scale: function () {},
+        restore: function () {}
+    };
+    const canvas = {
+        width: 0,
+        height: 0,
+        getContext: function () { return context; },
+        toDataURL: function (mime, quality) {
+            assert.strictEqual(mime, "image/jpeg");
+            assert.strictEqual(quality, 0.92);
+            return "data:image/jpeg;base64,ZmFrZQ==";
+        }
+    };
+    exportCanvases.push(canvas);
+    return canvas;
+};
+exportBoard.cb_dark_canvas = true;
+exportBoard.cb_export("pdf");
+exportBoard.cb_export_busy = false;
+exportBoard.cb_export("jpeg");
+assert.deepStrictEqual(exportCalls, [
+    { format: "pdf", payload: "ZmFrZQ==" },
+    { format: "jpeg", payload: "ZmFrZQ==" }
+]);
+assert.deepStrictEqual(exportFills, ["#ffffff", "#0f1115"]);
+assert.deepStrictEqual(exportCanvases.map(function (canvas) {
+    return [canvas.width, canvas.height];
+}), [[1200, 1600], [1200, 1600]]);
+assert.strictEqual(exportBoard.writes.length, 0);
+
 // Exercise the exact two-peer path for a completed phone drag and resize:
 // pointer-up writes an event, then the other board replays that wire payload.
 const transformSender = loadBoard();
@@ -1661,6 +1711,9 @@ assert.strictEqual(boardMarkup.includes("maxlength='6'"), true);
 assert.strictEqual(boardMarkup.includes("cb_delete_panel"), true);
 assert.strictEqual(boardMarkup.includes("cb_view_btn"), true);
 assert.strictEqual(boardMarkup.includes("cb_dark_btn"), true);
+assert.strictEqual(boardMarkup.includes("cb_export_btn"), true);
+assert.strictEqual(boardMarkup.includes("cb_export_dialog"), true);
+assert.strictEqual(boardMarkup.includes("Are you sure you want to wipe the board?"), false);
 assert.strictEqual(boardMarkup.includes("cb_ui_scale"), false);
 assert.strictEqual(boardMarkup.includes("Load changes"), false);
 assert.strictEqual(boardMarkup.includes("cb_view_exit"), true);
@@ -1668,6 +1721,7 @@ assert.strictEqual(boardMarkup.includes("cb_invite_input"), false);
 assert.strictEqual(boardMarkup.includes("cb_selection_info"), true);
 assert.strictEqual(boardMarkup.includes("cb_board_loading"), true);
 assert.strictEqual(boardMarkup.includes("width='1800' height='2400'"), true);
+assert.strictEqual(source.includes("Android.exportWhiteboard"), true);
 
 const tinyAdapter = fs.readFileSync(
     path.join(root, "tinyssb/whiteboard/adapter.js"),

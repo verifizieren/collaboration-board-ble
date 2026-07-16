@@ -38,6 +38,7 @@ import kotlin.concurrent.thread
 class MainActivity : Activity() {
     companion object {
         private const val BLE_PERMISSION_REQUEST = 2241
+        private const val WHITEBOARD_EXPORT_REQUEST = 1809
         private const val APP_URL_PREFIX =
             "https://appassets.androidplatform.net/assets/web/"
         private const val APP_START_URL = "${APP_URL_PREFIX}tremola.html"
@@ -56,6 +57,7 @@ class MainActivity : Activity() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var bluetoothReceiverRegistered = false
     private var blePermissionRequestInFlight = false
+    private var pendingWhiteboardExport: ByteArray? = null
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
@@ -247,6 +249,24 @@ class MainActivity : Activity() {
         }
     }
 
+    fun beginWhiteboardExport(fileName: String, mimeType: String, content: ByteArray) {
+        runOnUiThread {
+            pendingWhiteboardExport = content
+            try {
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = mimeType
+                    putExtra(Intent.EXTRA_TITLE, fileName)
+                }
+                startActivityForResult(intent, WHITEBOARD_EXPORT_REQUEST)
+            } catch (error: Exception) {
+                pendingWhiteboardExport = null
+                Log.e("WhiteboardExport", "Could not open file picker", error)
+                Toast.makeText(this, "Could not export whiteboard.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     // pt 3 in https://betterprogramming.pub/5-android-webview-secrets-you-probably-didnt-know-b23f8a8b5a0c
 
     override fun onActivityResult(
@@ -255,6 +275,22 @@ class MainActivity : Activity() {
         data: Intent?
     ) {
         Log.e("ACT_RESULT", "Result for $resultCode")
+        if (requestCode == WHITEBOARD_EXPORT_REQUEST) {
+            val content = pendingWhiteboardExport
+            pendingWhiteboardExport = null
+            if (resultCode == RESULT_OK && data?.data != null && content != null) {
+                try {
+                    contentResolver.openOutputStream(data.data!!)?.use { it.write(content) }
+                        ?: throw IllegalStateException("No output stream")
+                    Toast.makeText(this, "Whiteboard saved.", Toast.LENGTH_SHORT).show()
+                } catch (error: Exception) {
+                    Log.e("WhiteboardExport", "Could not save whiteboard", error)
+                    Toast.makeText(this, "Could not save whiteboard.", Toast.LENGTH_LONG).show()
+                }
+            }
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
         val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
         if (result != null) {
             Log.d("activityResult", result.toString())

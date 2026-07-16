@@ -3,6 +3,10 @@ package nz.scuttlebutt.tremola
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.RectF
+import android.graphics.pdf.PdfDocument
 import android.util.Base64
 import android.util.Log
 import android.webkit.JavascriptInterface
@@ -18,7 +22,11 @@ import nz.scuttlebutt.tremola.utils.HelperFunctions.Companion.id2
 import nz.scuttlebutt.tremola.utils.getBroadcastAddress
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 
 
@@ -316,6 +324,58 @@ class WebAppInterface(private val act: Activity, val tremolaState: TremolaState,
             Toast.makeText(act, "Invite copied", Toast.LENGTH_SHORT).show()
         }
         return true
+    }
+
+    @JavascriptInterface
+    fun exportWhiteboard(format: String, encodedImage: String) {
+        try {
+            if (encodedImage.length > 16_000_000) throw IllegalArgumentException("Image is too large")
+            val image = Base64.decode(encodedImage, Base64.NO_WRAP)
+            val normalized = if (format.lowercase(Locale.US) == "pdf") "pdf" else "jpeg"
+            val content = if (normalized == "pdf") whiteboardPdf(image) else image
+            val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+            val extension = if (normalized == "pdf") "pdf" else "jpg"
+            val mime = if (normalized == "pdf") "application/pdf" else "image/jpeg"
+            val activity = act as? MainActivity
+                ?: throw IllegalStateException("Whiteboard export needs MainActivity")
+            activity.beginWhiteboardExport("whiteboard-$stamp.$extension", mime, content)
+        } catch (error: Exception) {
+            Log.e("WhiteboardExport", "Could not prepare whiteboard export", error)
+            act.runOnUiThread {
+                Toast.makeText(act, "Could not export whiteboard.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun whiteboardPdf(image: ByteArray): ByteArray {
+        val bitmap = BitmapFactory.decodeByteArray(image, 0, image.size)
+            ?: throw IllegalArgumentException("Invalid whiteboard image")
+        val document = PdfDocument()
+        try {
+            val pageWidth = 900
+            val pageHeight = 1200
+            val margin = 24f
+            val page = document.startPage(
+                PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
+            )
+            page.canvas.drawColor(Color.WHITE)
+            val availableWidth = pageWidth - 2f * margin
+            val availableHeight = pageHeight - 2f * margin
+            val scale = minOf(availableWidth / bitmap.width, availableHeight / bitmap.height)
+            val width = bitmap.width * scale
+            val height = bitmap.height * scale
+            val left = (pageWidth - width) / 2f
+            val top = (pageHeight - height) / 2f
+            page.canvas.drawBitmap(bitmap, null, RectF(left, top, left + width, top + height), null)
+            document.finishPage(page)
+            return ByteArrayOutputStream().use { output ->
+                document.writeTo(output)
+                output.toByteArray()
+            }
+        } finally {
+            document.close()
+            bitmap.recycle()
+        }
     }
 
     private fun decodeFrontendBase64(value: String): String? {

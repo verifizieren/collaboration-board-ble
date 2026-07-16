@@ -144,6 +144,7 @@ var cb_replay_continue = null;
 var cb_host_core_height = null;
 var cb_host_core_min_height = null;
 var cb_host_core_overflow = null;
+var cb_export_busy = false;
 
 function cb_is_android() {
     return !cb_is_tinyssb() && typeof Android !== 'undefined' && typeof backend === 'function';
@@ -1482,6 +1483,9 @@ function cb_open() {
     c.style.display = null;
     c.innerHTML = "<font size=+1><strong>Collaboration Board</strong></font>";
 
+    var exportButton = document.getElementById('cb_export_btn');
+    if (exportButton) exportButton.hidden = cb_is_tinyssb();
+
     cb_dark_canvas = tremola.collabboardDark === true;
     cb_bind_canvas();
     cb_apply_dark_state();
@@ -1631,6 +1635,71 @@ function cb_clear() {
     cb_sel = null;
     cb_update_selection_controls();
     cb_write_board_event({ k: 'c', id: cb_id(ts), ts: ts }, true);
+}
+
+function cb_show_export() {
+    if (!cb_current_room() || cb_export_busy) return;
+    var dialog = document.getElementById('cb_export_dialog');
+    if (dialog) dialog.style.display = null;
+}
+
+function cb_hide_export() {
+    var dialog = document.getElementById('cb_export_dialog');
+    if (dialog) dialog.style.display = 'none';
+}
+
+function cb_export_data_url(format) {
+    var width = 1200;
+    var scale = width / CB_BOARD_WIDTH;
+    var height = Math.round(CB_BOARD_HEIGHT * scale);
+    var canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    var ctx = canvas.getContext('2d');
+    var originalDark = cb_dark_canvas;
+    var exportDark = format === 'jpeg' && originalDark;
+    ctx.fillStyle = exportDark ? '#0f1115' : '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.save();
+    ctx.scale(scale, scale);
+    cb_dark_canvas = exportDark;
+    try {
+        var state = cb_state();
+        cb_visible_objects(state).forEach(function (object) {
+            var transform = cb_xf(state, object);
+            var color = cb_eff_color(state, object);
+            if (object.k === 's') cb_draw_stroke(ctx, object, transform, color);
+            else if (object.k === 't') cb_draw_text(ctx, object, transform, color);
+        });
+    } finally {
+        cb_dark_canvas = originalDark;
+        ctx.restore();
+    }
+    return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+function cb_export(format) {
+    if (cb_export_busy || !cb_current_room()) return;
+    cb_export_busy = true;
+    cb_hide_export();
+    try {
+        var normalized = format === 'pdf' ? 'pdf' : 'jpeg';
+        var dataUrl = cb_export_data_url(normalized);
+        var payload = dataUrl.slice(dataUrl.indexOf(',') + 1);
+        if (typeof Android !== 'undefined' && typeof Android.exportWhiteboard === 'function') {
+            Android.exportWhiteboard(normalized, payload);
+        } else if (normalized === 'jpeg') {
+            var link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = 'whiteboard.jpg';
+            link.click();
+        } else if (typeof alert === 'function') {
+            alert('PDF export needs the Android app.');
+        }
+    } catch (_error) {
+        if (typeof alert === 'function') alert('Could not export board.');
+    }
+    setTimeout(function () { cb_export_busy = false; }, 500);
 }
 
 function cb_delete_selected() {

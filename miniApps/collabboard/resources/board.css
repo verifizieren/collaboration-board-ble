@@ -379,11 +379,19 @@
 }
 
 #cb_delete_btn {
-  grid-column: 1 / span 2;
+  grid-column: 1;
+  padding: 0 4px;
+  font-size: 11px;
 }
 
 #cb_clear_btn {
-  grid-column: 3 / span 2;
+  grid-column: 2 / span 2;
+}
+
+#cb_export_btn {
+  grid-column: 4;
+  padding: 0 4px;
+  font-size: 11px;
 }
 
 .cb_tool {
@@ -605,6 +613,11 @@
   color: var(--cb-muted);
   font-size: 13px;
   line-height: 19px;
+}
+
+.cb_export_choices {
+  display: grid;
+  gap: 8px;
 }
 
 .cb_workspace.cb_replay_loading #cb_toolbar,

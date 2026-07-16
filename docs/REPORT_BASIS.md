@@ -9,6 +9,7 @@ what was tested on real phones.
 - The main APK supports Android 7.0 and newer.
 - Up to four Tremola feed identities are kept for one board.
 - Every member can draw, add text, move, resize, recolor, delete, and clear.
+- Both Android variants export the current canvas as JPEG or PDF.
 - The canvas is finite: 1800 x 2400 logical units.
 - Boards, operations, names, and known members are stored locally.
 - A finished action is saved first and sent over BLE immediately.
@@ -16,7 +17,8 @@ what was tested on real phones.
 - ACK and retry handle interrupted BLE delivery.
 - The same event set always produces the same visible board.
 - The browser version is a UI and merge preview. It does not test Android BLE.
-- The tinySSB APK is a separate experimental host, not the Tremola submission.
+- The tinySSB APK is a separate alternative host. The main integration is the
+  full Tremola APK.
 
 ## Six-Digit Code
 
@@ -103,6 +105,9 @@ real phones.
   before showing every BLE operation.
 - **Discussion:** include measured results, remaining limits, and the difference
   between automated checks and real BLE tests.
+- **Results:** in the current phone tests, Tremola synchronized much faster.
+  tinySSB was slower and sometimes disconnected. Report this as an observation,
+  not a universal benchmark, unless timings and device details are recorded.
 - **Conclusion:** complete it only after the final phone test. Avoid "all
   features sync" unless the test table proves it.
 
@@ -141,8 +146,9 @@ Added or changed:
 - signed and encrypted Room operations
 - board-specific BLE ACK, retry, frontier, WANT, and relay
 - deterministic shared editing for all objects
-- the separate experimental tinySSB build
-- verified-contact invitations and Android JPEG/PDF export in the tinySSB build
+- the separate tinySSB build
+- verified-contact invitations in the tinySSB build
+- Android JPEG/PDF export in both builds
 
 ## Source Map
 
