@@ -22,7 +22,6 @@ A shared whiteboard mini-app inside Tremola for Android.
   when returning from Tremola.
 - Show the merged current state after joining, without replaying old steps on
   the visible canvas.
-- Let users load or cancel local edits that have not received a peer ACK yet.
 
 Every member can edit every object.
 
@@ -87,8 +86,7 @@ reached. Treat the code like a simple shared password.
 
 In the tinySSB APK, open **Productivity > Collaboration Board**. Its code only
 selects the board. tinySSB public events are not encrypted and the four-member
-label is not a hard access limit. Use the Tremola APK for the private four-person
-version.
+label is not a hard access limit. Use the Tremola APK for the main submission.
 
 Changing the display name does not create another member. The Tremola feed ID
 stays the same. Deleting a board removes only its copy on that phone.
@@ -149,7 +147,8 @@ Android BLE, invitations, encryption, or Android permissions.
 - `scripts/` - build, install, and log commands
 - `tinyssb/` - pinned patch, adapter, icon, theme, and tinySSB build notes
 - `docs/TECHNICAL_OVERVIEW.md` - technical design
-- `docs/REPORT_BASIS.md` - simple basis for the group report
+- `docs/REPORT_BASIS.md` - short basis for the group report
+- `docs/Collaboration_Board_Report_Guide.docx` - Word notes for the report team
 
 ## Submission
 

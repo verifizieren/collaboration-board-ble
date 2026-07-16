@@ -159,4 +159,4 @@ The expected hashes for all APK files are stored in `SHA256SUMS`.
 
 The tinySSB code selects a board, but it is not a password. Public tinySSB
 events are not encrypted, and four members are shown rather than securely
-enforced. Use the Tremola APK for private four-person testing.
+enforced. Use the Tremola APK for the main four-person test.

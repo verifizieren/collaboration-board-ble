@@ -39,7 +39,7 @@ The board sends one operation after a user finishes an action:
 - `d` - delete one object
 - `c` - clear the board
 - `n` - board display name
-- `x` - cancel one unconfirmed local operation
+- `x` - legacy cancellation event, still accepted but not created by the current UI
 
 The board is a finite 1800 x 2400 logical units. The first view is the original
 900 x 1200 area, scaled to the available Tremola width. It does not shrink when
@@ -75,10 +75,12 @@ Two fingers pan or zoom in Draw and Text without creating an object.
 - Renaming the same feed does not use another member slot.
 - Deleting removes the local board profile and Room operations only.
 
-The code is a simple shared password, not strong access security. Anyone who
-knows it can derive the board key. BLE addresses and handshake metadata are not
-hidden. The older owner-pairing messages remain readable for old saved boards,
-but new boards use direct code access.
+The code is a simple shared access code, not strong security. SHA-256 creates a
+32-byte key but does not add entropy to the one million possible codes. The
+direct room ID also contains the code, so this design must not be described as
+strong confidentiality against a nearby observer. BLE addresses and handshake
+metadata are not hidden. The older owner-pairing messages remain readable for
+old saved boards, but new boards use direct code access.
 
 ## BLE Protocol
 
@@ -146,7 +148,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 
 ## Automated Checks
 
-`./scripts/check.sh` checks:
+`./scripts/check.sh` checks the Tremola build:
 
 - browser and Android mini-app copies are equal
 - JavaScript syntax and board behavior
@@ -164,7 +166,9 @@ type, the later Lamport event wins. A clear hides older board objects.
 - frontiers, missing ranges, queues, retries, and frame limits
 - Android direct-code handshakes, Ed25519, AES-GCM, compression, and tamper rejection
 - Android lint, APK build, signature, version, and bundled files
-- tinySSB patch application, JavaScript, native build, signature, and assets
+
+`./scripts/build-tinyssb.sh` separately checks the tinySSB patch application,
+JavaScript, native build, signature, and bundled assets.
 
 The emulator cannot test real BLE radio exchange. Two physical phones are still
 required for the final acceptance test.

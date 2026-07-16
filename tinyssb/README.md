@@ -9,7 +9,7 @@
 - The build fixes tinySSB's first-start BLE permission callback.
 - The 6-digit code selects a board. It is not encryption.
 - The four-member label is not a hard tinySSB access limit.
-- The Tremola APK is the private four-person version.
+- The Tremola APK is the main four-person version.
 
 On first start, allow Nearby devices and Location. Keep Bluetooth and Location
 enabled, and keep both apps open during a BLE test. Some gray apps in the
