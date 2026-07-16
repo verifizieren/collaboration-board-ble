@@ -72,11 +72,7 @@ See [`install/README.md`](install/README.md) for the install and test steps.
 9. Press the keyboard **Go** button before placing text. Use two fingers to
    move or zoom while **Draw** or **Text** is active.
 10. Use **View** to pan and pinch zoom. **Dark** changes only this phone.
-11. Use **UI size** to scale the controls from 80% to 120% on this phone.
-12. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
-
-When opening a board with unconfirmed local edits, choose **Load changes** to
-keep them. Choose **Cancel** to discard only those edits and draw again.
+11. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
 
 The first visible area matches the original board size. Use two fingers to move
 into the larger drawing area. More than three saved boards scroll inside the

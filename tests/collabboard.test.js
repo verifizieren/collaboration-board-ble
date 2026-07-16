@@ -1533,30 +1533,6 @@ assert.strictEqual(darkButton["aria-pressed"], "true");
 assert.strictEqual(darkBoard.cb_display_color("#000000"), "#ffffff");
 assert.strictEqual(darkBoard.cb_display_color("#f5d90a"), "#f5d90a");
 
-// UI size is local, persistent, bounded, and does not alter board data.
-const uiScaleBoard = loadBoard();
-const uiScaleRoot = {
-    style: {
-        setProperty: function (name, value) { this[name] = value; }
-    }
-};
-const uiScaleSlider = { value: "100" };
-const uiScaleOutput = { textContent: "100%" };
-uiScaleBoard.document.getElementById = function (id) {
-    if (id === "div:collabboard-main") return uiScaleRoot;
-    if (id === "cb_ui_scale") return uiScaleSlider;
-    if (id === "cb_ui_scale_value") return uiScaleOutput;
-    return null;
-};
-assert.strictEqual(uiScaleBoard.cb_set_ui_scale(126, false), 120);
-assert.strictEqual(uiScaleRoot.style["--cb-ui-scale"], "1.20");
-assert.strictEqual(uiScaleOutput.textContent, "120%");
-assert.strictEqual(uiScaleBoard.tremola.collabboardUiScale, undefined);
-assert.strictEqual(uiScaleBoard.cb_set_ui_scale(83, true), 85);
-assert.strictEqual(uiScaleBoard.tremola.collabboardUiScale, 85);
-assert.strictEqual(uiScaleRoot.style["--cb-ui-scale"], "0.85");
-assert.deepStrictEqual(snapshot(uiScaleBoard), []);
-
 // Full-board view fits the finite canvas and supports local two-finger zoom.
 const viewBoard = loadBoard();
 const viewCanvas = { style: {} };
@@ -1677,6 +1653,7 @@ assert.strictEqual(boardMarkup.includes("cb_tool_select"), true);
 assert.strictEqual(boardMarkup.includes("cb_delete_btn"), true);
 assert.strictEqual(boardMarkup.includes("cb_room_setup"), true);
 assert.strictEqual(boardMarkup.includes("cb_saved_boards"), true);
+assert.strictEqual(boardMarkup.includes("cb_saved_scrollbar"), true);
 assert.strictEqual(boardMarkup.includes("cb_board_name"), true);
 assert.strictEqual(boardMarkup.includes("cb_create_code"), false);
 assert.strictEqual(boardMarkup.includes("cb_join_code"), true);
@@ -1684,13 +1661,20 @@ assert.strictEqual(boardMarkup.includes("maxlength='6'"), true);
 assert.strictEqual(boardMarkup.includes("cb_delete_panel"), true);
 assert.strictEqual(boardMarkup.includes("cb_view_btn"), true);
 assert.strictEqual(boardMarkup.includes("cb_dark_btn"), true);
-assert.strictEqual(boardMarkup.includes("cb_ui_scale"), true);
-assert.strictEqual(boardMarkup.includes("type='range'"), true);
+assert.strictEqual(boardMarkup.includes("cb_ui_scale"), false);
+assert.strictEqual(boardMarkup.includes("Load changes"), false);
 assert.strictEqual(boardMarkup.includes("cb_view_exit"), true);
 assert.strictEqual(boardMarkup.includes("cb_invite_input"), false);
 assert.strictEqual(boardMarkup.includes("cb_selection_info"), true);
 assert.strictEqual(boardMarkup.includes("cb_board_loading"), true);
 assert.strictEqual(boardMarkup.includes("width='1800' height='2400'"), true);
+
+const tinyAdapter = fs.readFileSync(
+    path.join(root, "tinyssb/whiteboard/adapter.js"),
+    "utf8"
+);
+assert.strictEqual(tinyAdapter.includes("peer.status === 'connected'"), true);
+assert.strictEqual(tinyAdapter.includes("peer.status === 'online'"), false);
 
 [
     "manifest.json",

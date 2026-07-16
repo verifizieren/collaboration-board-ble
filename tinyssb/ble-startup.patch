@@ -1,0 +1,170 @@
+diff --git a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/MainActivity.kt b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/MainActivity.kt
+--- a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/MainActivity.kt
++++ b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/MainActivity.kt
+@@ -5,6 +5,7 @@ package nz.scuttlebutt.tremolavossbol
+ // import nz.scuttlebutt.tremolavossbol.tssb.ble.BlePeers
+ 
+ import MyWorker
++import android.Manifest
+ import android.app.Activity
+ import android.bluetooth.BluetoothAdapter
+ import android.content.BroadcastReceiver
+@@ -12,6 +13,7 @@ import android.content.Context
+ import android.content.Intent
+ import android.content.IntentFilter
+ import android.content.pm.ActivityInfo
++import android.content.pm.PackageManager
+ import android.net.NetworkInfo
+ import android.net.Uri
+ import android.net.wifi.WifiManager
+@@ -24,8 +26,11 @@ import android.view.Window
+ import android.webkit.WebResourceRequest
+ import android.webkit.WebResourceResponse
+ import android.webkit.WebView
++import android.widget.Toast
+ import androidx.annotation.RequiresApi
+ import androidx.appcompat.app.AppCompatDelegate
++import androidx.core.app.ActivityCompat
++import androidx.core.content.ContextCompat
+ import androidx.core.view.ViewCompat
+ import androidx.core.view.WindowCompat
+ import androidx.core.view.WindowInsetsCompat
+@@ -63,6 +68,13 @@ import kotlin.concurrent.thread
+ 
+ 
+ class MainActivity : Activity() {
++    companion object {
++        const val BLE_PERMISSION_REQUEST = 555
++        const val BLUETOOTH_SCAN_PERMISSION = "android.permission.BLUETOOTH_SCAN"
++        const val BLUETOOTH_CONNECT_PERMISSION = "android.permission.BLUETOOTH_CONNECT"
++        const val BLUETOOTH_ADVERTISE_PERMISSION = "android.permission.BLUETOOTH_ADVERTISE"
++    }
++
+     // lateinit var tremolaState: TremolaState
+     lateinit var idStore: IdStore
+     lateinit var wai: WebAppInterface
+@@ -82,6 +94,40 @@ class MainActivity : Activity() {
+     var isWifiConnected = false
+     var ble_event_listener: BluetoothEventListener? = null
+ 
++    private fun requiredBlePermissions(): Array<String> {
++        val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
++        if (Build.VERSION.SDK_INT >= 31) {
++            permissions.add(BLUETOOTH_SCAN_PERMISSION)
++            permissions.add(BLUETOOTH_CONNECT_PERMISSION)
++            permissions.add(BLUETOOTH_ADVERTISE_PERMISSION)
++        }
++        return permissions.toTypedArray()
++    }
++
++    fun hasBlePermissions(): Boolean {
++        return requiredBlePermissions().all {
++            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
++        }
++    }
++
++    fun requestBlePermissions(): Boolean {
++        if (hasBlePermissions()) return true
++        ActivityCompat.requestPermissions(this, requiredBlePermissions(), BLE_PERMISSION_REQUEST)
++        return false
++    }
++
++    fun startBleWhenReady() {
++        if (settings?.isBleEnabled() != true || !requestBlePermissions()) return
++        try {
++            if (ble == null) ble = BlePeers(this)
++            ble?.startBluetooth()
++        } catch (error: Exception) {
++            ble = null
++            Log.e("BLE", "Could not start tinySSB BLE", error)
++            Toast.makeText(this, "BLE could not start. Check Bluetooth and Location.", Toast.LENGTH_LONG).show()
++        }
++    }
++
+     /*
+     var broadcast_socket: DatagramSocket? = null
+     var server_socket: ServerSocket? = null
+@@ -362,13 +408,25 @@ class MainActivity : Activity() {
+             val voice = "abc" // result!!.contents
+             tremolaState.wai.eval("b2f_new_voice('${voice}')")
+         */
+-        }  else if (requestCode == 555 && resultCode == RESULT_OK) { // enable fine grained location
+-            ble?.startBluetooth()
+         }
+ 
+         super.onActivityResult(requestCode, resultCode, data)
+     }
+ 
++    override fun onRequestPermissionsResult(
++        requestCode: Int,
++        permissions: Array<out String>,
++        grantResults: IntArray
++    ) {
++        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
++        if (requestCode != BLE_PERMISSION_REQUEST) return
++        if (hasBlePermissions()) {
++            startBleWhenReady()
++        } else {
++            Toast.makeText(this, "Nearby devices permission is needed for BLE sync.", Toast.LENGTH_LONG).show()
++        }
++    }
++
+     fun saveContactToJSONFile(keyHex: String, hours: Int) {
+         //get the json file with name "contacts.json", create one if it doesn't exist
+         val jsonFile = File(filesDir, "contacts.json")
+@@ -509,12 +567,7 @@ class MainActivity : Activity() {
+         } catch (e: Exception) {}
+         */
+ 
+-        try {
+-            ble = BlePeers(this)
+-            ble?.startBluetooth()
+-        } catch (e: Exception) {
+-            ble = null
+-        }
++        startBleWhenReady()
+ 
+         websocket = WebsocketIO(this, settings!!.getWebsocketUrl())
+         websocket!!.start()
+diff --git a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/Settings.kt b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/Settings.kt
+--- a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/Settings.kt
++++ b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/Settings.kt
+@@ -100,9 +100,12 @@ class Settings(val context: MainActivity) {
+     }
+ 
+     fun handleBleEnabled(value: Boolean) {
+-        if(!value)
++        if (value) {
++            context.startBleWhenReady()
++        } else {
+             context.ble?.stopBluetooth()
+-        context.ble?.startBluetooth()
++            context.ble = null
++        }
+     }
+ 
+     fun handleUdpMulticastEnabled(value: Boolean) {
+diff --git a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/tssb/ble/BlePeers.kt b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/tssb/ble/BlePeers.kt
+--- a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/tssb/ble/BlePeers.kt
++++ b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/tssb/ble/BlePeers.kt
+@@ -95,6 +95,7 @@ class BlePeers(val act: MainActivity) {
+                 act, "Location MUST be enabled for using BlueTooth-Low-Energy sync, then restart",
+                 Toast.LENGTH_LONG
+             ).show()
++            return
+         }
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !isLocationPermissionGranted) {
+             ActivityCompat.requestPermissions(act, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 555)
+diff --git a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/tssb/ble/BluetoothEventListener.kt b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/tssb/ble/BluetoothEventListener.kt
+--- a/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/tssb/ble/BluetoothEventListener.kt
++++ b/android/tinySSB/app/src/main/java/nz/scuttlebutt/tremolavossbol/tssb/ble/BluetoothEventListener.kt
+@@ -13,8 +13,7 @@ class BluetoothEventListener(val act: MainActivity) : BroadcastReceiver(){
+         if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
+             val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+             if (state == BluetoothAdapter.STATE_ON) {
+-                act.ble = BlePeers(act)
+-                act.ble!!.startBluetooth()
++                act.startBleWhenReady()
+             } else if (state == BluetoothAdapter.STATE_OFF) {
+                 act.ble = null
+             }

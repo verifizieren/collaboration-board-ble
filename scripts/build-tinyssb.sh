@@ -53,6 +53,7 @@ rm -rf "$BUILD_ROOT"
 git clone --quiet "$SOURCE" "$BUILD_ROOT"
 git -C "$BUILD_ROOT" checkout --quiet "$PINNED_COMMIT"
 git -C "$BUILD_ROOT" apply "$ROOT/tinyssb/integration.patch"
+git -C "$BUILD_ROOT" apply "$ROOT/tinyssb/ble-startup.patch"
 
 echo "[2/5] Adding Collaboration Board"
 mkdir -p "$WEB_DIR/prod/whiteboard"

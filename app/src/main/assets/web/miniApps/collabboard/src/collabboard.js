@@ -108,9 +108,6 @@ var CB_COORD_LIMIT = 4800;
 var CB_MAX_MEMBERS = 4;
 var CB_TEXT_SIZE = 36;
 var CB_TEXT_LINE_HEIGHT = 42;
-var CB_UI_SCALE_MIN = 80;
-var CB_UI_SCALE_MAX = 120;
-var CB_UI_SCALE_STEP = 5;
 var CB_QUICK_RESUME_MS = 30000;
 var CB_REPLAY_LOCAL_QUIET_MS = 100;
 var CB_REPLAY_REMOTE_QUIET_MS = 1800;
@@ -122,7 +119,6 @@ var cb_delete_room_id = '';
 var cb_delete_busy = false;
 var cb_view_mode = false;
 var cb_dark_canvas = false;
-var cb_ui_scale = 100;
 var cb_view = { scale: 1, x: 0, y: 0, minScale: 0.05, maxScale: 4 };
 var cb_view_pointers = Object.create(null);
 var cb_view_gesture = null;
@@ -145,7 +141,6 @@ var cb_replay_waiting_for_peer = false;
 var cb_replay_remote = false;
 var cb_replay_timer = null;
 var cb_replay_continue = null;
-var cb_replay_cancel_ids = [];
 var cb_host_core_height = null;
 var cb_host_core_min_height = null;
 var cb_host_core_overflow = null;
@@ -509,39 +504,7 @@ function cb_hide_code_help() {
     if (dialog) dialog.style.display = 'none';
 }
 
-function cb_normalize_ui_scale(value) {
-    var percent = Number(value);
-    if (!isFinite(percent)) percent = 100;
-    percent = Math.round(percent / CB_UI_SCALE_STEP) * CB_UI_SCALE_STEP;
-    return Math.max(CB_UI_SCALE_MIN, Math.min(CB_UI_SCALE_MAX, percent));
-}
-
-function cb_set_ui_scale(value, save) {
-    var percent = cb_normalize_ui_scale(value);
-    cb_ui_scale = percent;
-    var root = document.getElementById('div:collabboard-main');
-    if (root && root.style && typeof root.style.setProperty === 'function') {
-        root.style.setProperty('--cb-ui-scale', (percent / 100).toFixed(2));
-    }
-    var slider = document.getElementById('cb_ui_scale');
-    var output = document.getElementById('cb_ui_scale_value');
-    if (slider && String(slider.value) !== String(percent)) slider.value = String(percent);
-    if (output) output.textContent = percent + '%';
-    if (save && tremola.collabboardUiScale !== percent) {
-        tremola.collabboardUiScale = percent;
-        persist();
-    }
-    setTimeout(cb_fit_canvas, 0);
-    setTimeout(cb_update_board_scrollbar, 0);
-    return percent;
-}
-
-function cb_restore_ui_scale() {
-    return cb_set_ui_scale(tremola.collabboardUiScale, false);
-}
-
 function cb_show_setup(show) {
-    cb_restore_ui_scale();
     var setup = document.getElementById('cb_room_setup');
     var workspace = document.getElementById('cb_workspace');
     if (setup) setup.style.display = show ? null : 'none';
@@ -782,18 +745,6 @@ function cb_board_event_acked(operationId, acknowledgedRoomId) {
     persist();
 }
 
-function cb_set_load_prompt(show) {
-    var title = document.getElementById('cb_loading_title');
-    var text = document.getElementById('cb_loading_text');
-    var actions = document.getElementById('cb_loading_actions');
-    if (title) title.textContent = show ? 'Saved edits found' : 'Loading board...';
-    if (text) {
-        text.textContent = show ? 'Load your unsynced strokes and edits into this board?' : '';
-        text.style.display = show ? null : 'none';
-    }
-    if (actions) actions.style.display = show ? null : 'none';
-}
-
 function cb_set_replay_ui(loading) {
     var workspace = document.getElementById('cb_workspace');
     var overlay = document.getElementById('cb_board_loading');
@@ -820,37 +771,20 @@ function cb_begin_board_replay(kind) {
     cb_replay_waiting_for_peer = kind === 'join';
     cb_replay_remote = kind === 'join' || kind === 'catchup';
     cb_replay_continue = null;
-    cb_replay_cancel_ids = [];
-    cb_set_load_prompt(false);
     cb_set_replay_ui(true);
 }
 
 function cb_prepare_board_replay(kind, continueLoad) {
     cb_begin_board_replay(kind);
     cb_replay_continue = continueLoad;
-    if (cb_pending_ids(cb_current_room_id()).length) {
-        cb_set_load_prompt(true);
-        return;
-    }
     cb_continue_board_load();
 }
 
 function cb_continue_board_load() {
     if (!cb_replay_active) return;
-    cb_set_load_prompt(false);
     var next = cb_replay_continue;
     cb_replay_continue = null;
     if (typeof next === 'function') next();
-}
-
-function cb_cancel_board_load() {
-    if (!cb_replay_active) return;
-    var roomId = cb_current_room_id();
-    var catalog = cb_pending_catalog();
-    cb_replay_cancel_ids = cb_pending_ids(roomId);
-    if (roomId) delete catalog[roomId];
-    persist();
-    cb_continue_board_load();
 }
 
 function cb_schedule_replay_finish(delay) {
@@ -866,7 +800,6 @@ function cb_finish_board_replay() {
     cb_replay_native_done = false;
     cb_replay_remote = false;
     cb_replay_continue = null;
-    cb_replay_cancel_ids = [];
     cb_pending_open_kind = '';
     cb_set_replay_ui(false);
     var room = cb_current_room();
@@ -886,8 +819,6 @@ function cb_stop_board_replay() {
     cb_replay_waiting_for_peer = false;
     cb_replay_remote = false;
     cb_replay_continue = null;
-    cb_replay_cancel_ids = [];
-    cb_set_load_prompt(false);
     cb_set_replay_ui(false);
 }
 
@@ -932,12 +863,6 @@ function cb_ensure_board_name_event() {
 function cb_board_replay_complete() {
     if (!cb_current_room()) return;
     cb_replay_native_done = true;
-    var cancelled = cb_replay_cancel_ids.slice();
-    cb_replay_cancel_ids = [];
-    cancelled.forEach(function (target) {
-        var ts = cb_next_ts();
-        cb_write_board_event({ k: 'x', id: cb_id(ts), ts: ts, t: target }, true, false);
-    });
     cb_ensure_board_name_event();
     cb_schedule_replay_finish(cb_replay_remote ?
         CB_REPLAY_REMOTE_QUIET_MS : CB_REPLAY_LOCAL_QUIET_MS);

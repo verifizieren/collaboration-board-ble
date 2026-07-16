@@ -99,12 +99,40 @@ function wb_members(roomId) {
 function wb_update_status() {
     var roomId = cb_current_room_id();
     if (!roomId) {
-        cb_ble_status('Sync ready', 0, 0);
+        cb_ble_status('Waiting for nearby device', 0, 0);
         return;
     }
     var members = wb_members(roomId);
+    var peerCount = 0;
+    if (typeof localPeers === 'object' && localPeers) {
+        Object.keys(localPeers).forEach(function (id) {
+            var peer = localPeers[id];
+            if (peer && peer.type === 'ble' && peer.status === 'connected') peerCount += 1;
+        });
+    }
     cb_room_status(Math.max(1, members.length), CB_MAX_MEMBERS, members);
-    cb_ble_status('Sync ready', Math.max(0, members.length - 1), 0);
+    cb_ble_status(peerCount ? 'Syncing nearby' : 'Waiting for nearby device', peerCount, 0);
+}
+
+function wb_install_sync_status_hooks() {
+    if (typeof b2f_local_peer === 'function' && !b2f_local_peer.wbStatusHook) {
+        var originalPeer = b2f_local_peer;
+        b2f_local_peer = function () {
+            var result = originalPeer.apply(this, arguments);
+            wb_update_status();
+            return result;
+        };
+        b2f_local_peer.wbStatusHook = true;
+    }
+    if (typeof b2f_ble_disabled === 'function' && !b2f_ble_disabled.wbStatusHook) {
+        var originalDisabled = b2f_ble_disabled;
+        b2f_ble_disabled = function () {
+            var result = originalDisabled.apply(this, arguments);
+            wb_update_status();
+            return result;
+        };
+        b2f_ble_disabled.wbStatusHook = true;
+    }
 }
 
 function whiteboard_new_event(message) {
@@ -216,6 +244,7 @@ function cb_write_board_event(event, applyLocal, trackPending) {
 }
 
 function whiteboard_open() {
+    wb_install_sync_status_hooks();
     setScenario('whiteboard');
     var core = document.getElementById('core');
     if (core) {

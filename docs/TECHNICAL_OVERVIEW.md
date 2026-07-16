@@ -13,6 +13,11 @@ the same board UI, a `WBD` public event type, and tinySSB packet recovery. It is
 kept separate because Tremola and tinySSB use different log formats and Android
 packages.
 
+The official tinySSB host handled BLE permission results in the wrong Android
+callback. Our tinySSB patch requests permissions before creating BLE, starts it
+after approval, and restarts it when Bluetooth is enabled. Both apps must stay
+in the foreground during BLE sync.
+
 ## Project Family
 
 - Secure Scuttlebutt is a decentralized system of signed, append-only user feeds.
@@ -56,9 +61,8 @@ Two fingers pan or zoom in Draw and Text without creating an object.
 - Replay is batched so the WebView first shows the merged current state instead
   of painting old intermediate states.
 - A local dark canvas and full-screen pan/zoom view do not create shared events.
-- A local UI-size setting scales controls from 80% to 120% without changing board data.
-- A peer ACK removes an operation from the local pending list. On the next load,
-  pending edits can be kept or canceled without clearing the full board.
+- A peer ACK removes an operation from the local pending list. Unconfirmed
+  local edits stay available and are retried automatically.
 
 ## Board Access
 
@@ -130,7 +134,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.9.5` (`versionCode 27`)
+- Version: `0.9.6` (`versionCode 28`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.
@@ -176,6 +180,7 @@ required for the final acceptance test.
 - `BoardProtocolTest.kt` - protocol unit tests
 - `BoardProtocolInstrumentedTest.kt` - Android crypto tests
 - `tinyssb/integration.patch` - official tinySSB Android integration
+- `tinyssb/ble-startup.patch` - tinySSB BLE permission and restart fix
 - `scripts/build-tinyssb.sh` - reproducible tinySSB APK build
 
 ## References
