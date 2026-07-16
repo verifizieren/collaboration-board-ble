@@ -22,6 +22,7 @@ phones should work without Internet and exchange changes over BLE.
 - Equal board names use different local label colors, up to eight copies.
 - A board copy can be deleted locally after entering its code.
 - A full-screen view supports local pan, pinch zoom, and a dark canvas.
+- A local slider changes the UI size from 80% to 120%.
 - Draw and Text also allow two-finger pan and zoom.
 - Android's keyboard Go button closes the keyboard before text placement.
 - Board state and membership survive closing the board or app.

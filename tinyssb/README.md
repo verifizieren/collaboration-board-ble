@@ -2,6 +2,7 @@
 
 - Based on official `ssbc/tinyssb` commit `39896b72`.
 - The board is listed under Productivity.
+- Authors: Dehlen Thavarajah, Max Mendes Carvalho, Frédéric Weyssow, Simon Zeugin.
 - Whiteboard events use the tinySSB `WBD` app type.
 - tinySSB retries missing packets and chunks over BLE.
 - The 6-digit code selects a board. It is not encryption.
@@ -15,4 +16,5 @@ Build with:
 ```
 
 The script applies `integration.patch`, adds the shared board files, and writes
-`install/tinyssb-collaboration-board-debug.apk`.
+`install/tinyssb-collaboration-board-debug.apk` and
+`install/tinyssb/whiteboard.apk`.

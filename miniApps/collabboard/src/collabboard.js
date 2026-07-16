@@ -108,6 +108,9 @@ var CB_COORD_LIMIT = 4800;
 var CB_MAX_MEMBERS = 4;
 var CB_TEXT_SIZE = 36;
 var CB_TEXT_LINE_HEIGHT = 42;
+var CB_UI_SCALE_MIN = 80;
+var CB_UI_SCALE_MAX = 120;
+var CB_UI_SCALE_STEP = 5;
 var CB_QUICK_RESUME_MS = 30000;
 var CB_REPLAY_LOCAL_QUIET_MS = 100;
 var CB_REPLAY_REMOTE_QUIET_MS = 1800;
@@ -119,6 +122,7 @@ var cb_delete_room_id = '';
 var cb_delete_busy = false;
 var cb_view_mode = false;
 var cb_dark_canvas = false;
+var cb_ui_scale = 100;
 var cb_view = { scale: 1, x: 0, y: 0, minScale: 0.05, maxScale: 4 };
 var cb_view_pointers = Object.create(null);
 var cb_view_gesture = null;
@@ -505,7 +509,39 @@ function cb_hide_code_help() {
     if (dialog) dialog.style.display = 'none';
 }
 
+function cb_normalize_ui_scale(value) {
+    var percent = Number(value);
+    if (!isFinite(percent)) percent = 100;
+    percent = Math.round(percent / CB_UI_SCALE_STEP) * CB_UI_SCALE_STEP;
+    return Math.max(CB_UI_SCALE_MIN, Math.min(CB_UI_SCALE_MAX, percent));
+}
+
+function cb_set_ui_scale(value, save) {
+    var percent = cb_normalize_ui_scale(value);
+    cb_ui_scale = percent;
+    var root = document.getElementById('div:collabboard-main');
+    if (root && root.style && typeof root.style.setProperty === 'function') {
+        root.style.setProperty('--cb-ui-scale', (percent / 100).toFixed(2));
+    }
+    var slider = document.getElementById('cb_ui_scale');
+    var output = document.getElementById('cb_ui_scale_value');
+    if (slider && String(slider.value) !== String(percent)) slider.value = String(percent);
+    if (output) output.textContent = percent + '%';
+    if (save && tremola.collabboardUiScale !== percent) {
+        tremola.collabboardUiScale = percent;
+        persist();
+    }
+    setTimeout(cb_fit_canvas, 0);
+    setTimeout(cb_update_board_scrollbar, 0);
+    return percent;
+}
+
+function cb_restore_ui_scale() {
+    return cb_set_ui_scale(tremola.collabboardUiScale, false);
+}
+
 function cb_show_setup(show) {
+    cb_restore_ui_scale();
     var setup = document.getElementById('cb_room_setup');
     var workspace = document.getElementById('cb_workspace');
     if (setup) setup.style.display = show ? null : 'none';

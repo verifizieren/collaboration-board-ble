@@ -88,17 +88,22 @@ fi
 echo "[5/6] Preparing the install APK"
 APK="app/build/outputs/apk/debug/app-debug.apk"
 INSTALL_APK="install/tremola-collaboration-board-debug.apk"
+NAMED_APK="install/tremola/whiteboard.apk"
 test -f "$APK"
 test -f "install/whiteboardlive.apk"
 test -f "install/whiteboard5sek.apk"
-mkdir -p install
+mkdir -p install/tremola
 cp "$APK" "$INSTALL_APK"
 cp "$APK" "install/whiteboardlive.apk"
+cp "$APK" "$NAMED_APK"
 (
   cd install
-  APK_FILES=(tremola-collaboration-board-debug.apk whiteboardlive.apk whiteboard5sek.apk)
+  APK_FILES=(tremola-collaboration-board-debug.apk whiteboardlive.apk whiteboard5sek.apk tremola/whiteboard.apk)
   if [ -f tinyssb-collaboration-board-debug.apk ]; then
     APK_FILES+=(tinyssb-collaboration-board-debug.apk)
+  fi
+  if [ -f tinyssb/whiteboard.apk ]; then
+    APK_FILES+=(tinyssb/whiteboard.apk)
   fi
   shasum -a 256 "${APK_FILES[@]}" > SHA256SUMS
 )
@@ -121,4 +126,5 @@ fi
 
 echo
 echo "Ready: $ROOT/$INSTALL_APK"
+echo "Named: $ROOT/$NAMED_APK"
 cat install/SHA256SUMS

@@ -1,6 +1,11 @@
 # Install On Android
 
-Current Tremola test build: **0.9.4** (`versionCode 26`).
+Current Tremola test build: **0.9.5** (`versionCode 27`).
+
+Both main downloads use the same simple file name in separate folders:
+
+- [`tremola/whiteboard.apk`](tremola/whiteboard.apk) - Tremola
+- [`tinyssb/whiteboard.apk`](tinyssb/whiteboard.apk) - tinySSB
 
 Install the same variant on every test phone:
 
@@ -68,6 +73,9 @@ visible page border. Use two fingers to reach the rest of the board.
 Use **View** for a full-screen read-only board. Drag to move the view and pinch
 to zoom. **Dark** changes only the canvas on the current phone. It does not
 change shared board data.
+
+Use **UI size** to scale the controls from 80% to 120%. This setting is stored
+only on that phone and does not change the shared board.
 
 To remove a saved board from one phone, tap **Delete** in the board list and
 enter its six-digit code. This does not delete another member's copy.

@@ -6,6 +6,7 @@
   --cb-soft-hover: #e8ebee;
   --cb-accent: #245fbd;
   --cb-accent-soft: #eaf1fb;
+  --cb-ui-scale: 1;
   height: 100%;
   min-height: 0;
   width: 100%;
@@ -19,6 +20,15 @@
   color: var(--cb-text);
   background: #ffffff;
   font-family: inherit;
+}
+
+.cb_room_setup,
+.cb_workspace > #cb_room_bar,
+.cb_workspace > #cb_toolbar,
+.cb_workspace > #cb_sync_status,
+.cb_workspace > #cb_selection_info,
+.cb_workspace > #cb_text {
+  zoom: var(--cb-ui-scale);
 }
 
 .cb_workspace {
@@ -384,6 +394,36 @@
 
 #cb_clear_btn {
   grid-column: 3 / span 2;
+}
+
+.cb_ui_scale_control {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 42px;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 1px solid var(--cb-line);
+  border-radius: 6px;
+  box-sizing: border-box;
+  background: var(--cb-soft);
+  color: #4c5359;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cb_ui_scale_control input {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--cb-accent);
+}
+
+.cb_ui_scale_control output {
+  color: var(--cb-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .cb_tool {

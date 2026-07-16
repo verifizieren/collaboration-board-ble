@@ -10,6 +10,7 @@ BUILD_ROOT="$ROOT/.build/tinyssb"
 ANDROID_PROJECT="$BUILD_ROOT/android/tinySSB"
 WEB_DIR="$ANDROID_PROJECT/app/src/main/assets/web"
 OUTPUT="$ROOT/install/tinyssb-collaboration-board-debug.apk"
+NAMED_OUTPUT="$ROOT/install/tinyssb/whiteboard.apk"
 
 ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 JAVA_HOME="${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"
@@ -72,8 +73,9 @@ env PATH="$CMAKE_BIN:$PATH" "$ANDROID_PROJECT/gradlew" \
   --no-daemon -p "$ANDROID_PROJECT" assembleDebug
 
 echo "[5/5] Preparing and verifying APK"
-mkdir -p "$ROOT/install"
+mkdir -p "$ROOT/install/tinyssb"
 cp "$ANDROID_PROJECT/app/build/outputs/apk/debug/app-debug.apk" "$OUTPUT"
+cp "$OUTPUT" "$NAMED_OUTPUT"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -93,10 +95,11 @@ fi
 
 (
   cd "$ROOT/install"
-  APK_FILES=(tremola-collaboration-board-debug.apk whiteboardlive.apk whiteboard5sek.apk tinyssb-collaboration-board-debug.apk)
+  APK_FILES=(tremola-collaboration-board-debug.apk whiteboardlive.apk whiteboard5sek.apk tremola/whiteboard.apk tinyssb-collaboration-board-debug.apk tinyssb/whiteboard.apk)
   shasum -a 256 "${APK_FILES[@]}" > SHA256SUMS
 )
 
 echo
 echo "Ready: $OUTPUT"
+echo "Named: $NAMED_OUTPUT"
 shasum -a 256 "$OUTPUT"

@@ -28,7 +28,12 @@ Every member can edit every object.
 
 ## Android APKs
 
-The install folder contains two current APKs and two older aliases:
+The simplest downloads are both named `whiteboard.apk`:
+
+- [`install/tremola/whiteboard.apk`](install/tremola/whiteboard.apk) - Tremola version
+- [`install/tinyssb/whiteboard.apk`](install/tinyssb/whiteboard.apk) - tinySSB version
+
+The install folder also keeps the older file names:
 
 - [`install/tremola-collaboration-board-debug.apk`](install/tremola-collaboration-board-debug.apk)
   is the current live-sync build.
@@ -67,7 +72,8 @@ See [`install/README.md`](install/README.md) for the install and test steps.
 9. Press the keyboard **Go** button before placing text. Use two fingers to
    move or zoom while **Draw** or **Text** is active.
 10. Use **View** to pan and pinch zoom. **Dark** changes only this phone.
-11. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
+11. Use **UI size** to scale the controls from 80% to 120% on this phone.
+12. Tap **Boards** to close it without deleting it. Tap **Open** to return later.
 
 When opening a board with unconfirmed local edits, choose **Load changes** to
 keep them. Choose **Cancel** to discard only those edits and draw again.

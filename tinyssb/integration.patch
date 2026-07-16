@@ -1,3 +1,17 @@
+diff --git a/android/tinySSB/app/build.gradle b/android/tinySSB/app/build.gradle
+--- a/android/tinySSB/app/build.gradle
++++ b/android/tinySSB/app/build.gradle
+@@ -14,8 +14,8 @@ android {
+         applicationId "nz.scuttlebutt.tremolavossbol"
+         minSdk 26
+         targetSdkVersion 30
+-        versionCode 2
+-        versionName "0.2"
++        versionCode 3
++        versionName "0.3"
+
+         ndk {
+             // abiFilters 'x86' // x86 needed for testing in the emulator
 diff --git a/android/tinySSB/app/src/main/assets/web/prod/tools.js b/android/tinySSB/app/src/main/assets/web/prod/tools.js
 index 7bed6ef..24091fe 100644
 --- a/android/tinySSB/app/src/main/assets/web/prod/tools.js
@@ -7,7 +21,7 @@ index 7bed6ef..24091fe 100644
  function load_prod_list() {
      document.getElementById("lst:prod").innerHTML = '';
 +    load_prod_item('Collaboration Board', 'prod/whiteboard/whiteboard.svg', 'whiteboard_open()',
-+                   'Draw and edit together over nearby sync.<br><em>Authors: Dehlen, Max, Simon, Frederic</em>');
++                   'Draw and edit together over nearby sync.<br><em>Authors: Dehlen Thavarajah, Max Mendes Carvalho, Frédéric Weyssow, Simon Zeugin</em>');
      load_prod_item('Kanban', 'prod/kanban/kanban.svg', 'setScenario("kanban")',
                     'Collaboratively visualize your work items and give participants a view of progress and process, from start to finish.<br><em>Author: Jannick Heisch</em>');
      load_prod_item('Event Scheduler (dpi24.14)', 'prod/dpi24-14-sched/schedule.svg', null /* 'setScenario("scheduling")' */,

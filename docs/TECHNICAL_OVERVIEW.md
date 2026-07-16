@@ -56,6 +56,7 @@ Two fingers pan or zoom in Draw and Text without creating an object.
 - Replay is batched so the WebView first shows the merged current state instead
   of painting old intermediate states.
 - A local dark canvas and full-screen pan/zoom view do not create shared events.
+- A local UI-size setting scales controls from 80% to 120% without changing board data.
 - A peer ACK removes an operation from the local pending list. On the next load,
   pending edits can be kept or canceled without clearing the full board.
 
@@ -129,7 +130,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.9.4` (`versionCode 26`)
+- Version: `0.9.5` (`versionCode 27`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.

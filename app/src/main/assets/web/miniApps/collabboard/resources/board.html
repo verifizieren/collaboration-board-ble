@@ -81,6 +81,13 @@
               aria-label='Delete selected object' onclick='cb_delete_selected()'>Delete</button>
       <button id='cb_clear_btn' class='cb_tool' type='button'
               aria-label='Clear board' onclick='cb_clear()'>Clear all</button>
+      <label class='cb_ui_scale_control' for='cb_ui_scale'>
+        <span>UI size</span>
+        <input id='cb_ui_scale' type='range' min='80' max='120' step='5' value='100'
+               aria-label='UI size' oninput='cb_set_ui_scale(this.value, false)'
+               onchange='cb_set_ui_scale(this.value, true)'>
+        <output id='cb_ui_scale_value' for='cb_ui_scale'>100%</output>
+      </label>
     </div>
     <div id='cb_sync_status' class='cb_sync_status cb_sync_waiting' aria-live='polite'>
       <span id='cb_sync_dot' class='cb_sync_dot' aria-hidden='true'></span>
