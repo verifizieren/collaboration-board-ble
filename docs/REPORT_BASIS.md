@@ -19,6 +19,7 @@ phones should work without Internet and exchange changes over BLE.
 - Draw, text, move, resize, color, delete, and clear are supported.
 - The large finite board scales to different phone screens.
 - Boards have names and can be reopened from a local list.
+- Equal board names use different local label colors, up to eight copies.
 - A board copy can be deleted locally after entering its code.
 - A full-screen view supports local pan, pinch zoom, and a dark canvas.
 - Draw and Text also allow two-finger pan and zoom.

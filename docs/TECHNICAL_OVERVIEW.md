@@ -49,6 +49,7 @@ Two fingers pan or zoom in Draw and Text without creating an object.
 - Operations are stored in Room before BLE transmission.
 - Each local operation is also added to the local Tremola custom-app log.
 - Named board metadata and known member IDs are stored per board.
+- Equal normalized names receive unique local palette indexes, up to eight.
 - Closing and reopening a board replays its saved Room operations.
 - Replay is batched so the WebView first shows the merged current state instead
   of painting old intermediate states.
@@ -124,7 +125,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 ## Android Compatibility
 
 - Package: `nz.scuttlebutt.tremola`
-- Version: `0.9.1` (`versionCode 23`)
+- Version: `0.9.2` (`versionCode 24`)
 - Minimum: API 24 / Android 7.0
 - Target and compile SDK: API 30, matching the Uni Basel base
 - Android 7-11 use location permission for BLE scanning.
@@ -144,6 +145,7 @@ type, the later Lamport event wins. A clear hides older board objects.
 - draw, text, move, resize, color, delete, and clear
 - finite-board scaling on different display sizes
 - current-state replay, stable board names, board-list scrolling, and quick resume
+- duplicate-name color assignment and zero-size first-View recovery
 - stable text and canvas size while the Android keyboard opens
 - keyboard Go, immediate text resize, and two-finger edit navigation
 - named board catalogue, close, and reopen behavior

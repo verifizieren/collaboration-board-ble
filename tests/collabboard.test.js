@@ -1047,6 +1047,72 @@ delete boardList.tremola.collabboardBoards["saved-room-4"];
 boardList.cb_render_board_list();
 assert.strictEqual(listClass.contains("cb_saved_boards_scroll"), false);
 
+// Equal board names ignore surrounding and collapsed whitespace. Their
+// local labels receive all eight palette colors once before creation is full.
+const boardColors = loadBoard();
+boardColors.tremola.collabboardBoards = {};
+for (let colorIndex = 0; colorIndex < 8; colorIndex += 1) {
+    const roomId = "same-name-room-" + colorIndex;
+    const names = ["DPI Project", "  DPI Project  ", "DPI   Project"];
+    boardColors.tremola.collabboardBoards[roomId] = {
+        room: { r: roomId, b: names[colorIndex % names.length] },
+        updated: colorIndex + 1
+    };
+}
+assert.strictEqual(boardColors.cb_reconcile_board_colors(), true);
+const assignedColorIndexes = Object.keys(boardColors.tremola.collabboardBoards).map(function (id) {
+    return boardColors.tremola.collabboardBoards[id].colorIndex;
+});
+assert.strictEqual(new Set(assignedColorIndexes).size, 8);
+assert.strictEqual(boardColors.cb_reconcile_board_colors(), false);
+assert.strictEqual(boardColors.cb_board_name_available(" DPI   Project "), false);
+assert.strictEqual(boardColors.cb_board_name_available("Another board"), true);
+
+const blockedNameBoard = loadBoard({ android: true });
+blockedNameBoard.tremola.collabboardBoards = {};
+for (let usedIndex = 0; usedIndex < 8; usedIndex += 1) {
+    const roomId = "used-name-room-" + usedIndex;
+    blockedNameBoard.tremola.collabboardBoards[roomId] = {
+        room: { r: roomId, b: "Project" }, updated: usedIndex + 1
+    };
+}
+let blockedNameFocus = 0;
+const blockedNameError = { textContent: "" };
+blockedNameBoard.document.getElementById = function (id) {
+    if (id === "cb_username") return { value: "Alice", focus: function () {} };
+    if (id === "cb_board_name") {
+        return { value: "  Project  ", focus: function () { blockedNameFocus += 1; } };
+    }
+    if (id === "cb_setup_error") return blockedNameError;
+    return null;
+};
+blockedNameBoard.cb_create_board();
+assert.strictEqual(blockedNameBoard.commands.length, 0);
+assert.strictEqual(blockedNameFocus, 1);
+assert.strictEqual(blockedNameError.textContent, "This board name is already used 8 times");
+
+// Only the board identity text uses its local palette color.
+const identityColorBoard = loadBoard();
+const identityRoom = {
+    r: "identity-color-room", k: "c".repeat(43), o: identityColorBoard.myId,
+    u: "Alice", b: "DPI Project", p: "482913"
+};
+identityColorBoard.tremola.collabboardRoom = identityRoom;
+identityColorBoard.tremola.collabboardBoards = {
+    "identity-color-room": { room: identityRoom, updated: 1, colorIndex: 3 }
+};
+const identityLabel = { style: {}, textContent: "" };
+const identityCode = { style: {}, textContent: "" };
+identityColorBoard.document.getElementById = function (id) {
+    if (id === "cb_room_label") return identityLabel;
+    if (id === "cb_room_code") return identityCode;
+    return null;
+};
+identityColorBoard.cb_update_room_bar();
+assert.strictEqual(identityLabel.style.color, "#7c3aed");
+assert.strictEqual(identityCode.style.color, "#7c3aed");
+assert.strictEqual(identityCode.textContent, "Code 482913");
+
 const resumeBoard = loadBoard();
 resumeBoard.cb_resume_room_id = "resume-room";
 resumeBoard.cb_resume_until = 31000;
@@ -1401,6 +1467,29 @@ viewBoard.cb_view_move({
 });
 assert.ok(viewBoard.cb_view.scale > fittedScale);
 assert.ok(viewCanvas.style.transform.includes("scale("));
+
+// Android may report a zero-sized frame on the first View tap. The window
+// fallback still produces a visible transform, and later scheduled fits refine it.
+const earlyViewBoard = loadBoard();
+earlyViewBoard.innerWidth = 390;
+earlyViewBoard.innerHeight = 780;
+const earlyViewCanvas = { style: {} };
+const earlyViewFrame = {
+    style: {}, clientWidth: 0, clientHeight: 0,
+    getBoundingClientRect: function () { return { width: 0, height: 0 }; }
+};
+const earlyViewWorkspace = { classList: fakeClassList() };
+earlyViewBoard.document.getElementById = function (id) {
+    if (id === "cb_canvas") return earlyViewCanvas;
+    if (id === "cb_canvas_frame") return earlyViewFrame;
+    if (id === "cb_workspace") return earlyViewWorkspace;
+    return null;
+};
+earlyViewBoard.cb_redraw = function () {};
+earlyViewBoard.cb_enter_view();
+assert.strictEqual(earlyViewWorkspace.classList.contains("cb_view_mode"), true);
+assert.ok(earlyViewBoard.cb_view.scale > 0);
+assert.ok(earlyViewCanvas.style.transform.includes("scale("));
 
 // Events from the removed owner/profile experiment no longer enter the board.
 const legacy = loadBoard();

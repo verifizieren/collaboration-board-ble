@@ -92,6 +92,10 @@ var CB_MAX_CLEARS = 8;
 var CB_MAX_DELETES = 2000;
 var CB_MAX_SEEN = 4000;
 var CB_MAX_NAMES = 8;
+var CB_BOARD_COLORS = [
+    '#2563eb', '#dc2626', '#16a34a', '#7c3aed',
+    '#0891b2', '#d97706', '#db2777', '#4f46e5'
+];
 var CB_STATE_VERSION = 5;
 var CB_INITIAL_VIEW_WIDTH = 900;
 var CB_INITIAL_VIEW_HEIGHT = 1200;
@@ -224,6 +228,10 @@ function cb_clean_board_name(value) {
     return String(value || '').trim().replace(/\s+/g, ' ').slice(0, 40);
 }
 
+function cb_board_name_key(value) {
+    return cb_clean_board_name(value);
+}
+
 function cb_board_name(room) {
     return cb_clean_board_name(room && room.b) || 'Board';
 }
@@ -240,6 +248,82 @@ function cb_stable_board_name(incomingRoom, oldRoom) {
     if (cb_is_default_board_name(incoming, incomingRoom && incomingRoom.p) &&
         !cb_is_default_board_name(old, oldRoom && oldRoom.p)) return old;
     return incoming;
+}
+
+function cb_valid_board_color_index(value) {
+    return typeof value === 'number' && Number.isInteger(value) &&
+        value >= 0 && value < CB_BOARD_COLORS.length;
+}
+
+function cb_reconcile_board_colors() {
+    var catalog = cb_board_catalog();
+    var groups = Object.create(null);
+    var changed = false;
+    Object.keys(catalog).forEach(function (roomId) {
+        var entry = catalog[roomId];
+        if (!entry || !entry.room || !entry.room.r) return;
+        var key = cb_board_name_key(entry.room.b);
+        if (!key) return;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(entry);
+    });
+    Object.keys(groups).forEach(function (key) {
+        var entries = groups[key].sort(function (a, b) {
+            var age = (Number(a.updated) || 0) - (Number(b.updated) || 0);
+            return age || String(a.room.r).localeCompare(String(b.room.r));
+        });
+        var used = Object.create(null);
+        var pending = [];
+        entries.forEach(function (entry) {
+            var index = entry.colorIndex;
+            if (cb_valid_board_color_index(index) && !used[index]) {
+                used[index] = true;
+            } else {
+                pending.push(entry);
+            }
+        });
+        pending.forEach(function (entry) {
+            var index = -1;
+            for (var i = 0; i < CB_BOARD_COLORS.length; i++) {
+                if (!used[i]) {
+                    index = i;
+                    used[i] = true;
+                    break;
+                }
+            }
+            if (entry.colorIndex !== index) {
+                entry.colorIndex = index;
+                changed = true;
+            }
+        });
+    });
+    return changed;
+}
+
+function cb_board_name_available(name, excludeRoomId) {
+    var key = cb_board_name_key(name);
+    if (!key) return false;
+    var count = 0;
+    var catalog = cb_board_catalog();
+    Object.keys(catalog).forEach(function (roomId) {
+        var entry = catalog[roomId];
+        if (roomId === excludeRoomId || !entry || !entry.room) return;
+        if (cb_board_name_key(entry.room.b) === key) count += 1;
+    });
+    return count < CB_BOARD_COLORS.length;
+}
+
+function cb_board_color(room) {
+    if (!room || !room.r) return CB_BOARD_COLORS[0];
+    cb_reconcile_board_colors();
+    var entry = cb_board_catalog()[room.r];
+    var index = entry ? entry.colorIndex : -1;
+    return cb_valid_board_color_index(index) ? CB_BOARD_COLORS[index] : CB_BOARD_COLORS[0];
+}
+
+function cb_apply_board_identity_color(element, room) {
+    if (!element || !element.style) return;
+    element.style.color = room ? cb_board_color(room) : '';
 }
 
 function cb_blur_setup_inputs() {
@@ -292,6 +376,9 @@ function cb_remember_room(room, touch) {
         room: room,
         updated: touch || !old ? Date.now() : Number(old.updated) || Date.now()
     };
+    if (old && cb_valid_board_color_index(old.colorIndex)) {
+        entry.colorIndex = Number(old.colorIndex);
+    }
     // Android keeps operations in Room. The browser preview has no native
     // database, so retain its current state with the catalog entry instead.
     if (!cb_is_android() && tremola.collabboard && tremola.collabboard.roomId === room.r) {
@@ -300,6 +387,7 @@ function cb_remember_room(room, touch) {
         entry.state = old.state;
     }
     catalog[room.r] = entry;
+    cb_reconcile_board_colors();
 }
 
 function cb_forget_catalog_room(roomId) {
@@ -330,6 +418,7 @@ function cb_render_board_list() {
     var container = document.getElementById('cb_saved_boards');
     var empty = document.getElementById('cb_saved_empty');
     var catalog = cb_board_catalog();
+    if (cb_reconcile_board_colors()) persist();
     var entries = Object.keys(catalog).map(function (roomId) {
         return catalog[roomId];
     }).filter(function (entry) {
@@ -347,6 +436,7 @@ function cb_render_board_list() {
         var name = document.createElement('span');
         name.className = 'cb_saved_board_name';
         name.textContent = cb_board_name(entry.room);
+        cb_apply_board_identity_color(name, entry.room);
         var open = document.createElement('button');
         open.className = 'cb_saved_open';
         open.type = 'button';
@@ -396,6 +486,11 @@ function cb_create_board() {
     }
     if (!boardName) {
         cb_set_setup_error('Enter a board name');
+        if (nameInput) nameInput.focus();
+        return;
+    }
+    if (!cb_board_name_available(boardName)) {
+        cb_set_setup_error('This board name is already used 8 times');
         if (nameInput) nameInput.focus();
         return;
     }
@@ -487,6 +582,7 @@ function cb_request_delete_board(roomId) {
     var error = document.getElementById('cb_delete_error');
     if (panel) panel.style.display = null;
     if (name) name.textContent = cb_board_name(entry.room);
+    cb_apply_board_identity_color(name, entry.room);
     if (code) {
         code.value = '';
         code.focus();
@@ -668,6 +764,7 @@ function cb_board_replay_complete() {
 }
 
 function cb_activate_room(room, savedState) {
+    if (cb_view_mode) cb_exit_view();
     cb_reset_edit_view();
     room.b = cb_board_name(room);
     tremola.collabboardRoom = room;
@@ -740,6 +837,7 @@ function cb_board_joined(configJson) {
             throw new Error('bad board');
         }
         config.v = 1;
+        if (cb_view_mode) cb_exit_view();
         var oldEntry = cb_board_catalog()[config.r];
         config.b = cb_stable_board_name(config, oldEntry && oldEntry.room);
         cb_reset_edit_view();
@@ -884,6 +982,7 @@ function cb_update_room_bar() {
     var invite = document.getElementById('cb_invite_btn');
     var code = document.getElementById('cb_room_code');
     if (label) label.textContent = room ? cb_board_name(room) : '';
+    cb_apply_board_identity_color(label, room);
     if (invite) {
         invite.style.display = room && typeof myId === 'string' && room.o === myId ? null : 'none';
     }
@@ -892,6 +991,7 @@ function cb_update_room_bar() {
             cb_valid_pairing_code(room.p);
         code.textContent = showCode ? 'Code ' + room.p : '';
         code.style.display = showCode ? null : 'none';
+        cb_apply_board_identity_color(code, showCode ? room : null);
     }
     cb_apply_dark_state();
 }
@@ -973,7 +1073,7 @@ function cb_enter_view() {
     }
     cb_apply_dark_state();
     cb_redraw();
-    setTimeout(cb_reset_view, 0);
+    cb_schedule_view_reset();
 }
 
 function cb_exit_view() {
@@ -988,12 +1088,24 @@ function cb_exit_view() {
     cb_schedule_fit();
 }
 
+function cb_view_frame_size(frame) {
+    var rect = frame && frame.getBoundingClientRect ? frame.getBoundingClientRect() : {};
+    return {
+        width: Math.max(Number(frame && frame.clientWidth) || 0, Number(rect.width) || 0,
+            typeof window !== 'undefined' ? Number(window.innerWidth) || 0 : 0),
+        height: Math.max(Number(frame && frame.clientHeight) || 0, Number(rect.height) || 0,
+            typeof window !== 'undefined' ? Number(window.innerHeight) || 0 : 0)
+    };
+}
+
 function cb_reset_view() {
     if (!cb_view_mode) return;
     var frame = document.getElementById('cb_canvas_frame');
     if (!frame) return;
-    var width = frame.clientWidth || (frame.getBoundingClientRect && frame.getBoundingClientRect().width) || 1;
-    var height = frame.clientHeight || (frame.getBoundingClientRect && frame.getBoundingClientRect().height) || 1;
+    var size = cb_view_frame_size(frame);
+    var width = size.width;
+    var height = size.height;
+    if (width < 80 || height < 80) return;
     var fit = Math.max(0.05, Math.min(width / CB_BOARD_WIDTH, height / CB_BOARD_HEIGHT));
     cb_view.minScale = Math.max(0.03, fit * 0.5);
     cb_view.maxScale = Math.max(4, fit * 8);
@@ -1001,6 +1113,17 @@ function cb_reset_view() {
     cb_view.x = (width - CB_BOARD_WIDTH * fit) / 2;
     cb_view.y = (height - CB_BOARD_HEIGHT * fit) / 2;
     cb_apply_view_transform();
+}
+
+function cb_schedule_view_reset() {
+    cb_reset_view();
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(function () {
+            requestAnimationFrame(cb_reset_view);
+        });
+    }
+    setTimeout(cb_reset_view, 80);
+    setTimeout(cb_reset_view, 260);
 }
 
 function cb_apply_view_transform() {
@@ -1017,8 +1140,9 @@ function cb_apply_view_transform() {
 function cb_clamp_view() {
     var frame = document.getElementById('cb_canvas_frame');
     if (!frame) return;
-    var width = frame.clientWidth || (frame.getBoundingClientRect && frame.getBoundingClientRect().width) || 1;
-    var height = frame.clientHeight || (frame.getBoundingClientRect && frame.getBoundingClientRect().height) || 1;
+    var size = cb_view_frame_size(frame);
+    var width = Math.max(1, size.width);
+    var height = Math.max(1, size.height);
     cb_view.scale = Math.max(cb_view.minScale, Math.min(cb_view.maxScale, cb_view.scale));
     cb_view.x = cb_clamp_view_axis(cb_view.x, width, CB_BOARD_WIDTH * cb_view.scale);
     cb_view.y = cb_clamp_view_axis(cb_view.y, height, CB_BOARD_HEIGHT * cb_view.scale);

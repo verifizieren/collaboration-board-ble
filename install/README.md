@@ -1,6 +1,6 @@
 # Install On Android
 
-Current live test build: **0.9.1** (`versionCode 23`).
+Current live test build: **0.9.2** (`versionCode 24`).
 
 Install the same variant on every test phone:
 
@@ -46,6 +46,8 @@ joining once, tap **Boards** to close the board without deleting it. Tap
 Returning from the Tremola MiniApps screen within 30 seconds reopens the active
 board. Returning later, or starting Tremola again, opens the Boards screen.
 Only four saved board rows are shown at once; scroll that list for more.
+Boards with the same name get different local name and code colors. Leading or
+trailing spaces do not make a different name. One name can be used eight times.
 
 In **Text**, write the text and press the Android keyboard **Go** button. The
 keyboard closes but **Text** stays active. Tap the board to place it. The new
@@ -96,7 +98,8 @@ Use `tremola-collaboration-board-debug.apk` on both phones.
 15. Close and reopen Tremola and check the Boards screen opens first.
 16. Change your display name, reopen the board, and confirm the member count
     does not increase.
-17. Test **View**, pan, pinch zoom, **Dark**, and local board deletion.
+17. Test **View** on its first tap, pan, pinch zoom, **Dark**, and local board deletion.
+18. Create two boards with the same name and confirm their labels use different colors.
 
 Repeat with a third and fourth identity if available. A fifth identity must be
 rejected as **Board is full**.

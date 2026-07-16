@@ -9,6 +9,7 @@ A shared whiteboard mini-app inside Tremola for Android.
 - Clear the full board.
 - Use a large finite board that scales to the phone screen.
 - Name boards and reopen them from a saved-board list.
+- Distinguish equal board names with eight local label colors.
 - Delete a local board copy with its six-digit code.
 - Use a full-screen view with pan and pinch zoom.
 - Switch the canvas to a local dark view.
@@ -66,6 +67,9 @@ See [`install/README.md`](install/README.md) for the install and test steps.
 The first visible area matches the original board size. Use two fingers to move
 into the larger drawing area. More than four saved boards scroll inside the
 board list.
+
+Extra spaces do not create a new board name. Up to eight boards may share one
+name; their names and invite codes use different colors on this phone.
 
 The six-digit code directly selects the board. No owner has to stay nearby for
 joining. Anyone with the code can open the board until the four-member limit is
