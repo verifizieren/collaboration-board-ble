@@ -185,3 +185,10 @@ Before submission, repeat the real two-phone BLE test with Wi-Fi and mobile data
 turned off and record the Android versions and observed delay. A four-phone run
 is useful if four devices are available, but the four-editor rule is also
 covered by automated tests.
+
+## License
+
+The project is available under the [MIT License](LICENSE). It includes modified
+MIT-licensed code from tinySSB and Tremola. See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the preserved notices and
+upstream revisions.
