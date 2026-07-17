@@ -1,8 +1,8 @@
 # tinySSB Version 1.0
 
 This is a separate build of the same Collaboration Board inside the official
-`ssbc/tinyssb` Android host. It is an alternative implementation and comparison
-version. It does not synchronize with the Tremola APK.
+`ssbc/tinyssb` Android host. It is the main submission version. It does not
+synchronize with the Tremola comparison APK.
 
 ## Download
 
@@ -45,6 +45,10 @@ discover a remote tinySSB board.
 
 The adapter builds the editor list deterministically from the creator and the
 first three accepted feed IDs. It ignores whiteboard edits from other feeds.
+
+Invitation metadata currently starts its ordering value from the local wall
+clock. If more than three recipients accept, clock skew can influence which
+three are selected. Peers with the same event set still select the same three.
 
 See [`../tinyssb/whiteboard/adapter.js`](../tinyssb/whiteboard/adapter.js).
 

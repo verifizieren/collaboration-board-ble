@@ -1,7 +1,8 @@
 # Tremola Version 1.0
 
-This is the main project version. It is the full Uni Basel Tremola Android app
-with Collaboration Board bundled as a MiniApp.
+This is the comparison version. It is the full Uni Basel Tremola Android app
+with Collaboration Board bundled as a MiniApp. The tinySSB build is the main
+submission.
 
 ## Download
 

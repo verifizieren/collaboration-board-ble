@@ -1,6 +1,8 @@
 # Collaboration Board
 
-A shared whiteboard mini-app inside Tremola for Android.
+A shared Android whiteboard mini-app. The main submission runs inside the
+official tinySSB Android host. A separate Tremola Android build is included for
+comparison.
 
 ## Features
 
@@ -17,10 +19,10 @@ A shared whiteboard mini-app inside Tremola for Android.
 - Keep board data and membership after closing the board or app.
 - Work offline and catch up later.
 - Sync nearby phones over Bluetooth Low Energy.
-- Join a board with its six-digit code, with up to four members.
+- Join through a signed invitation in tinySSB, with up to four editors.
 - Show the author's current name when an object is selected.
 - Open saved boards from the Boards screen and briefly resume the current board
-  when returning from Tremola.
+  when returning to the mini-app.
 - Show the merged current state after joining, without replaying old steps on
   the visible canvas.
 
@@ -30,8 +32,8 @@ Every member can edit every object.
 
 The repository keeps only the two current version 1.0 APKs:
 
-- [`install/tremola/whiteboard.apk`](install/tremola/whiteboard.apk) - Tremola version
-- [`install/tinyssb/whiteboard.apk`](install/tinyssb/whiteboard.apk) - tinySSB version
+- [`install/tinyssb/whiteboard.apk`](install/tinyssb/whiteboard.apk) - main tinySSB submission
+- [`install/tremola/whiteboard.apk`](install/tremola/whiteboard.apk) - Tremola comparison
 
 They use different Android packages and can be installed next to each other.
 Use the same variant on every phone in one sync test. Tremola and tinySSB boards
@@ -39,23 +41,39 @@ do not synchronize with each other.
 
 Requirements:
 
-- Android 7.0 or newer
+- tinySSB: Android 8.0 or newer
+- Tremola: Android 7.0 or newer
 - Bluetooth Low Energy
 - BLE advertising support on at least one phone in each connection
 - two real Android phones for the final BLE test
-
-The tinySSB APK needs Android 8.0 or newer.
 
 See [`install/README.md`](install/README.md) for the install and test steps.
 
 Detailed guides:
 
-- [`docs/TREMOLA_VERSION.md`](docs/TREMOLA_VERSION.md) - Tremola workflow and implementation
-- [`docs/TINYSSB_VERSION.md`](docs/TINYSSB_VERSION.md) - tinySSB workflow and invitations
+- [`docs/TINYSSB_VERSION.md`](docs/TINYSSB_VERSION.md) - main tinySSB workflow and invitations
+- [`docs/TREMOLA_VERSION.md`](docs/TREMOLA_VERSION.md) - Tremola comparison workflow
 - [`docs/SYNC_AND_MERGE.md`](docs/SYNC_AND_MERGE.md) - strokes, events, BLE delivery, recovery, and merge rules
 - [`docs/REPOSITORY_STRUCTURE.md`](docs/REPOSITORY_STRUCTURE.md) - required files, builds, and possible upstream integration
 
-## Phone Workflow
+## Main tinySSB Workflow
+
+1. Install the tinySSB APK and allow the requested permissions.
+2. Add and verify the other people in **Contacts**.
+3. Open **Productivity > Collaboration Board (dpi26.15)**.
+4. Enter a display name and create a board.
+5. Open the board, tap `+`, and invite a verified contact.
+6. The other phone accepts or declines the invitation.
+7. Accepted editors open the board from the saved-board list.
+8. Keep both phones unlocked and inside tinySSB while BLE synchronizes.
+
+The creator may invite up to eight contacts. The creator and the first three
+valid acceptances are the four editors. The signed invitation contains the
+random board ID. A six-digit code can select an invitation already received on
+that phone, but cannot discover an unknown tinySSB board. Public `WBD` events
+are signed but not encrypted.
+
+## Tremola Comparison Workflow
 
 1. Install and open Tremola.
 2. Allow Bluetooth and location access when Android asks.
@@ -81,16 +99,9 @@ The six-digit code directly selects the board. No owner has to stay nearby for
 joining. Anyone with the code can open the board until the four-member limit is
 reached. Treat the code like a simple shared password.
 
-In the tinySSB APK, open **Productivity > Collaboration Board (dpi26.15)**. Add and verify
-contacts first. Create a board, open it, and use `+` to invite a contact. The
-other phone shows an Accept/Decline popup. The top-right **Invitations** screen
-also shows received invites and the sender's Waiting, Accepted, or Declined
-status. The signed invitation
-contains the exact random board ID, so a six-digit code cannot open a different
-board. After that invitation arrives, the Join form can also select it by its
-six-digit code. The creator and the first three contacts who accept can edit.
-Up to eight contacts may be invited. A repeat invite to the same contact is
-allowed after 30 seconds. tinySSB `WBD` events are public and not encrypted.
+The top-right **Invitations** screen in tinySSB shows Waiting, Accepted,
+Declined, or Board full. A repeat invitation to the same contact is allowed
+after 30 seconds.
 
 Both variants export only the finite canvas. JPEG follows the local dark canvas;
 PDF always uses a white background. **Clear all** is immediate and has no undo.
@@ -100,13 +111,15 @@ stays the same. Deleting a board removes only its copy on that phone.
 
 ## Sync
 
-A finished action is applied and stored immediately. The live build sends it
-immediately and retries missing acknowledgements. Every five seconds, peers
-also compare frontiers and request anything missing. The full canvas image is
-never transmitted.
+A finished action becomes one event. The full canvas image is never
+transmitted. In tinySSB, the event is appended to the author's signed feed. The
+official host exchanges 120-byte packets and requests missing feed entries and
+chunks during later replication rounds. In Tremola, the board-specific
+transport sends an operation immediately, waits for an acknowledgement, and
+also compares per-author frontiers about every five seconds.
 
 - no pointer movement is sent while a finger is still moving
-- only operations for the active board use the board sync queue
+- in Tremola, only operations for the active board use the board sync queue
 
 See [`docs/SYNC_AND_MERGE.md`](docs/SYNC_AND_MERGE.md) for the complete path
 from one sampled stroke to deterministic replay on another phone.
@@ -157,16 +170,18 @@ Android BLE, invitations, encryption, or Android permissions.
 - `tinyssb/` - pinned patch, adapter, icon, theme, and tinySSB build notes
 - `docs/TECHNICAL_OVERVIEW.md` - technical design
 - `docs/REPORT_BASIS.md` - short basis for the group report
-- `docs/TREMOLA_VERSION.md` - main app guide
-- `docs/TINYSSB_VERSION.md` - alternative app guide
+- `docs/TINYSSB_VERSION.md` - main app guide
+- `docs/TREMOLA_VERSION.md` - comparison app guide
 - `docs/SYNC_AND_MERGE.md` - detailed protocol and merge guide
 - `docs/REPOSITORY_STRUCTURE.md` - what is required for both APKs and upstream integration
-- `docs/Collaboration_Board_Report_Guide.docx` - Word notes for the report team
 
 ## Submission
 
-Submit the full repository and the selected APK in `install/`. The mini-app
-folder alone does not include Android storage, identities, or BLE.
+Submit the full repository and `install/tinyssb/whiteboard.apk` as the main APK.
+Keep `install/tremola/whiteboard.apk` as the documented comparison build. The
+mini-app folder alone does not include Android storage, identities, or BLE.
 
-The remaining acceptance test is a real two-phone BLE run with Wi-Fi and mobile
-data turned off.
+Before submission, repeat the real two-phone BLE test with Wi-Fi and mobile data
+turned off and record the Android versions and observed delay. A four-phone run
+is useful if four devices are available, but the four-editor rule is also
+covered by automated tests.

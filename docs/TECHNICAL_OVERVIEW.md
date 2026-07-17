@@ -2,27 +2,27 @@
 
 Focused guides:
 
-- [`TREMOLA_VERSION.md`](TREMOLA_VERSION.md) - main app workflow and implementation
-- [`TINYSSB_VERSION.md`](TINYSSB_VERSION.md) - alternative app and invitation rules
+- [`TINYSSB_VERSION.md`](TINYSSB_VERSION.md) - main app and invitation rules
+- [`TREMOLA_VERSION.md`](TREMOLA_VERSION.md) - Tremola comparison implementation
 - [`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md) - complete stroke, event, BLE, recovery, and merge walkthrough
 
 ## Base
 
-- The main APK is the full Uni Basel Tremola Android app with our whiteboard changes.
-- The board is a bundled HTML, CSS, and JavaScript mini-app.
-- Tremola runs it inside its Android WebView.
-- Native Kotlin code handles identity, storage, board access, encryption, and BLE.
+- The main APK patches the official `ssbc/tinyssb` Android host.
+- The board is a bundled HTML, CSS, and JavaScript mini-app in an Android WebView.
+- The tinySSB host handles feed identity, signed storage, packet recovery, and BLE.
+- A separate Tremola Android APK uses the same reducer with a custom encrypted
+  board transport and Room storage.
 - The browser version is only a UI and merge simulator.
 
-There is also a separate APK based on the official tinySSB Android app. It uses
-the same board UI, a `WBD` public event type, and tinySSB packet recovery. It is
-kept separate because Tremola and tinySSB use different log formats and Android
-packages.
+The two APKs use different packages and network logs. They are separate
+implementations and cannot synchronize with each other.
 
 The official tinySSB host handled BLE permission results in the wrong Android
 callback. Our tinySSB patch requests permissions before creating BLE, starts it
-after approval, and restarts it when Bluetooth is enabled. Both apps must stay
-in the foreground during BLE sync.
+after approval, and restarts it when Bluetooth is enabled. The tinySSB app must
+stay in the foreground during BLE sync because its upstream host stops BLE in
+`onPause`.
 
 ## Project Family
 
@@ -59,7 +59,7 @@ Android opens the keyboard. Different phone sizes therefore use the same shared
 positions. The keyboard **Go** action hides the keyboard but keeps Text active.
 Two fingers pan or zoom in Draw and Text without creating an object.
 
-## Storage And Identity
+## Tremola Storage And Identity
 
 - Tremola creates an Ed25519 feed identity on first start.
 - Every board operation is signed with that identity.
@@ -77,7 +77,7 @@ Two fingers pan or zoom in Draw and Text without creating an object.
 - A peer ACK removes an operation from the local pending list. Unconfirmed
   local edits stay available and are retried automatically.
 
-## Board Access
+## Tremola Board Access
 
 - The mini-app creates a six-digit code for each new board.
 - The code selects the board ID and its 256-bit content key.
@@ -111,7 +111,7 @@ cannot derive or discover a room. Public `WBD` events are not encrypted.
 Eight is the number of tinySSB invite targets, not the editor count. The editor
 count remains four in both Android variants.
 
-## BLE Protocol
+## Tremola BLE Protocol
 
 The old implementation could lose one large JSON message when one BLE fragment
 was missed. Small events such as Clear were more likely to arrive.
@@ -153,7 +153,7 @@ general Tremola history while a board is active.
 Concurrent changes converge deterministically. For the same object and action
 type, the later Lamport event wins. A clear hides older board objects.
 
-## Late Join And Offline Work
+## Tremola Late Join And Offline Work
 
 - A finished local action is stored immediately.
 - If no peer is nearby, it stays in the Room database.
@@ -164,15 +164,16 @@ type, the later Lamport event wins. A clear hides older board objects.
 
 ## Android Compatibility
 
-- Package: `nz.scuttlebutt.tremola`
-- Version: `1.0` (`versionCode 29`)
-- Minimum: API 24 / Android 7.0
-- Target and compile SDK: API 30, matching the Uni Basel base
+- tinySSB package: `nz.scuttlebutt.tremolavossbol`
+- tinySSB minimum: API 26 / Android 8.0
+- Tremola package: `nz.scuttlebutt.tremola`
+- Tremola minimum: API 24 / Android 7.0
+- Both builds target and compile against API 30
 - Android 7-11 use location permission for BLE scanning.
 - Android 12 and newer also use Scan, Advertise, and Connect permissions.
 - Android 7-11 may require the Location setting to be on.
 - The same APK and board protocol must be used on all test phones.
-- App launch and protocol tests pass on API 24, 35, and 36 emulators.
+- Tremola app launch and protocol tests pass on API 24, 35, and 36 emulators.
 - Emulator tests do not replace the final two-phone BLE radio test.
 
 ## Automated Checks
@@ -218,8 +219,8 @@ required for the final acceptance test.
 - `tinyssb/ble-startup.patch` - tinySSB BLE permission and restart fix
 - `tinyssb/whiteboard-export.patch` - Android JPEG and PDF export
 - `scripts/build-tinyssb.sh` - reproducible tinySSB APK build
-- `docs/TREMOLA_VERSION.md` - detailed Tremola workflow
-- `docs/TINYSSB_VERSION.md` - detailed tinySSB workflow
+- `docs/TINYSSB_VERSION.md` - main tinySSB workflow
+- `docs/TREMOLA_VERSION.md` - detailed Tremola comparison workflow
 - `docs/SYNC_AND_MERGE.md` - event, transport, recovery, and merge walkthrough
 
 ## References

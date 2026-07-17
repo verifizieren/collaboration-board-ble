@@ -6,8 +6,8 @@ files were removed. No source needed by either current APK was removed.
 
 ## Current Deliverables
 
-- [`../install/tremola/whiteboard.apk`](../install/tremola/whiteboard.apk) - full Tremola app with Collaboration Board
-- [`../install/tinyssb/whiteboard.apk`](../install/tinyssb/whiteboard.apk) - official tinySSB host with Collaboration Board
+- [`../install/tinyssb/whiteboard.apk`](../install/tinyssb/whiteboard.apk) - main submission in the official tinySSB host
+- [`../install/tremola/whiteboard.apk`](../install/tremola/whiteboard.apk) - full Tremola comparison app
 
 These APKs use different Android packages and different network logs. They are
 two alternatives, not two peers of one board.
@@ -26,7 +26,7 @@ Both Android variants need these shared files.
 
 ## Tremola-Specific Files
 
-- [`../app`](../app) is the complete Android host used to build the main APK.
+- [`../app`](../app) is the complete Android host used to build the Tremola comparison APK.
 - [`../app/src/main/java/nz/scuttlebutt/tremola/WebAppInterface.kt`](../app/src/main/java/nz/scuttlebutt/tremola/WebAppInterface.kt)
   connects JavaScript to Android.
 - [`../app/src/main/java/nz/scuttlebutt/tremola/ssb/peering/ble/BoardProtocol.kt`](../app/src/main/java/nz/scuttlebutt/tremola/ssb/peering/ble/BoardProtocol.kt)
@@ -104,8 +104,8 @@ JavaScript itself still loads.
 
 ## Documentation Map
 
-- [`TREMOLA_VERSION.md`](TREMOLA_VERSION.md) - main app user and technical flow
-- [`TINYSSB_VERSION.md`](TINYSSB_VERSION.md) - invitation and tinySSB flow
+- [`TINYSSB_VERSION.md`](TINYSSB_VERSION.md) - main app, invitation, and tinySSB flow
+- [`TREMOLA_VERSION.md`](TREMOLA_VERSION.md) - Tremola comparison flow
 - [`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md) - events, frames, recovery, and merge
 - [`TECHNICAL_OVERVIEW.md`](TECHNICAL_OVERVIEW.md) - architecture summary
 - [`REPORT_BASIS.md`](REPORT_BASIS.md) - report corrections and methodology basis

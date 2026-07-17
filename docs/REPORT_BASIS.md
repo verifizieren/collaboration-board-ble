@@ -1,200 +1,162 @@
 # Report Basis
 
-Short notes for the group report. The report itself should stay honest about
-what was tested on real phones.
+Short, checked notes for the group report. The main submission is the tinySSB
+Android version. Tremola is a separate comparison build.
 
-Read these focused guides before writing technical sections:
+## Correct Project Description
 
-- [`TREMOLA_VERSION.md`](TREMOLA_VERSION.md) - how the main app works
-- [`TINYSSB_VERSION.md`](TINYSSB_VERSION.md) - how invitations and editors work
-- [`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md) - what a stroke/event is and how BLE recovery and merge work
-- [`REPOSITORY_STRUCTURE.md`](REPOSITORY_STRUCTURE.md) - which files belong to each APK and why they stay in the repository
+- The Collaboration Board is a mini-app inside the official tinySSB Android host.
+- The interface and reducer are HTML, CSS, and JavaScript in an Android WebView.
+- The native host provides feed identity, signed local storage, BLE replication,
+  permissions, and Android file export.
+- Up to eight verified contacts may be invited.
+- The creator and the first three valid acceptances are the four editors.
+- Every editor may change every object.
+- Shared changes are eventual, not guaranteed real-time.
+- Public tinySSB `WBD` events are signed but not encrypted.
+- The main APK needs Android 8.0 / API 26 or newer.
 
-## Current System
+Do not describe the tinySSB version as a private channel, instant screen sharing,
+or a stand-alone browser app.
 
-- The Collaboration Board is a mini-app inside the full Tremola Android app.
-- The main APK supports Android 7.0 and newer.
-- Up to four Tremola feed identities are kept for one board.
-- Every member can draw, add text, move, resize, recolor, delete, and clear.
-- Both Android variants export the current canvas as JPEG or PDF.
-- The canvas is finite: 1800 x 2400 logical units.
-- Boards, operations, names, and known members are stored locally.
-- A finished action is saved first and sent over BLE immediately.
-- Peers exchange frontiers every five seconds and request missing operations.
-- ACK and retry handle interrupted BLE delivery.
-- The same event set always produces the same visible board.
-- The browser version is a UI and merge preview. It does not test Android BLE.
-- The tinySSB APK is a separate alternative host. The main integration is the
-  full Tremola APK.
+## One Action From Phone A To Phone B
 
-## Six-Digit Code
+1. The user finishes a stroke, text, move, resize, recolor, delete, clear, or
+   board-name change.
+2. JavaScript creates one compact immutable event.
+3. The tinySSB adapter publishes it as a public `WBD` entry in the author's
+   signed append-only feed.
+4. The official host stores the entry and encodes it as 120-byte packets. Larger
+   content uses linked side-chain chunks.
+5. Nearby phones exchange feed state over BLE.
+6. GOSET aligns known feed IDs. WANT and CHNK requests recover missing feed
+   entries and chunks in later rounds.
+7. Only a complete, verified entry reaches the whiteboard adapter.
+8. The adapter checks the board and feed identity, then applies the shared
+   deterministic reducer.
 
-The code is generated with Web Crypto when available. In the Tremola build:
+The full canvas image and live pointer movement are never transmitted.
 
-- the room ID is `code-<six digits>-v1`
-- SHA-256 derives a 32-byte board key from a domain string and the code
-- AES-256-GCM encrypts each board payload
-- Ed25519 signs each operation
-- another SHA-256 value checks the code when a local board is deleted
+## Event And Merge Model
 
-SHA-256 does not make six digits a strong secret. There are only one million
-possible codes, and the direct room ID contains the code. Call it a **shared
-access code**, not secure authentication or strong end-to-end privacy.
+Current event types:
 
-The tinySSB adapter gives every new board a random ID. A signed invitation
-contains that exact ID, so typing the same short code cannot create another
-board. The Join form may use the code only to select an invitation that has
-already arrived. The creator may invite eight verified contacts. The creator
-and the first three valid acceptances form the deterministic four-person editor
-list. Signed accept and decline events give the sender a reproducible status.
-Repeat invites to one contact have a 30-second limit. tinySSB does not encrypt
-public `WBD` events.
+- `s`: stroke
+- `t`: text
+- `m`: move or resize
+- `k`: recolor
+- `d`: delete one object
+- `c`: clear older board objects
+- `n`: rename the board
 
-## Main Data Flow
+Every event has an ID, board ID, author label, timestamp, and Lamport order.
+Strokes are reduced to at most 160 points before publishing. The logical canvas
+is finite at 1800 x 2400 units.
 
-```text
-finished action
-  -> JavaScript event
-  -> Android bridge
-  -> compress, encrypt, and sign
-  -> save in Room
-  -> split into MTU-safe BLE frames
-  -> verify, acknowledge, and save
-  -> apply deterministic merge rules
-  -> update the peer's board
-```
+The reducer follows these rules:
 
-The full canvas image is never sent. Pointer movement is kept local while the
-finger is down. One operation is created when the action finishes.
+- duplicate event IDs are ignored
+- creation events remain separate objects
+- move, resize, and recolor use the greatest Lamport order and event ID
+- a delete hides its target
+- the greatest clear hides objects at or before it
+- a move or delete may arrive before its target and is applied when the target arrives
 
-Keep these units separate in the report:
+Peers with the same accepted event set render the same board. The design is
+operation-based and CRDT-inspired. It cannot reconstruct an event that BLE has
+not delivered yet.
 
-- a **stroke** is one visible object made from sampled points
-- an **event** describes one completed action such as create, move, or clear
-- a Tremola **operation** wraps that event with author sequence, encryption,
-  and signature
-- a BLE **frame** is only one MTU-sized transport part of a message
-- a **frontier** records the highest uninterrupted sequence for each author
-- a **merge** applies deterministic rules to the complete valid event set
+## Invitations And Identity
 
-The full walkthrough and a worked frontier example are in
-[`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md).
+The stable identity is the tinySSB feed ID. A display name is only a label.
 
-## Methodology Feedback
+- `wc`: create board
+- `wi`: invite verified contact
+- `wa`: accept
+- `wd`: decline
+- `wp`: update display label
 
-The current Methodology chapter contains useful architecture, but it mostly
-explains **what the system is**. Methodology should also explain **how the team
-built and evaluated it**.
+A board has a random internal ID. The six-digit code only selects an invitation
+already stored on that phone. It cannot discover an unknown tinySSB board and is
+not a cryptographic password.
 
-Use this order:
+The first three valid acceptance events join the creator. Their order is
+deterministic for a shared event set. Invitation metadata currently starts its
+ordering value from the local wall clock, so clock skew can influence which
+three contacts win if more than three accept.
 
-1. Requirements and constraints: offline, nearby BLE, Tremola mini-app, Android,
-   up to four identities, and eventual convergence.
-2. Prototype: Max's Tremola-for-Chrome board for fast UI work.
-3. Android integration: WebView bridge, Room storage, identity, and native BLE.
-4. Data model: immutable operations and deterministic merge rules.
-5. Reliability work: reproduce dropped large messages, then add board-only
-   queues, compression, ACK, retry, frontier, and WANT ranges.
-6. Validation: automated JavaScript/Kotlin tests, APK checks, emulator launch,
-   and the final real-phone BLE test with Wi-Fi and mobile data off.
+## Methodology Structure
 
-For every test, write the setup, action, expected result, actual result, and
-device/Android version. Do not call a feature successful until it passed on the
-real phones.
+Use this order in the report:
 
-## Report Corrections
+1. Inspect the official tinySSB Kanban and game mini-app patterns.
+2. Separate the shared UI/reducer from the host-specific adapter.
+3. Represent each completed edit as one immutable operation.
+4. Integrate the app through three reviewable patches against a pinned upstream
+   commit.
+5. Reproduce phone problems and add focused JavaScript or adapter tests.
+6. Build and inspect the APK, then test BLE on physical phones.
+7. Record observed results and remaining limits separately from automated tests.
 
-- **Introduction:** replace "two devices" with "up to four identities". Replace
-  "real time" with "nearby, offline, operation-based synchronization".
-- **Tremola for Chrome:** describe it as the first prototype and test harness,
-  not the final Android transport.
-- **Mini-App Integration:** the UI is a mini-app, but the project also changes
-  Tremola core code for the bridge, Room database, and BLE protocol.
-- **Events:** remove `o` (owned) and `p` (profile). Current shared events are
-  `s`, `t`, `m`, `k`, `d`, `c`, and `n`. The old `x` event is accepted only for
-  compatibility.
-- **Identity:** Tremola uses an SSB Ed25519 feed identity. Do not call this a
-  tinySSB identity in the main build. Display names are not identities.
-- **Security:** Tremola payloads use AES-GCM and signatures, but the short code
-  is not strong secrecy. tinySSB `WBD` events are public.
-- **Conflict resolution:** remove Protected Mode and ownership rules. Everyone
-  can edit every object. New events use Lamport order and event ID as a tie-break.
-- **BLE:** change eight seconds to five seconds. Describe operation ACK, retry,
-  frontier, WANT ranges, board-only traffic, and compression. The board path
-  verifies operation signatures; it does not verify a complete SSB feed chain
-  before showing every BLE operation.
-- **Discussion:** include measured results, remaining limits, and the difference
-  between automated checks and real BLE tests.
-- **Results:** in the current phone tests, Tremola synchronized much faster.
-  tinySSB was slower and sometimes disconnected. Report this as an observation,
-  not a universal benchmark, unless timings and device details are recorded.
-- **Conclusion:** complete it only after the final phone test. Avoid "all
-  features sync" unless the test table proves it.
+This is stronger than a Methodology section that only lists system components.
 
-## Problem And Solution
+## Verified And Still Open
 
-The old Android path sent large signed JSON events as many BLE fragments. One
-missing fragment could lose the whole event. Clear often worked because it was
-small and did not depend on an earlier object. Move and resize could not be
-shown if the original draw or text event was missing.
+Verified by automated checks:
 
-The current path stores each board operation before sending it. It compresses
-large payloads, waits for Android GATT callbacks, requires an operation ACK,
-retries delivery, compares per-author frontiers every five seconds, and requests
-missing sequence ranges. Only operations for the active board use this queue.
-Move and resize can arrive before their target and are applied when the target
-is available.
+- event validation, duplicate handling, reverse-order replay, and merge rules
+- draw, text, move, resize, recolor, delete, clear, gestures, and export behavior
+- invitation state, eight invitees, four editors, decline, cooldown, and routing
+- pinned patch application, JavaScript syntax, APK contents, metadata, and signature
 
-The tinySSB first-start problem had another cause: the upstream Android host
-handled the BLE permission result in the wrong callback. The patch requests the
-correct Android permissions, starts BLE after approval, and restarts BLE after
-Bluetooth is enabled.
+Observed on Galaxy S9 and S10:
 
-## What Changed From Max's Prototype
+- tinySSB BLE synchronization worked
+- some exchanges took roughly 15 to 30 seconds
+- connections sometimes dropped
 
-Kept:
+Still open before a strong final claim:
 
-- the Tremola-for-Chrome development setup
-- the mini-app manifest and basic board UI
-- draw, text, object IDs, drag, resize, and recolor concepts
+- repeat each operation in both directions with Wi-Fi and mobile data disabled
+- record exact Android versions and repeated timings
+- test disconnect, offline edits, reconnect, and app restart
+- test four physical editors; current four-editor evidence is automated only
+- add one real synchronized two-phone screenshot to the report if available
 
-Added or changed:
+The tinySSB app must remain in the foreground because the upstream host stops
+BLE in `onPause`.
 
-- full Tremola Android packaging and native bridge
-- finite mobile canvas, pan, pinch zoom, board list, and saved boards
-- display names, six-digit codes, and a four-identity roster
-- signed and encrypted Room operations
-- board-specific BLE ACK, retry, frontier, WANT, and relay
-- deterministic shared editing for all objects
-- the separate tinySSB build
-- verified-contact invitations in the tinySSB build
-- Android JPEG/PDF export in both builds
+## Tremola Comparison
 
-## Source Map
+The team also implemented a separate Tremola Android APK. It uses the same
+whiteboard reducer but a custom board-specific BLE protocol, encrypted Room
+operations, acknowledgements, retry, and per-author frontiers. It synchronized
+faster in informal tests. The two APKs use different packages and transports and
+cannot join the same board.
 
-- `miniApps/collabboard/src/collabboard.js` - UI, events, board state, merge rules
-- `miniApps/collabboard/resources/` - HTML and CSS
-- `app/src/main/java/nz/scuttlebutt/tremola/WebAppInterface.kt` - WebView bridge
-- `app/src/main/java/nz/scuttlebutt/tremola/ssb/peering/ble/BoardProtocol.kt` - code, SHA-256, AES-GCM, Ed25519, frontier helpers
-- `app/src/main/java/nz/scuttlebutt/tremola/ssb/peering/ble/BleSync.kt` - BLE frames, ACK, retry, WANT, relay, four-member roster
-- `app/src/main/java/nz/scuttlebutt/tremola/ssb/db/entities/BoardOperation.kt` - stored operation
-- `app/src/main/java/nz/scuttlebutt/tremola/ssb/db/daos/BoardOperationDAO.kt` - Room queries
-- `tests/collabboard.test.js` - merge and UI behavior tests
-- `app/src/test/` and `app/src/androidTest/` - Android protocol and crypto tests
-- `tinyssb/whiteboard/adapter.js` - public tinySSB `WBD` adapter
-- `tinyssb/ble-startup.patch` - tinySSB permission and BLE restart fix
-- `tinyssb/whiteboard-export.patch` - Android JPEG and PDF export
-- `docs/TECHNICAL_OVERVIEW.md` - detailed design
-- `docs/TREMOLA_VERSION.md` - main app workflow and implementation
-- `docs/TINYSSB_VERSION.md` - tinySSB workflow, eight invitees, and four editors
-- `docs/SYNC_AND_MERGE.md` - complete event, BLE, recovery, and merge explanation
-- `docs/REPOSITORY_STRUCTURE.md` - required source, build files, and upstream integration path
-- `install/README.md` - install and real-phone test steps
+Tremola is useful as a comparison and fallback, but tinySSB is the main report
+and submission focus.
 
-## External Sources
+## Main Sources
 
-- [Uni Basel Tremola](https://github.com/cn-uofbasel/tremola)
-- [ssbc tinySSB](https://github.com/ssbc/tinyssb)
-- [Android BLE permissions](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions)
-- [Android BluetoothGatt](https://developer.android.com/reference/android/bluetooth/BluetoothGatt)
-- [Android WebView](https://developer.android.com/develop/ui/views/layout/webapps)
+- [`../miniApps/collabboard/src/collabboard.js`](../miniApps/collabboard/src/collabboard.js): events, reducer, validation, gestures, and rendering
+- [`../tinyssb/whiteboard/adapter.js`](../tinyssb/whiteboard/adapter.js): `WBD` routing, invitations, editor list, and filtering
+- [`../tinyssb/integration.patch`](../tinyssb/integration.patch): host listing, event route, scenario, and bridge
+- [`../tinyssb/ble-startup.patch`](../tinyssb/ble-startup.patch): first-start permissions and BLE restart
+- [`../tinyssb/whiteboard-export.patch`](../tinyssb/whiteboard-export.patch): JPEG and PDF export
+- [`../scripts/build-tinyssb.sh`](../scripts/build-tinyssb.sh): pinned reproducible build
+- [`../tests/collabboard.test.js`](../tests/collabboard.test.js): shared reducer and mobile UI tests
+- [`../tests/tinyssb-whiteboard.test.js`](../tests/tinyssb-whiteboard.test.js): invitation and adapter tests
+- [`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md): detailed event and transport walkthrough
+- [`TINYSSB_VERSION.md`](TINYSSB_VERSION.md): user workflow and limits
+- [`../install/README.md`](../install/README.md): install and physical test procedure
+
+## Writing Rules
+
+- Say eventual convergence, not seamless real-time sync.
+- Separate automated checks from physical BLE evidence.
+- State that the four-editor rule is not yet proven with four real phones.
+- State that public `WBD` payloads are not encrypted.
+- Treat 15 to 30 seconds as an informal observation, not a benchmark.
+- Disclose every AI tool actually used according to the course rules.
+- Do not submit a generated or unrelated image as test evidence.

@@ -209,6 +209,10 @@ Invitation metadata uses `wc`, `wi`, `wa`, `wd`, and `wp` events. The creator
 may invite eight verified contacts, while creator plus first three valid
 acceptances form the editor list.
 
+These acceptance events are sorted deterministically, but their initial order
+value comes from each phone's local wall clock. Large clock differences can
+therefore affect which three acceptances win when the board is oversubscribed.
+
 Source: [`../tinyssb/whiteboard/adapter.js`](../tinyssb/whiteboard/adapter.js)
 and the pinned official host applied by
 [`../scripts/build-tinyssb.sh`](../scripts/build-tinyssb.sh).

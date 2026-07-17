@@ -2,8 +2,8 @@
 
 The repository contains two current version 1.0 APKs and no old test builds:
 
-- [`tremola/whiteboard.apk`](tremola/whiteboard.apk) - main Tremola version
-- [`tinyssb/whiteboard.apk`](tinyssb/whiteboard.apk) - alternative tinySSB version
+- [`tinyssb/whiteboard.apk`](tinyssb/whiteboard.apk) - main tinySSB submission
+- [`tremola/whiteboard.apk`](tremola/whiteboard.apk) - Tremola comparison
 
 Install the same variant on every phone taking part in one test. The variants
 use different Android packages and can be installed next to each other, but
@@ -156,4 +156,5 @@ shasum -a 256 -c SHA256SUMS
 - [`../docs/TECHNICAL_OVERVIEW.md`](../docs/TECHNICAL_OVERVIEW.md) - complete architecture
 
 tinySSB invitations restrict the whiteboard UI, but public `WBD` feed events are
-not encrypted. Use the Tremola APK as the main submission build.
+not encrypted. Use the tinySSB APK as the main submission build and keep the
+Tremola APK as a comparison.
