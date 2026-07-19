@@ -2,8 +2,7 @@
 
 Focused guides:
 
-- [`TINYSSB_VERSION.md`](TINYSSB_VERSION.md) - main app and invitation rules
-- [`TREMOLA_VERSION.md`](TREMOLA_VERSION.md) - Tremola comparison implementation
+- [`BUILDS.md`](BUILDS.md) - the two builds: invitation rules and Tremola implementation
 - [`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md) - complete stroke, event, BLE, recovery, and merge walkthrough
 
 ## Base
@@ -219,8 +218,7 @@ required for the final acceptance test.
 - `tinyssb/ble-startup.patch` - tinySSB BLE permission and restart fix
 - `tinyssb/whiteboard-export.patch` - Android JPEG and PDF export
 - `scripts/build-tinyssb.sh` - reproducible tinySSB APK build
-- `docs/TINYSSB_VERSION.md` - main tinySSB workflow
-- `docs/TREMOLA_VERSION.md` - detailed Tremola comparison workflow
+- `docs/BUILDS.md` - both builds in detail
 - `docs/SYNC_AND_MERGE.md` - event, transport, recovery, and merge walkthrough
 
 ## References

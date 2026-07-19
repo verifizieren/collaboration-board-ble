@@ -1,6 +1,6 @@
 # Install On Android
 
-The repository contains two current version 1.0 APKs and no old test builds:
+This submission contains two current version 1.0 APKs and no old test builds:
 
 - [`tinyssb/whiteboard.apk`](tinyssb/whiteboard.apk) - main tinySSB submission
 - [`tremola/whiteboard.apk`](tremola/whiteboard.apk) - Tremola comparison
@@ -93,7 +93,7 @@ across phones with different screen sizes.
 
 ## USB Install
 
-Enable USB debugging, connect the phone, and run from the repository root:
+Enable USB debugging, connect the phone, and run from the project root:
 
 ```bash
 ./scripts/android.sh devices
@@ -150,8 +150,7 @@ shasum -a 256 -c SHA256SUMS
 
 ## More Documentation
 
-- [`../docs/TREMOLA_VERSION.md`](../docs/TREMOLA_VERSION.md) - detailed Tremola guide
-- [`../docs/TINYSSB_VERSION.md`](../docs/TINYSSB_VERSION.md) - detailed tinySSB guide
+- [`../docs/BUILDS.md`](../docs/BUILDS.md) - detailed guide to both builds
 - [`../docs/SYNC_AND_MERGE.md`](../docs/SYNC_AND_MERGE.md) - event, BLE, recovery, and merge walkthrough
 - [`../docs/TECHNICAL_OVERVIEW.md`](../docs/TECHNICAL_OVERVIEW.md) - complete architecture
 

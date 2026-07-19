@@ -10,3 +10,6 @@ local.properties
 lib/
 qr-scan.png
 .build/
+
+# local tooling
+.claude/

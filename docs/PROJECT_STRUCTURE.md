@@ -1,8 +1,8 @@
-# Repository Structure And Integration
+# Project Structure And Integration
 
-The repository contains two complete Android variants, their shared whiteboard,
-tests, documentation, and reproducible build material. Only old duplicate APK
-files were removed. No source needed by either current APK was removed.
+This project contains two complete Android variants, their shared whiteboard,
+tests, documentation, and reproducible build material. It is delivered as a
+plain archive; no version-control history is included.
 
 ## Current Deliverables
 
@@ -62,7 +62,7 @@ identity, BLE, Android permissions, export, and APK packaging.
   checks invitations, editor selection, and adapter behavior.
 
 These files are intentionally kept even though the complete generated tinySSB
-source tree is not committed. They are the integration layer needed to recreate
+source tree is not included. They are the integration layer needed to recreate
 the tinySSB APK or apply the work to a later official source version.
 
 ## Browser Preview Files
@@ -86,7 +86,7 @@ BLE and are not old APK versions.
 
 ## Possible Upstream Integration
 
-For Tremola, the repository already contains the complete modified host. An
+For Tremola, this project already contains the complete modified host. An
 upstream integration can compare this tree with
 [`cn-uofbasel/tremola`](https://github.com/cn-uofbasel/tremola) and apply the
 mini-app, bridge, Room, BLE, manifest, and activity changes as one reviewed
@@ -95,7 +95,7 @@ change set.
 For tinySSB, integration is intentionally patch-based. The build script checks
 out pinned official commit `39896b72`, applies the three local patches, and adds
 the shared whiteboard files. This makes the local modifications visible and
-reviewable without committing a second full copy of the official repository.
+reviewable without including a second full copy of the official source.
 
 When updating either upstream base, rerun all automated checks and the physical
 two-phone BLE test. An upstream merge can change Android permissions, WebView
@@ -104,9 +104,9 @@ JavaScript itself still loads.
 
 ## Documentation Map
 
-- [`TINYSSB_VERSION.md`](TINYSSB_VERSION.md) - main app, invitation, and tinySSB flow
-- [`TREMOLA_VERSION.md`](TREMOLA_VERSION.md) - Tremola comparison flow
-- [`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md) - events, frames, recovery, and merge
 - [`TECHNICAL_OVERVIEW.md`](TECHNICAL_OVERVIEW.md) - architecture summary
-- [`REPORT_BASIS.md`](REPORT_BASIS.md) - report corrections and methodology basis
+- [`BUILDS.md`](BUILDS.md) - the two builds: invitations, storage, transport, and security
+- [`SYNC_AND_MERGE.md`](SYNC_AND_MERGE.md) - events, frames, recovery, and merge
 - [`../install/README.md`](../install/README.md) - install and physical test steps
+- [`upstream/`](upstream) - inherited tinySSB architecture and mini-app
+  documents, written upstream and kept for reference
